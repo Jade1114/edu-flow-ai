@@ -22,14 +22,22 @@ public class CourseAssignmentController {
 	}
 
 	@GetMapping
-	public ApiResponse<List<CourseAssignment>> findAll(
+	public ApiResponse<List<CourseAssignmentView>> findAll(
 		@RequestParam(required = false) Long teacherId,
 		@RequestParam(required = false) Long classGroupId,
 		@RequestParam(required = false) Long courseId,
-		@RequestParam(required = false) String status,
-		@RequestParam(required = false) Integer weekNumber
+		@RequestParam(required = false) Integer weekNumber,
+		@RequestParam(required = false) Integer dayOfWeek,
+		@RequestParam(required = false) String status
 	) {
-		return ApiResponse.success(courseAssignmentService.findAll(teacherId, classGroupId, courseId, status, weekNumber));
+		return ApiResponse.success(courseAssignmentService.findViews(
+			teacherId,
+			classGroupId,
+			courseId,
+			weekNumber,
+			dayOfWeek,
+			status
+		));
 	}
 
 	@GetMapping("/{id}")

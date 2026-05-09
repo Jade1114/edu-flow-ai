@@ -13,6 +13,61 @@ public interface CourseAssignmentMapper {
 
 	@Select("""
 		<script>
+		SELECT ca.id,
+		       ca.course_id,
+		       c.name AS course_name,
+		       ca.class_group_id,
+		       cg.name AS class_group_name,
+		       ca.teacher_id,
+		       t.name AS teacher_name,
+		       ca.classroom_id,
+		       cr.name AS classroom_name,
+		       ca.time_slot_id,
+		       ts.label AS time_slot_label,
+		       ts.week_number,
+		       ts.day_of_week,
+		       ts.period_index,
+		       ca.source_scheme_id,
+		       ca.status
+		FROM course_assignment ca
+		JOIN course c ON ca.course_id = c.id
+		JOIN class_group cg ON ca.class_group_id = cg.id
+		JOIN teacher t ON ca.teacher_id = t.id
+		JOIN classroom cr ON ca.classroom_id = cr.id
+		JOIN time_slot ts ON ca.time_slot_id = ts.id
+		WHERE 1 = 1
+		<if test='teacherId != null'>
+		  AND ca.teacher_id = #{teacherId}
+		</if>
+		<if test='classGroupId != null'>
+		  AND ca.class_group_id = #{classGroupId}
+		</if>
+		<if test='courseId != null'>
+		  AND ca.course_id = #{courseId}
+		</if>
+		<if test='weekNumber != null'>
+		  AND ts.week_number = #{weekNumber}
+		</if>
+		<if test='dayOfWeek != null'>
+		  AND ts.day_of_week = #{dayOfWeek}
+		</if>
+		<if test='status != null and status != ""'>
+		  AND ca.status = #{status}
+		</if>
+		ORDER BY ts.week_number ASC, ts.day_of_week ASC, ts.period_index ASC, ca.id ASC
+		</script>
+		""")
+	List<CourseAssignmentView> findViews(
+		@Param("teacherId") Long teacherId,
+		@Param("classGroupId") Long classGroupId,
+		@Param("courseId") Long courseId,
+		@Param("weekNumber") Integer weekNumber,
+		@Param("dayOfWeek") Integer dayOfWeek,
+		@Param("status") String status
+	);
+
+	@Select("""
+		<script>
 		SELECT ca.id, ca.source_scheme_id, ca.course_id, ca.class_group_id, ca.teacher_id,
 		       ca.classroom_id, ca.time_slot_id, ca.status, ca.created_at, ca.updated_at
 		FROM course_assignment ca
