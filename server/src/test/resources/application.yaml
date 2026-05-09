@@ -1,0 +1,3 @@
+spring:
+  application:
+    name: edu-flow-ai-server-test
