@@ -1,5 +1,6 @@
 package com.yuy.eduflow.teacher;
 
+import com.yuy.eduflow.rag.TeacherProfileVectorService;
 import java.util.ArrayList;
 import java.util.List;
 import org.springframework.stereotype.Service;
@@ -9,10 +10,16 @@ import org.springframework.util.StringUtils;
 public class TeacherProfileService {
 	private final TeacherService teacherService;
 	private final TeacherProfileMapper teacherProfileMapper;
+	private final TeacherProfileVectorService teacherProfileVectorService;
 
-	public TeacherProfileService(TeacherService teacherService, TeacherProfileMapper teacherProfileMapper) {
+	public TeacherProfileService(
+		TeacherService teacherService,
+		TeacherProfileMapper teacherProfileMapper,
+		TeacherProfileVectorService teacherProfileVectorService
+	) {
 		this.teacherService = teacherService;
 		this.teacherProfileMapper = teacherProfileMapper;
+		this.teacherProfileVectorService = teacherProfileVectorService;
 	}
 
 	public TeacherProfile findByTeacherId(Long teacherId) {
@@ -29,7 +36,7 @@ public class TeacherProfileService {
 		} else {
 			teacherProfileMapper.updateByTeacherId(profile);
 		}
-		return teacherProfileMapper.findByTeacherId(teacherId);
+		return teacherProfileVectorService.indexTeacherProfile(teacherId);
 	}
 
 	private TeacherProfile toProfile(Teacher teacher, TeacherProfileRequest request) {
