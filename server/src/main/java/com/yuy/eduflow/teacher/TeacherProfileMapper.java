@@ -3,6 +3,7 @@ package com.yuy.eduflow.teacher;
 import org.apache.ibatis.annotations.Insert;
 import org.apache.ibatis.annotations.Mapper;
 import org.apache.ibatis.annotations.Options;
+import org.apache.ibatis.annotations.Param;
 import org.apache.ibatis.annotations.Select;
 import org.apache.ibatis.annotations.Update;
 
@@ -43,4 +44,11 @@ public interface TeacherProfileMapper {
 		WHERE teacher_id = #{teacherId}
 		""")
 	int updateByTeacherId(TeacherProfile profile);
+
+	@Update("""
+		UPDATE teacher_profile
+		SET vector_indexed = #{vectorIndexed}
+		WHERE teacher_id = #{teacherId}
+		""")
+	int updateVectorIndexedByTeacherId(@Param("teacherId") Long teacherId, @Param("vectorIndexed") Boolean vectorIndexed);
 }
