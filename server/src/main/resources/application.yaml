@@ -23,6 +23,11 @@ app:
       api-key: ${OPENAI_API_KEY:}
       base-url: ${OPENAI_BASE_URL:https://api.openai.com/v1}
       model: ${OPENAI_EMBEDDING_MODEL:text-embedding-3-small}
+  chat:
+    openai:
+      api-key: ${OPENAI_CHAT_API_KEY:}
+      base-url: ${OPENAI_CHAT_BASE_URL:}
+      model: ${OPENAI_CHAT_MODEL:}
   vector-store:
     provider: qdrant
     qdrant:

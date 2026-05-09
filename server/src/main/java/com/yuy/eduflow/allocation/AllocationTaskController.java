@@ -19,17 +19,20 @@ public class AllocationTaskController {
 	private final AllocationSchemeService allocationSchemeService;
 	private final AllocationRagContextService allocationRagContextService;
 	private final AllocationPromptBuilderService allocationPromptBuilderService;
+	private final AllocationGeneratePreviewService allocationGeneratePreviewService;
 
 	public AllocationTaskController(
 		AllocationTaskService allocationTaskService,
 		AllocationSchemeService allocationSchemeService,
 		AllocationRagContextService allocationRagContextService,
-		AllocationPromptBuilderService allocationPromptBuilderService
+		AllocationPromptBuilderService allocationPromptBuilderService,
+		AllocationGeneratePreviewService allocationGeneratePreviewService
 	) {
 		this.allocationTaskService = allocationTaskService;
 		this.allocationSchemeService = allocationSchemeService;
 		this.allocationRagContextService = allocationRagContextService;
 		this.allocationPromptBuilderService = allocationPromptBuilderService;
+		this.allocationGeneratePreviewService = allocationGeneratePreviewService;
 	}
 
 	@GetMapping
@@ -65,6 +68,14 @@ public class AllocationTaskController {
 		@RequestParam(required = false) Integer topK
 	) {
 		return ApiResponse.success(allocationPromptBuilderService.buildPreview(id, topK));
+	}
+
+	@PostMapping("/{id}/generate-preview")
+	public ApiResponse<AllocationGeneratePreview> generatePreview(
+		@PathVariable Long id,
+		@RequestParam(required = false) Integer topK
+	) {
+		return ApiResponse.success(allocationGeneratePreviewService.generate(id, topK));
 	}
 
 	@PostMapping
