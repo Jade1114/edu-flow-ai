@@ -58,4 +58,11 @@ public interface AllocationTaskMapper {
 		WHERE id = #{id}
 		""")
 	int cancel(Long id);
+
+	@Update("""
+		UPDATE allocation_task
+		SET status = #{status}
+		WHERE id = #{id}
+		""")
+	int updateStatus(@Param("id") Long id, @Param("status") String status);
 }

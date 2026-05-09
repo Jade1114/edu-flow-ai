@@ -17,13 +17,16 @@ import org.springframework.web.bind.annotation.RestController;
 public class AllocationSchemeController {
 	private final AllocationSchemeService allocationSchemeService;
 	private final AllocationItemService allocationItemService;
+	private final AllocationSchemeConfirmService allocationSchemeConfirmService;
 
 	public AllocationSchemeController(
 		AllocationSchemeService allocationSchemeService,
-		AllocationItemService allocationItemService
+		AllocationItemService allocationItemService,
+		AllocationSchemeConfirmService allocationSchemeConfirmService
 	) {
 		this.allocationSchemeService = allocationSchemeService;
 		this.allocationItemService = allocationItemService;
+		this.allocationSchemeConfirmService = allocationSchemeConfirmService;
 	}
 
 	@GetMapping
@@ -48,6 +51,11 @@ public class AllocationSchemeController {
 	@PostMapping
 	public ApiResponse<AllocationScheme> create(@RequestBody AllocationSchemeRequest request) {
 		return ApiResponse.success(allocationSchemeService.create(request));
+	}
+
+	@PostMapping("/{id}/confirm")
+	public ApiResponse<AllocationConfirmResult> confirm(@PathVariable Long id) {
+		return ApiResponse.success(allocationSchemeConfirmService.confirm(id));
 	}
 
 	@PutMapping("/{id}")
