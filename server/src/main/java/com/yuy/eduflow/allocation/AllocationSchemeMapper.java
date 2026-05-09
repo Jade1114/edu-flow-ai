@@ -69,4 +69,24 @@ public interface AllocationSchemeMapper {
 		WHERE id = #{id}
 		""")
 	int reject(Long id);
+
+	@Update("""
+		UPDATE allocation_scheme
+		SET status = 'REJECTED'
+		WHERE task_id = #{taskId}
+		  AND status = 'CANDIDATE'
+		""")
+	int rejectCandidatesByTaskId(@Param("taskId") Long taskId);
+
+	@Update("""
+		UPDATE allocation_scheme
+		SET valid = #{valid},
+		    conflict_summary = #{conflictSummary}
+		WHERE id = #{id}
+		""")
+	int updateConflictState(
+		@Param("id") Long id,
+		@Param("valid") Boolean valid,
+		@Param("conflictSummary") String conflictSummary
+	);
 }

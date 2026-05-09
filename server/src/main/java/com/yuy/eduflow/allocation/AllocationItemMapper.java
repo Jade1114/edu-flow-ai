@@ -84,4 +84,16 @@ public interface AllocationItemMapper {
 		WHERE id = #{id}
 		""")
 	int delete(Long id);
+
+	@Update("""
+		UPDATE allocation_item
+		SET valid = #{valid},
+		    conflict_message = #{conflictMessage}
+		WHERE id = #{id}
+		""")
+	int updateConflictState(
+		@Param("id") Long id,
+		@Param("valid") Boolean valid,
+		@Param("conflictMessage") String conflictMessage
+	);
 }

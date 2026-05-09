@@ -21,6 +21,7 @@ public class AllocationTaskController {
 	private final AllocationPromptBuilderService allocationPromptBuilderService;
 	private final AllocationGeneratePreviewService allocationGeneratePreviewService;
 	private final AllocationGenerateParseService allocationGenerateParseService;
+	private final AllocationSchemeGenerationService allocationSchemeGenerationService;
 
 	public AllocationTaskController(
 		AllocationTaskService allocationTaskService,
@@ -28,7 +29,8 @@ public class AllocationTaskController {
 		AllocationRagContextService allocationRagContextService,
 		AllocationPromptBuilderService allocationPromptBuilderService,
 		AllocationGeneratePreviewService allocationGeneratePreviewService,
-		AllocationGenerateParseService allocationGenerateParseService
+		AllocationGenerateParseService allocationGenerateParseService,
+		AllocationSchemeGenerationService allocationSchemeGenerationService
 	) {
 		this.allocationTaskService = allocationTaskService;
 		this.allocationSchemeService = allocationSchemeService;
@@ -36,6 +38,7 @@ public class AllocationTaskController {
 		this.allocationPromptBuilderService = allocationPromptBuilderService;
 		this.allocationGeneratePreviewService = allocationGeneratePreviewService;
 		this.allocationGenerateParseService = allocationGenerateParseService;
+		this.allocationSchemeGenerationService = allocationSchemeGenerationService;
 	}
 
 	@GetMapping
@@ -87,6 +90,14 @@ public class AllocationTaskController {
 		@RequestParam(required = false) Integer topK
 	) {
 		return ApiResponse.success(allocationGenerateParseService.generateParsePreview(id, topK));
+	}
+
+	@PostMapping("/{id}/schemes")
+	public ApiResponse<AllocationGenerateResult> generateSchemes(
+		@PathVariable Long id,
+		@RequestParam(required = false) Integer topK
+	) {
+		return ApiResponse.success(allocationSchemeGenerationService.generateSchemes(id, topK));
 	}
 
 	@PostMapping
