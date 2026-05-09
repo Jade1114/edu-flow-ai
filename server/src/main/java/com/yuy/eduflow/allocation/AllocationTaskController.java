@@ -17,13 +17,16 @@ import org.springframework.web.bind.annotation.RestController;
 public class AllocationTaskController {
 	private final AllocationTaskService allocationTaskService;
 	private final AllocationSchemeService allocationSchemeService;
+	private final AllocationRagContextService allocationRagContextService;
 
 	public AllocationTaskController(
 		AllocationTaskService allocationTaskService,
-		AllocationSchemeService allocationSchemeService
+		AllocationSchemeService allocationSchemeService,
+		AllocationRagContextService allocationRagContextService
 	) {
 		this.allocationTaskService = allocationTaskService;
 		this.allocationSchemeService = allocationSchemeService;
+		this.allocationRagContextService = allocationRagContextService;
 	}
 
 	@GetMapping
@@ -43,6 +46,14 @@ public class AllocationTaskController {
 	public ApiResponse<List<AllocationScheme>> findSchemes(@PathVariable Long id) {
 		allocationTaskService.findById(id);
 		return ApiResponse.success(allocationSchemeService.findAll(id, null));
+	}
+
+	@GetMapping("/{id}/rag-context")
+	public ApiResponse<AllocationRagContext> buildRagContext(
+		@PathVariable Long id,
+		@RequestParam(required = false) Integer topK
+	) {
+		return ApiResponse.success(allocationRagContextService.buildContext(id, topK));
 	}
 
 	@PostMapping
