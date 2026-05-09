@@ -1,0 +1,67 @@
+package com.yuy.eduflow.course;
+
+import java.util.List;
+import org.springframework.stereotype.Service;
+import org.springframework.util.StringUtils;
+
+@Service
+public class CourseService {
+	private static final String DEFAULT_STATUS = "ACTIVE";
+
+	private final CourseMapper courseMapper;
+
+	public CourseService(CourseMapper courseMapper) {
+		this.courseMapper = courseMapper;
+	}
+
+	public List<Course> findAll(String keyword, String status) {
+		return courseMapper.findAll(keyword, status);
+	}
+
+	public Course findById(Long id) {
+		Course course = courseMapper.findById(id);
+		if (course == null) {
+			throw new IllegalArgumentException("课程不存在");
+		}
+		return course;
+	}
+
+	public Course create(CourseRequest request) {
+		Course course = toCourse(new Course(), request);
+		courseMapper.insert(course);
+		return findById(course.getId());
+	}
+
+	public Course update(Long id, CourseRequest request) {
+		findById(id);
+		Course course = toCourse(new Course(), request);
+		course.setId(id);
+		courseMapper.update(course);
+		return findById(id);
+	}
+
+	public void delete(Long id) {
+		findById(id);
+		courseMapper.deactivate(id);
+	}
+
+	private Course toCourse(Course course, CourseRequest request) {
+		if (!StringUtils.hasText(request.name())) {
+			throw new IllegalArgumentException("课程名称不能为空");
+		}
+		if (request.requiredHours() != null && request.requiredHours() <= 0) {
+			throw new IllegalArgumentException("课程课时必须大于0");
+		}
+		course.setName(request.name().trim());
+		course.setCourseType(clean(request.courseType()));
+		course.setRequiredHours(request.requiredHours());
+		course.setRequiredSkill(clean(request.requiredSkill()));
+		course.setDescription(clean(request.description()));
+		course.setStatus(StringUtils.hasText(request.status()) ? request.status().trim() : DEFAULT_STATUS);
+		return course;
+	}
+
+	private String clean(String value) {
+		return StringUtils.hasText(value) ? value.trim() : null;
+	}
+}

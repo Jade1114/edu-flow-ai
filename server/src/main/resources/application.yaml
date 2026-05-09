@@ -1,4 +1,6 @@
 spring:
+  config:
+    import: optional:file:.env[.properties]
   application:
     name: edu-flow-ai-server
   datasource:
@@ -13,4 +15,14 @@ mybatis:
     map-underscore-to-camel-case: true
 
 server:
-  port: 8080
+  port: ${SERVER_PORT:8080}
+
+app:
+  vector-store:
+    provider: qdrant
+    qdrant:
+      host: ${QDRANT_HOST:localhost}
+      port: ${QDRANT_PORT:6334}
+      api-key: ${QDRANT_API_KEY:}
+      collection: ${QDRANT_COLLECTION:teacher_profiles}
+      vector-size: ${QDRANT_VECTOR_SIZE:1536}

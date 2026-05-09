@@ -1,0 +1,8 @@
+.alma-snapshots
+.vscode/
+.env
+.env.*
+!.env_example
+!.env.example
+
+server/target/

@@ -1,0 +1,63 @@
+package com.yuy.eduflow.allocation;
+
+import com.yuy.eduflow.common.ApiResponse;
+import java.util.List;
+import org.springframework.web.bind.annotation.DeleteMapping;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.PutMapping;
+import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
+import org.springframework.web.bind.annotation.RestController;
+
+@RestController
+@RequestMapping("/api/allocation-schemes")
+public class AllocationSchemeController {
+	private final AllocationSchemeService allocationSchemeService;
+	private final AllocationItemService allocationItemService;
+
+	public AllocationSchemeController(
+		AllocationSchemeService allocationSchemeService,
+		AllocationItemService allocationItemService
+	) {
+		this.allocationSchemeService = allocationSchemeService;
+		this.allocationItemService = allocationItemService;
+	}
+
+	@GetMapping
+	public ApiResponse<List<AllocationScheme>> findAll(
+		@RequestParam(required = false) Long taskId,
+		@RequestParam(required = false) String status
+	) {
+		return ApiResponse.success(allocationSchemeService.findAll(taskId, status));
+	}
+
+	@GetMapping("/{id}")
+	public ApiResponse<AllocationScheme> findById(@PathVariable Long id) {
+		return ApiResponse.success(allocationSchemeService.findById(id));
+	}
+
+	@GetMapping("/{id}/items")
+	public ApiResponse<List<AllocationItem>> findItems(@PathVariable Long id) {
+		allocationSchemeService.findById(id);
+		return ApiResponse.success(allocationItemService.findAll(id, null, null, null, null));
+	}
+
+	@PostMapping
+	public ApiResponse<AllocationScheme> create(@RequestBody AllocationSchemeRequest request) {
+		return ApiResponse.success(allocationSchemeService.create(request));
+	}
+
+	@PutMapping("/{id}")
+	public ApiResponse<AllocationScheme> update(@PathVariable Long id, @RequestBody AllocationSchemeRequest request) {
+		return ApiResponse.success(allocationSchemeService.update(id, request));
+	}
+
+	@DeleteMapping("/{id}")
+	public ApiResponse<Void> delete(@PathVariable Long id) {
+		allocationSchemeService.delete(id);
+		return ApiResponse.success();
+	}
+}

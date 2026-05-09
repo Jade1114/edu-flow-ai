@@ -1,0 +1,64 @@
+package com.yuy.eduflow.classgroup;
+
+import java.util.List;
+import org.springframework.stereotype.Service;
+import org.springframework.util.StringUtils;
+
+@Service
+public class ClassGroupService {
+	private final ClassGroupMapper classGroupMapper;
+
+	public ClassGroupService(ClassGroupMapper classGroupMapper) {
+		this.classGroupMapper = classGroupMapper;
+	}
+
+	public List<ClassGroup> findAll(String keyword) {
+		return classGroupMapper.findAll(keyword);
+	}
+
+	public ClassGroup findById(Long id) {
+		ClassGroup classGroup = classGroupMapper.findById(id);
+		if (classGroup == null) {
+			throw new IllegalArgumentException("班级不存在");
+		}
+		return classGroup;
+	}
+
+	public ClassGroup create(ClassGroupRequest request) {
+		ClassGroup classGroup = toClassGroup(new ClassGroup(), request);
+		classGroupMapper.insert(classGroup);
+		return findById(classGroup.getId());
+	}
+
+	public ClassGroup update(Long id, ClassGroupRequest request) {
+		findById(id);
+		ClassGroup classGroup = toClassGroup(new ClassGroup(), request);
+		classGroup.setId(id);
+		classGroupMapper.update(classGroup);
+		return findById(id);
+	}
+
+	public void delete(Long id) {
+		findById(id);
+		classGroupMapper.delete(id);
+	}
+
+	private ClassGroup toClassGroup(ClassGroup classGroup, ClassGroupRequest request) {
+		if (!StringUtils.hasText(request.name())) {
+			throw new IllegalArgumentException("班级名称不能为空");
+		}
+		if (request.studentCount() != null && request.studentCount() < 0) {
+			throw new IllegalArgumentException("班级人数不能小于0");
+		}
+		classGroup.setName(request.name().trim());
+		classGroup.setMajor(clean(request.major()));
+		classGroup.setGrade(clean(request.grade()));
+		classGroup.setStudentCount(request.studentCount());
+		classGroup.setDescription(clean(request.description()));
+		return classGroup;
+	}
+
+	private String clean(String value) {
+		return StringUtils.hasText(value) ? value.trim() : null;
+	}
+}
