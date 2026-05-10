@@ -13,11 +13,11 @@ public interface TeacherMapper {
 
 	@Select("""
 		<script>
-		SELECT id, name, department, title, max_weekly_hours, status, created_at, updated_at
+		SELECT id, employee_no, password, role, name, department, title, max_weekly_hours, status, created_at, updated_at
 		FROM teacher
 		WHERE 1 = 1
 		<if test='keyword != null and keyword != ""'>
-		  AND name LIKE CONCAT('%', #{keyword}, '%')
+		  AND (name LIKE CONCAT('%', #{keyword}, '%') OR employee_no LIKE CONCAT('%', #{keyword}, '%'))
 		</if>
 		<if test='status != null and status != ""'>
 		  AND status = #{status}
@@ -28,22 +28,32 @@ public interface TeacherMapper {
 	List<Teacher> findAll(@Param("keyword") String keyword, @Param("status") String status);
 
 	@Select("""
-		SELECT id, name, department, title, max_weekly_hours, status, created_at, updated_at
+		SELECT id, employee_no, password, role, name, department, title, max_weekly_hours, status, created_at, updated_at
 		FROM teacher
 		WHERE id = #{id}
 		""")
 	Teacher findById(Long id);
 
+	@Select("""
+		SELECT id, employee_no, password, role, name, department, title, max_weekly_hours, status, created_at, updated_at
+		FROM teacher
+		WHERE employee_no = #{employeeNo}
+		""")
+	Teacher findByEmployeeNo(@Param("employeeNo") String employeeNo);
+
 	@Insert("""
-		INSERT INTO teacher (name, department, title, max_weekly_hours, status)
-		VALUES (#{name}, #{department}, #{title}, #{maxWeeklyHours}, #{status})
+		INSERT INTO teacher (employee_no, password, role, name, department, title, max_weekly_hours, status)
+		VALUES (#{employeeNo}, #{password}, #{role}, #{name}, #{department}, #{title}, #{maxWeeklyHours}, #{status})
 		""")
 	@Options(useGeneratedKeys = true, keyProperty = "id")
 	int insert(Teacher teacher);
 
 	@Update("""
 		UPDATE teacher
-		SET name = #{name},
+		SET employee_no = #{employeeNo},
+		    password = #{password},
+		    role = #{role},
+		    name = #{name},
 		    department = #{department},
 		    title = #{title},
 		    max_weekly_hours = #{maxWeeklyHours},

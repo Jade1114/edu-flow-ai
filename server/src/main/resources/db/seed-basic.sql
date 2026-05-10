@@ -7,45 +7,49 @@ USE edu_flow_ai;
 
 START TRANSACTION;
 
-INSERT INTO teacher (name, department, title, max_weekly_hours, status)
-SELECT '张明', '软件工程系', '副教授', 8, 'ACTIVE'
-WHERE NOT EXISTS (SELECT 1 FROM teacher WHERE name = '张明' AND department = '软件工程系');
+INSERT INTO teacher (employee_no, password, role, name, department, title, max_weekly_hours, status)
+SELECT 'ADMIN001', '123456', 'ADMIN', '教务管理员', '教务处', '管理员', NULL, 'ACTIVE'
+WHERE NOT EXISTS (SELECT 1 FROM teacher WHERE employee_no = 'ADMIN001');
 
-INSERT INTO teacher (name, department, title, max_weekly_hours, status)
-SELECT '李娜', '软件工程系', '讲师', 10, 'ACTIVE'
-WHERE NOT EXISTS (SELECT 1 FROM teacher WHERE name = '李娜' AND department = '软件工程系');
+INSERT INTO teacher (employee_no, password, role, name, department, title, max_weekly_hours, status)
+SELECT 'T1001', '123456', 'TEACHER', '张明', '软件工程系', '副教授', 8, 'ACTIVE'
+WHERE NOT EXISTS (SELECT 1 FROM teacher WHERE employee_no = 'T1001');
 
-INSERT INTO teacher (name, department, title, max_weekly_hours, status)
-SELECT '王强', '计算机科学系', '教授', 6, 'ACTIVE'
-WHERE NOT EXISTS (SELECT 1 FROM teacher WHERE name = '王强' AND department = '计算机科学系');
+INSERT INTO teacher (employee_no, password, role, name, department, title, max_weekly_hours, status)
+SELECT 'T1002', '123456', 'TEACHER', '李娜', '软件工程系', '讲师', 10, 'ACTIVE'
+WHERE NOT EXISTS (SELECT 1 FROM teacher WHERE employee_no = 'T1002');
 
-INSERT INTO teacher (name, department, title, max_weekly_hours, status)
-SELECT '赵敏', '人工智能系', '讲师', 8, 'ACTIVE'
-WHERE NOT EXISTS (SELECT 1 FROM teacher WHERE name = '赵敏' AND department = '人工智能系');
+INSERT INTO teacher (employee_no, password, role, name, department, title, max_weekly_hours, status)
+SELECT 'T1003', '123456', 'TEACHER', '王强', '计算机科学系', '教授', 6, 'ACTIVE'
+WHERE NOT EXISTS (SELECT 1 FROM teacher WHERE employee_no = 'T1003');
 
-INSERT INTO teacher (name, department, title, max_weekly_hours, status)
-SELECT '陈涛', '软件工程系', '实验师', 12, 'ACTIVE'
-WHERE NOT EXISTS (SELECT 1 FROM teacher WHERE name = '陈涛' AND department = '软件工程系');
+INSERT INTO teacher (employee_no, password, role, name, department, title, max_weekly_hours, status)
+SELECT 'T1004', '123456', 'TEACHER', '赵敏', '人工智能系', '讲师', 8, 'ACTIVE'
+WHERE NOT EXISTS (SELECT 1 FROM teacher WHERE employee_no = 'T1004');
 
-INSERT INTO teacher (name, department, title, max_weekly_hours, status)
-SELECT '刘洋', '计算机科学系', '讲师', 10, 'ACTIVE'
-WHERE NOT EXISTS (SELECT 1 FROM teacher WHERE name = '刘洋' AND department = '计算机科学系');
+INSERT INTO teacher (employee_no, password, role, name, department, title, max_weekly_hours, status)
+SELECT 'T1005', '123456', 'TEACHER', '陈涛', '软件工程系', '实验师', 12, 'ACTIVE'
+WHERE NOT EXISTS (SELECT 1 FROM teacher WHERE employee_no = 'T1005');
 
-INSERT INTO teacher (name, department, title, max_weekly_hours, status)
-SELECT '孙悦', '网络工程系', '副教授', 8, 'ACTIVE'
-WHERE NOT EXISTS (SELECT 1 FROM teacher WHERE name = '孙悦' AND department = '网络工程系');
+INSERT INTO teacher (employee_no, password, role, name, department, title, max_weekly_hours, status)
+SELECT 'T1006', '123456', 'TEACHER', '刘洋', '计算机科学系', '讲师', 10, 'ACTIVE'
+WHERE NOT EXISTS (SELECT 1 FROM teacher WHERE employee_no = 'T1006');
 
-INSERT INTO teacher (name, department, title, max_weekly_hours, status)
-SELECT '周凯', '数据科学系', '讲师', 8, 'ACTIVE'
-WHERE NOT EXISTS (SELECT 1 FROM teacher WHERE name = '周凯' AND department = '数据科学系');
+INSERT INTO teacher (employee_no, password, role, name, department, title, max_weekly_hours, status)
+SELECT 'T1007', '123456', 'TEACHER', '孙悦', '网络工程系', '副教授', 8, 'ACTIVE'
+WHERE NOT EXISTS (SELECT 1 FROM teacher WHERE employee_no = 'T1007');
 
-INSERT INTO teacher (name, department, title, max_weekly_hours, status)
-SELECT '何静', '软件工程系', '教授', 6, 'ACTIVE'
-WHERE NOT EXISTS (SELECT 1 FROM teacher WHERE name = '何静' AND department = '软件工程系');
+INSERT INTO teacher (employee_no, password, role, name, department, title, max_weekly_hours, status)
+SELECT 'T1008', '123456', 'TEACHER', '周凯', '数据科学系', '讲师', 8, 'ACTIVE'
+WHERE NOT EXISTS (SELECT 1 FROM teacher WHERE employee_no = 'T1008');
 
-INSERT INTO teacher (name, department, title, max_weekly_hours, status)
-SELECT '郭磊', '人工智能系', '实验师', 12, 'ACTIVE'
-WHERE NOT EXISTS (SELECT 1 FROM teacher WHERE name = '郭磊' AND department = '人工智能系');
+INSERT INTO teacher (employee_no, password, role, name, department, title, max_weekly_hours, status)
+SELECT 'T1009', '123456', 'TEACHER', '何静', '软件工程系', '教授', 6, 'ACTIVE'
+WHERE NOT EXISTS (SELECT 1 FROM teacher WHERE employee_no = 'T1009');
+
+INSERT INTO teacher (employee_no, password, role, name, department, title, max_weekly_hours, status)
+SELECT 'T1010', '123456', 'TEACHER', '郭磊', '人工智能系', '实验师', 12, 'ACTIVE'
+WHERE NOT EXISTS (SELECT 1 FROM teacher WHERE employee_no = 'T1010');
 
 INSERT INTO course (name, course_type, required_hours, required_skill, description, status)
 SELECT 'Java 程序设计', '专业核心课', 48, 'Java 基础、面向对象编程、后端开发经验', '软件工程专业核心编程课程', 'ACTIVE'

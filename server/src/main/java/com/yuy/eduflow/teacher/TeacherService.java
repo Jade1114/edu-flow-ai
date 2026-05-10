@@ -1,12 +1,14 @@
 package com.yuy.eduflow.teacher;
 
 import java.util.List;
+import java.util.Objects;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 
 @Service
 public class TeacherService {
 	private static final String DEFAULT_STATUS = "ACTIVE";
+	private static final String DEFAULT_ROLE = "TEACHER";
 
 	private final TeacherMapper teacherMapper;
 
@@ -27,15 +29,15 @@ public class TeacherService {
 	}
 
 	public Teacher create(TeacherRequest request) {
-		Teacher teacher = toTeacher(new Teacher(), request);
+		Teacher teacher = toTeacher(new Teacher(), request, true);
+		ensureEmployeeNoAvailable(teacher.getEmployeeNo(), null);
 		teacherMapper.insert(teacher);
 		return findById(teacher.getId());
 	}
 
 	public Teacher update(Long id, TeacherRequest request) {
-		findById(id);
-		Teacher teacher = toTeacher(new Teacher(), request);
-		teacher.setId(id);
+		Teacher teacher = toTeacher(findById(id), request, false);
+		ensureEmployeeNoAvailable(teacher.getEmployeeNo(), id);
 		teacherMapper.update(teacher);
 		return findById(id);
 	}
@@ -45,7 +47,16 @@ public class TeacherService {
 		teacherMapper.deactivate(id);
 	}
 
-	private Teacher toTeacher(Teacher teacher, TeacherRequest request) {
+	private Teacher toTeacher(Teacher teacher, TeacherRequest request, boolean requirePassword) {
+		if (request == null) {
+			throw new IllegalArgumentException("请求不能为空");
+		}
+		if (!StringUtils.hasText(request.employeeNo())) {
+			throw new IllegalArgumentException("工号不能为空");
+		}
+		if (requirePassword && !StringUtils.hasText(request.password())) {
+			throw new IllegalArgumentException("密码不能为空");
+		}
 		if (!StringUtils.hasText(request.name())) {
 			throw new IllegalArgumentException("教师姓名不能为空");
 		}
@@ -55,11 +66,30 @@ public class TeacherService {
 		if (request.maxWeeklyHours() != null && request.maxWeeklyHours() <= 0) {
 			throw new IllegalArgumentException("每周最大课时必须大于0");
 		}
+		teacher.setEmployeeNo(request.employeeNo().trim());
+		if (StringUtils.hasText(request.password())) {
+			teacher.setPassword(request.password().trim());
+		}
+		if (!StringUtils.hasText(teacher.getPassword())) {
+			throw new IllegalArgumentException("密码不能为空");
+		}
+		teacher.setRole(StringUtils.hasText(request.role()) ? request.role().trim() : defaultRole(teacher.getRole()));
 		teacher.setName(request.name().trim());
 		teacher.setDepartment(request.department().trim());
 		teacher.setTitle(StringUtils.hasText(request.title()) ? request.title().trim() : null);
 		teacher.setMaxWeeklyHours(request.maxWeeklyHours());
 		teacher.setStatus(StringUtils.hasText(request.status()) ? request.status().trim() : DEFAULT_STATUS);
 		return teacher;
+	}
+
+	private void ensureEmployeeNoAvailable(String employeeNo, Long currentTeacherId) {
+		Teacher existing = teacherMapper.findByEmployeeNo(employeeNo);
+		if (existing != null && !Objects.equals(existing.getId(), currentTeacherId)) {
+			throw new IllegalArgumentException("工号已存在");
+		}
+	}
+
+	private String defaultRole(String currentRole) {
+		return StringUtils.hasText(currentRole) ? currentRole : DEFAULT_ROLE;
 	}
 }

@@ -6,6 +6,9 @@ USE edu_flow_ai;
 
 CREATE TABLE IF NOT EXISTS teacher (
     id BIGINT PRIMARY KEY AUTO_INCREMENT,
+    employee_no VARCHAR(50) NOT NULL,
+    password VARCHAR(100) NOT NULL,
+    role VARCHAR(20) NOT NULL DEFAULT 'TEACHER',
     name VARCHAR(50) NOT NULL,
     department VARCHAR(100) NOT NULL,
     title VARCHAR(50) NULL,
@@ -13,6 +16,7 @@ CREATE TABLE IF NOT EXISTS teacher (
     status VARCHAR(20) NOT NULL DEFAULT 'ACTIVE',
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    UNIQUE KEY uk_teacher_employee_no (employee_no),
     INDEX idx_teacher_status (status),
     INDEX idx_teacher_name (name)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

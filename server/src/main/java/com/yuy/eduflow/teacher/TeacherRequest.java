@@ -1,6 +1,9 @@
 package com.yuy.eduflow.teacher;
 
 public record TeacherRequest(
+	String employeeNo,
+	String password,
+	String role,
 	String name,
 	String department,
 	String title,

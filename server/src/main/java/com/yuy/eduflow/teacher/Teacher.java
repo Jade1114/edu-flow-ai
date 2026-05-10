@@ -6,6 +6,9 @@ import lombok.Data;
 @Data
 public class Teacher {
 	private Long id;
+	private String employeeNo;
+	private String password;
+	private String role;
 	private String name;
 	private String department;
 	private String title;
