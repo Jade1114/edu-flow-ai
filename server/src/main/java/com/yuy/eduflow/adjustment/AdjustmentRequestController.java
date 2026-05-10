@@ -16,9 +16,17 @@ import org.springframework.web.bind.annotation.RestController;
 @RequestMapping("/api/adjustment-requests")
 public class AdjustmentRequestController {
 	private final AdjustmentRequestService adjustmentRequestService;
+	private final AdjustmentSuggestionGenerationService adjustmentSuggestionGenerationService;
+	private final AdjustmentSuggestionConfirmService adjustmentSuggestionConfirmService;
 
-	public AdjustmentRequestController(AdjustmentRequestService adjustmentRequestService) {
+	public AdjustmentRequestController(
+		AdjustmentRequestService adjustmentRequestService,
+		AdjustmentSuggestionGenerationService adjustmentSuggestionGenerationService,
+		AdjustmentSuggestionConfirmService adjustmentSuggestionConfirmService
+	) {
 		this.adjustmentRequestService = adjustmentRequestService;
+		this.adjustmentSuggestionGenerationService = adjustmentSuggestionGenerationService;
+		this.adjustmentSuggestionConfirmService = adjustmentSuggestionConfirmService;
 	}
 
 	@GetMapping
@@ -49,5 +57,29 @@ public class AdjustmentRequestController {
 	public ApiResponse<Void> delete(@PathVariable Long id) {
 		adjustmentRequestService.delete(id);
 		return ApiResponse.success();
+	}
+
+	@PostMapping("/{id}/suggestions")
+	public ApiResponse<AdjustmentSuggestionPreview> generateSuggestions(
+		@PathVariable Long id,
+		@RequestParam(required = false) Integer topK
+	) {
+		return ApiResponse.success(adjustmentSuggestionGenerationService.generateSuggestions(id, topK));
+	}
+
+	@PostMapping("/{id}/confirm")
+	public ApiResponse<AdjustmentConfirmResult> confirm(
+		@PathVariable Long id,
+		@RequestBody AdjustmentConfirmRequest request
+	) {
+		return ApiResponse.success(adjustmentSuggestionConfirmService.confirm(id, request));
+	}
+
+	@PostMapping("/{id}/reject")
+	public ApiResponse<AdjustmentRequest> reject(
+		@PathVariable Long id,
+		@RequestBody(required = false) AdjustmentRejectRequest request
+	) {
+		return ApiResponse.success(adjustmentSuggestionConfirmService.reject(id, request));
 	}
 }

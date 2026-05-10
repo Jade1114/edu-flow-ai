@@ -81,4 +81,23 @@ public interface AdjustmentRequestMapper {
 		WHERE id = #{id}
 		""")
 	int cancel(Long id);
+
+	@Update("""
+		UPDATE adjustment_request
+		SET ai_suggestion = #{aiSuggestion}
+		WHERE id = #{id}
+		""")
+	int updateAiSuggestion(@Param("id") Long id, @Param("aiSuggestion") String aiSuggestion);
+
+	@Update("""
+		UPDATE adjustment_request
+		SET status = #{status},
+		    review_note = #{reviewNote}
+		WHERE id = #{id}
+		""")
+	int updateReviewState(
+		@Param("id") Long id,
+		@Param("status") String status,
+		@Param("reviewNote") String reviewNote
+	);
 }

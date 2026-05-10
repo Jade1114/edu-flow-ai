@@ -139,4 +139,58 @@ public interface CourseAssignmentMapper {
 		WHERE id = #{id}
 		""")
 	int cancel(Long id);
+
+	@Update("""
+		UPDATE course_assignment
+		SET time_slot_id = #{timeSlotId},
+		    classroom_id = #{classroomId}
+		WHERE id = #{id}
+		""")
+	int updateSchedule(
+		@Param("id") Long id,
+		@Param("timeSlotId") Long timeSlotId,
+		@Param("classroomId") Long classroomId
+	);
+
+	@Select("""
+		SELECT COUNT(*)
+		FROM course_assignment
+		WHERE status = 'ACTIVE'
+		  AND id != #{excludedAssignmentId}
+		  AND teacher_id = #{teacherId}
+		  AND time_slot_id = #{timeSlotId}
+		""")
+	int countActiveTeacherTimeConflict(
+		@Param("excludedAssignmentId") Long excludedAssignmentId,
+		@Param("teacherId") Long teacherId,
+		@Param("timeSlotId") Long timeSlotId
+	);
+
+	@Select("""
+		SELECT COUNT(*)
+		FROM course_assignment
+		WHERE status = 'ACTIVE'
+		  AND id != #{excludedAssignmentId}
+		  AND class_group_id = #{classGroupId}
+		  AND time_slot_id = #{timeSlotId}
+		""")
+	int countActiveClassGroupTimeConflict(
+		@Param("excludedAssignmentId") Long excludedAssignmentId,
+		@Param("classGroupId") Long classGroupId,
+		@Param("timeSlotId") Long timeSlotId
+	);
+
+	@Select("""
+		SELECT COUNT(*)
+		FROM course_assignment
+		WHERE status = 'ACTIVE'
+		  AND id != #{excludedAssignmentId}
+		  AND classroom_id = #{classroomId}
+		  AND time_slot_id = #{timeSlotId}
+		""")
+	int countActiveClassroomTimeConflict(
+		@Param("excludedAssignmentId") Long excludedAssignmentId,
+		@Param("classroomId") Long classroomId,
+		@Param("timeSlotId") Long timeSlotId
+	);
 }
