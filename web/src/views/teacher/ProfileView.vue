@@ -6,7 +6,6 @@ import { ElMessage } from 'element-plus'
 
 const auth = useAuthStore()
 const profile = ref({
-  skillText: '',
   availableTimeText: '',
   unavailableTimeText: '',
   workloadRequirement: '',
@@ -22,7 +21,6 @@ async function loadProfile() {
     const data = await request.get(`/api/teachers/${teacherId}/profile`)
     if (data) {
       profile.value = {
-        skillText: data.skillText || '',
         availableTimeText: data.availableTimeText || '',
         unavailableTimeText: data.unavailableTimeText || '',
         workloadRequirement: data.workloadRequirement || '',
@@ -55,11 +53,8 @@ onMounted(loadProfile)
     <h2>个人信息 / 教师画像</h2>
     <el-card style="margin-top: 16px; max-width: 720px" v-loading="loading">
       <el-form :model="profile" label-width="120px">
-        <el-form-item label="擅长课程">
-          <el-input v-model="profile.skillText" type="textarea" :rows="3" placeholder="例如：擅长 Java 程序设计、数据库原理" />
-        </el-form-item>
         <el-form-item label="可用时间">
-          <el-input v-model="profile.availableTimeText" type="textarea" :rows="2" placeholder="例如：周一上午、周三下午、周五上午" />
+          <el-input v-model="profile.availableTimeText" type="textarea" :rows="3" placeholder="例如：周一上午、周三下午、周五上午" />
         </el-form-item>
         <el-form-item label="不可用时间">
           <el-input v-model="profile.unavailableTimeText" type="textarea" :rows="2" placeholder="例如：周二全天、周五下午" />

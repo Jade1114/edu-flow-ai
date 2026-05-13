@@ -29,7 +29,6 @@ const router = createRouter({
         { path: 'basic-data', name: 'AdminBasicData', component: () => import('@/views/admin/BasicDataView.vue') },
         { path: 'allocation', name: 'AdminAllocation', component: () => import('@/views/admin/AllocationView.vue') },
         { path: 'timetable', name: 'AdminTimetable', component: () => import('@/views/admin/TimetableView.vue') },
-        { path: 'adjustment', name: 'AdminAdjustment', component: () => import('@/views/admin/AdjustmentView.vue') },
       ],
     },
     {
@@ -40,7 +39,6 @@ const router = createRouter({
         { path: '', redirect: '/teacher/timetable' },
         { path: 'timetable', name: 'TeacherTimetable', component: () => import('@/views/teacher/TimetableView.vue') },
         { path: 'profile', name: 'TeacherProfile', component: () => import('@/views/teacher/ProfileView.vue') },
-        { path: 'adjustment', name: 'TeacherAdjustment', component: () => import('@/views/teacher/AdjustmentView.vue') },
       ],
     },
     {

@@ -4,7 +4,6 @@ import { useAuthStore } from '@/stores/auth.js'
 import {
   Calendar,
   User,
-  Tools,
   SwitchButton,
 } from '@element-plus/icons-vue'
 
@@ -15,7 +14,6 @@ const auth = useAuthStore()
 const menus = [
   { path: '/teacher/timetable', label: '我的课表', icon: Calendar },
   { path: '/teacher/profile', label: '个人信息', icon: User },
-  { path: '/teacher/adjustment', label: '调课申请', icon: Tools },
 ]
 
 function handleLogout() {

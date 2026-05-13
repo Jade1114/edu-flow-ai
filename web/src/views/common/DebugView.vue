@@ -9,16 +9,23 @@ const form = reactive({
   topK: '5',
   schemeId: '',
   teacherId: '1',
-  requestId: '',
-  candidateIndex: '1',
-  reviewNote: '同意采用候选 1',
 })
 const loginForm = reactive({
   employeeNo: 'ADMIN001',
   password: '123456',
 })
 
+const teachers = ref([])
 const loadingKey = ref('')
+
+async function loadTeachers() {
+  try {
+    const resp = await fetch(`${apiBaseUrl.value.trim().replace(/\/$/, '')}/api/teachers`)
+    const data = await resp.json()
+    teachers.value = data?.data || []
+  } catch { /* ignore */ }
+}
+loadTeachers()
 const result = ref({
   title: '尚未请求',
   method: '',
@@ -93,23 +100,11 @@ const actions = [
     path: () => `/api/teachers/${required(form.teacherId, '教师 ID')}/course-assignments`,
   },
   {
-    group: '调课',
-    key: 'adjustment-suggestions',
-    label: '生成调课候选',
+    group: '工具',
+    key: 'vector-index',
+    label: '教师向量索引',
     method: 'POST',
-    path: () =>
-      `/api/adjustment-requests/${required(form.requestId, '调课申请 ID')}/suggestions?topK=${topK()}`,
-  },
-  {
-    group: '调课',
-    key: 'confirm-adjustment',
-    label: '确认调课候选',
-    method: 'POST',
-    path: () => `/api/adjustment-requests/${required(form.requestId, '调课申请 ID')}/confirm`,
-    body: () => ({
-      candidateIndex: positiveInteger(form.candidateIndex, '调课候选序号'),
-      reviewNote: form.reviewNote.trim() || null,
-    }),
+    path: () => `/api/teachers/${required(form.teacherId, '教师 ID')}/profile/vector-index`,
   },
 ]
 
@@ -159,11 +154,6 @@ const assignments = computed(() => {
   return data.filter((item) => item && ('courseName' in item || 'timeSlotLabel' in item))
 })
 
-const adjustmentCandidates = computed(() => {
-  const data = responseData.value
-  return Array.isArray(data?.candidates) ? data.candidates : []
-})
-
 const promptPreview = computed(() => {
   const data = responseData.value
   if (!data || typeof data !== 'object') {
@@ -189,7 +179,6 @@ const hasStructuredView = computed(() => {
     ragTeachers.value.length > 0 ||
     schemes.value.length > 0 ||
     assignments.value.length > 0 ||
-    adjustmentCandidates.value.length > 0 ||
     promptPreview.value
   )
 })
@@ -365,20 +354,10 @@ function pickRows(rows, keys) {
             <input v-model="form.schemeId" type="number" min="1" />
           </label>
           <label>
-            <span>教师 ID</span>
-            <input v-model="form.teacherId" type="number" min="1" />
-          </label>
-          <label>
-            <span>调课申请 ID</span>
-            <input v-model="form.requestId" type="number" min="1" />
-          </label>
-          <label>
-            <span>调课候选序号</span>
-            <input v-model="form.candidateIndex" type="number" min="1" />
-          </label>
-          <label class="wide-field">
-            <span>审核意见</span>
-            <input v-model="form.reviewNote" type="text" />
+            <span>教师</span>
+            <select v-model="form.teacherId">
+              <option v-for="t in teachers" :key="t.id" :value="t.id">{{ t.name }}（#{{ t.id }}）</option>
+            </select>
           </label>
         </div>
 
@@ -541,47 +520,6 @@ function pickRows(rows, keys) {
             </table>
           </section>
 
-          <section v-if="adjustmentCandidates.length" class="table-section">
-            <h3>调课候选</h3>
-            <table>
-              <thead>
-                <tr>
-                  <th>序号</th>
-                  <th>摘要</th>
-                  <th>新时间段</th>
-                  <th>新教室</th>
-                  <th>有效</th>
-                  <th>冲突</th>
-                </tr>
-              </thead>
-              <tbody>
-                <tr
-                  v-for="candidate in pickRows(adjustmentCandidates, [
-                    'candidateIndex',
-                    'summary',
-                    'newTimeSlotId',
-                    'newClassroomId',
-                    'valid',
-                    'conflictMessage',
-                  ])"
-                  :key="candidate.candidateIndex"
-                >
-                  <td>{{ tableValue(candidate.candidateIndex) }}</td>
-                  <td>{{ tableValue(candidate.summary) }}</td>
-                  <td>{{ tableValue(candidate.newTimeSlotId) }}</td>
-                  <td>{{ tableValue(candidate.newClassroomId) }}</td>
-                  <td>{{ tableValue(candidate.valid) }}</td>
-                  <td>{{ tableValue(candidate.conflictMessage) }}</td>
-                </tr>
-              </tbody>
-            </table>
-          </section>
-        </section>
-
-        <section class="raw-json">
-          <div class="section-title">
-            <h3>原始 JSON</h3>
-          </div>
           <pre>{{ prettyJson || '点击左侧按钮后显示响应内容' }}</pre>
         </section>
       </section>

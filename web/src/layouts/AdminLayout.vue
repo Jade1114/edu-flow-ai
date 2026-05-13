@@ -7,7 +7,6 @@ import {
   MagicStick,
   Calendar,
   SwitchButton,
-  Tools,
 } from '@element-plus/icons-vue'
 
 const route = useRoute()
@@ -19,7 +18,6 @@ const menus = [
   { path: '/admin/basic-data', label: '基础数据', icon: Collection },
   { path: '/admin/allocation', label: '分课任务', icon: MagicStick },
   { path: '/admin/timetable', label: '课表查询', icon: Calendar },
-  { path: '/admin/adjustment', label: '调课处理', icon: Tools },
 ]
 
 function handleLogout() {
