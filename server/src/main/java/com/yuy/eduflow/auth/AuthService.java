@@ -4,11 +4,12 @@ import com.yuy.eduflow.teacher.Teacher;
 import com.yuy.eduflow.teacher.TeacherMapper;
 import java.util.Objects;
 import org.springframework.stereotype.Service;
+import com.yuy.eduflow.enums.ActiveStatus;
 import org.springframework.util.StringUtils;
 
 @Service
 public class AuthService {
-	private static final String ACTIVE_STATUS = "ACTIVE";
+	
 	private static final String DEFAULT_ROLE = "TEACHER";
 
 	private final TeacherMapper teacherMapper;
@@ -36,7 +37,7 @@ public class AuthService {
 		if (!Objects.equals(teacher.getPassword(), request.password().trim())) {
 			throw new IllegalArgumentException("密码错误");
 		}
-		if (!ACTIVE_STATUS.equals(teacher.getStatus())) {
+		if (!ActiveStatus.ACTIVE.code().equals(teacher.getStatus())) {
 			throw new IllegalArgumentException("账号状态非 ACTIVE，禁止登录");
 		}
 
