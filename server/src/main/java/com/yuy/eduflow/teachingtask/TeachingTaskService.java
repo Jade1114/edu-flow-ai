@@ -1,0 +1,215 @@
+package com.yuy.eduflow.teachingtask;
+
+import com.yuy.eduflow.classgroup.ClassGroup;
+import com.yuy.eduflow.classgroup.ClassGroupService;
+import com.yuy.eduflow.classroom.Classroom;
+import com.yuy.eduflow.classroom.ClassroomService;
+import com.yuy.eduflow.course.CourseService;
+import com.yuy.eduflow.enums.ActiveStatus;
+import com.yuy.eduflow.teacher.TeacherService;
+import java.util.List;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+
+/**
+ * 教学任务服务类
+ * 负责教学任务的增删改查以及与其他业务模块（课程、教师、教室、班级）的关联逻辑
+ */
+@Service
+public class TeachingTaskService {
+    
+    
+
+    private final TeachingTaskMapper teachingTaskMapper;
+    private final CourseService courseService;
+    private final TeacherService teacherService;
+    private final ClassGroupService classGroupService;
+    private final ClassroomService classroomService;
+
+    public TeachingTaskService(
+            TeachingTaskMapper teachingTaskMapper,
+            CourseService courseService,
+            TeacherService teacherService,
+            ClassGroupService classGroupService,
+            ClassroomService classroomService) {
+        this.teachingTaskMapper = teachingTaskMapper;
+        this.courseService = courseService;
+        this.teacherService = teacherService;
+        this.classGroupService = classGroupService;
+        this.classroomService = classroomService;
+    }
+
+    /**
+     * 多条件查询教学任务
+     * 
+     * @param status    任务状态
+     * @param courseId  课程ID
+     * @param teacherId 教师ID
+     * @return 教学任务列表
+     */
+    public List<TeachingTask> findAll(String status, Long courseId, Long teacherId) {
+        return teachingTaskMapper.findAll(status, courseId, teacherId);
+    }
+
+    /**
+     * 根据ID获取教学任务详情（包含关联的班级和教室信息）
+     * 
+     * @throws IllegalArgumentException 当任务不存在时抛出
+     */
+    public TeachingTask findById(Long id) {
+        TeachingTask task = teachingTaskMapper.findWithDetails(id);
+        if (task == null) {
+            throw new IllegalArgumentException("教学任务不存在");
+        }
+        return task;
+    }
+
+    /**
+     * 创建新的教学任务
+     * 包含：基础信息保存、班级绑定
+     * 
+     * @param request 任务请求载体
+     * @return 保存后的任务对象
+     */
+    @Transactional
+    public TeachingTask create(TeachingTaskRequest request) {
+        validateRequest(request);
+        TeachingTask task = toTask(new TeachingTask(), request);
+        teachingTaskMapper.insert(task);
+
+        // 处理班级关联
+        bindClassGroups(task.getId(), request.classGroupIds());
+
+        return findById(task.getId());
+    }
+
+    /**
+     * 更新教学任务
+     * 逻辑：更新主表信息，并采用“先删后插”策略更新关联关系
+     */
+    @Transactional
+    public TeachingTask update(Long id, TeachingTaskRequest request) {
+        TeachingTask existing = findById(id); // 检查是否存在
+        validateRequest(request);
+
+        TeachingTask task = toTask(existing, request);
+        teachingTaskMapper.update(task);
+
+        // 重置并重新绑定班级关联
+        teachingTaskMapper.deleteClassGroups(id);
+        bindClassGroups(id, request.classGroupIds());
+
+        return findById(id);
+    }
+
+    /**
+     * 删除教学任务及其所有关联关系
+     */
+    @Transactional
+    public void delete(Long id) {
+        findById(id);
+        teachingTaskMapper.deleteClassGroups(id);
+        teachingTaskMapper.delete(id);
+    }
+
+    /**
+     * 绑定教学任务与班级的多对多关系
+     */
+    private void bindClassGroups(Long taskId, List<Long> classGroupIds) {
+        if (classGroupIds == null || classGroupIds.isEmpty()) {
+            return;
+        }
+        for (Long classGroupId : classGroupIds) {
+            if (classGroupId != null && classGroupId > 0) {
+                teachingTaskMapper.insertClassGroup(taskId, classGroupId);
+            }
+        }
+    }
+
+    /**
+     * 将 DTO 请求数据映射到实体类
+     */
+    private TeachingTask toTask(TeachingTask task, TeachingTaskRequest request) {
+        task.setCourseId(request.courseId());
+        task.setPrimaryTeacherId(request.primaryTeacherId());
+        task.setAssistantTeacherId(request.assistantTeacherId());
+        task.setClassroomId(request.classroomId());
+        task.setTotalHours(request.totalHours());
+        task.setNotes(request.notes());
+        // 如果请求中未指定状态，则默认设置为 ACTIVE
+        task.setStatus(
+                request.status() != null && !request.status().isBlank() ? request.status().trim() : ActiveStatus.ACTIVE.code());
+        return task;
+    }
+
+    /**
+     * 业务校验逻辑
+     * 包含：非空校验、MVP 业务规则校验（2课时块、班级数量限制）、外部引用合法性检查
+     */
+    private void validateRequest(TeachingTaskRequest request) {
+        requirePositiveId(request.courseId(), "课程ID不能为空");
+        requirePositiveId(request.primaryTeacherId(), "主讲教师ID不能为空");
+        requirePositiveId(request.classroomId(), "教室ID不能为空");
+
+        // 课时校验：MVP 阶段要求必须是 2 的倍数（时间块排课需求）
+        if (request.totalHours() == null || request.totalHours() <= 0) {
+            throw new IllegalArgumentException("总课时必须大于0");
+        }
+        if (request.totalHours() % 2 != 0) {
+            throw new IllegalArgumentException("总课时必须是2的倍数（MVP 固定使用2课时时间块）");
+        }
+
+        // 班级校验：MVP 阶段限制最多 2 个班级合班上课
+        if (request.classGroupIds() == null || request.classGroupIds().isEmpty()) {
+            throw new IllegalArgumentException("班级不能为空，至少需要关联1个班级");
+        }
+        if (request.classGroupIds().size() > 2) {
+            throw new IllegalArgumentException("MVP 中每个教学任务最多关联2个班级");
+        }
+
+        // 级联校验：通过各模块 Service 检查 ID 是否在数据库中真实存在
+        courseService.findById(request.courseId());
+        teacherService.findById(request.primaryTeacherId());
+
+        // 教室容量校验：班级总人数不能超过教室容量
+        Classroom classroom = classroomService.findById(request.classroomId());
+        int totalStudents = 0;
+        for (Long classGroupId : request.classGroupIds()) {
+            ClassGroup classGroup = classGroupService.findById(classGroupId);
+            if (classGroup.getStudentCount() != null) {
+                totalStudents += classGroup.getStudentCount();
+            }
+        }
+        if (classroom.getCapacity() != null && totalStudents > classroom.getCapacity()) {
+            throw new IllegalArgumentException(
+                "教室容量不足：教室「" + classroom.getName() + "」最多容纳 " + classroom.getCapacity() + " 人，"
+                + "但所选班级合计 " + totalStudents + " 人"
+            );
+        }
+
+        // 协作教师校验
+        if (request.assistantTeacherId() != null && request.assistantTeacherId() > 0) {
+            if (request.assistantTeacherId().equals(request.primaryTeacherId())) {
+                throw new IllegalArgumentException("协作教师不能与主讲教师相同");
+            }
+            teacherService.findById(request.assistantTeacherId());
+        }
+
+        // 班级校验（主要是检查存在性，人数已在上方汇总）
+        for (Long classGroupId : request.classGroupIds()) {
+            classGroupService.findById(classGroupId);
+        }
+    }
+
+    /**
+     * 辅助工具方法：校验 ID 是否为正整数
+     */
+    private void requirePositiveId(Long id, String emptyMessage) {
+        if (id == null) {
+            throw new IllegalArgumentException(emptyMessage);
+        }
+        if (id <= 0) {
+            throw new IllegalArgumentException(emptyMessage.replace("不能为空", "必须大于0"));
+        }
+    }
+}
