@@ -21,10 +21,10 @@ CREATE TABLE IF NOT EXISTS teacher (
     INDEX idx_teacher_name (name)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
+-- v3: 教师个人倾向（教师自己提交的可用/不可用时间等偏好）
 CREATE TABLE IF NOT EXISTS teacher_profile (
     id BIGINT PRIMARY KEY AUTO_INCREMENT,
     teacher_id BIGINT NOT NULL,
-    skill_text TEXT NULL,
     available_time_text TEXT NULL,
     unavailable_time_text TEXT NULL,
     workload_requirement TEXT NULL,
@@ -33,7 +33,7 @@ CREATE TABLE IF NOT EXISTS teacher_profile (
     vector_indexed BOOLEAN NOT NULL DEFAULT FALSE,
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-    UNIQUE KEY uk_teacher_profile_teacher (teacher_id),
+    UNIQUE KEY uk_teacher_profile_teacher_id (teacher_id),
     CONSTRAINT fk_teacher_profile_teacher FOREIGN KEY (teacher_id) REFERENCES teacher (id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
@@ -42,7 +42,6 @@ CREATE TABLE IF NOT EXISTS course (
     name VARCHAR(100) NOT NULL,
     course_type VARCHAR(50) NULL,
     required_hours INT NULL,
-    required_skill TEXT NULL,
     description TEXT NULL,
     status VARCHAR(20) NOT NULL DEFAULT 'ACTIVE',
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -89,11 +88,62 @@ CREATE TABLE IF NOT EXISTS time_slot (
     INDEX idx_time_slot_week_day (week_number, day_of_week)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
+-- v2: 教学任务 - 排课最小单元
+CREATE TABLE IF NOT EXISTS teaching_task (
+    id BIGINT PRIMARY KEY AUTO_INCREMENT,
+    course_id BIGINT NOT NULL,
+    primary_teacher_id BIGINT NOT NULL,
+    assistant_teacher_id BIGINT NULL,
+    classroom_id BIGINT NOT NULL,
+    total_hours INT NOT NULL,
+    required_room_type VARCHAR(50) NULL,
+    notes TEXT NULL,
+    status VARCHAR(30) NOT NULL DEFAULT 'ACTIVE',
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    INDEX idx_teaching_task_course (course_id),
+    INDEX idx_teaching_task_teacher (primary_teacher_id),
+    INDEX idx_teaching_task_classroom (classroom_id),
+    INDEX idx_teaching_task_status (status),
+    CONSTRAINT fk_teaching_task_course FOREIGN KEY (course_id) REFERENCES course (id),
+    CONSTRAINT fk_teaching_task_teacher FOREIGN KEY (primary_teacher_id) REFERENCES teacher (id),
+    CONSTRAINT fk_teaching_task_assistant FOREIGN KEY (assistant_teacher_id) REFERENCES teacher (id),
+    CONSTRAINT fk_teaching_task_classroom FOREIGN KEY (classroom_id) REFERENCES classroom (id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- v2: 教学任务-班级关联（1-2个班级）
+CREATE TABLE IF NOT EXISTS teaching_task_class_group (
+    id BIGINT PRIMARY KEY AUTO_INCREMENT,
+    teaching_task_id BIGINT NOT NULL,
+    class_group_id BIGINT NOT NULL,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE KEY uk_ttcg (teaching_task_id, class_group_id),
+    INDEX idx_ttcg_task (teaching_task_id),
+    INDEX idx_ttcg_group (class_group_id),
+    CONSTRAINT fk_ttcg_task FOREIGN KEY (teaching_task_id) REFERENCES teaching_task (id) ON DELETE CASCADE,
+    CONSTRAINT fk_ttcg_group FOREIGN KEY (class_group_id) REFERENCES class_group (id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- v2: 教学任务-候选教室关联（可选，为空时使用院系全部可用教室）
+CREATE TABLE IF NOT EXISTS teaching_task_classroom (
+    id BIGINT PRIMARY KEY AUTO_INCREMENT,
+    teaching_task_id BIGINT NOT NULL,
+    classroom_id BIGINT NOT NULL,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE KEY uk_ttc (teaching_task_id, classroom_id),
+    INDEX idx_ttc_task (teaching_task_id),
+    INDEX idx_ttc_classroom (classroom_id),
+    CONSTRAINT fk_ttc_task FOREIGN KEY (teaching_task_id) REFERENCES teaching_task (id) ON DELETE CASCADE,
+    CONSTRAINT fk_ttc_classroom FOREIGN KEY (classroom_id) REFERENCES classroom (id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- v2: 排课任务（增加 startWeek/endWeek，移除 priorityRule）
 CREATE TABLE IF NOT EXISTS allocation_task (
     id BIGINT PRIMARY KEY AUTO_INCREMENT,
     name VARCHAR(100) NOT NULL,
     description TEXT NULL,
-    priority_rule VARCHAR(100) NULL,
+    start_week INT NOT NULL DEFAULT 1,
+    end_week INT NOT NULL DEFAULT 18,
     status VARCHAR(30) NOT NULL DEFAULT 'DRAFT',
     created_by VARCHAR(50) NULL,
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -101,6 +151,20 @@ CREATE TABLE IF NOT EXISTS allocation_task (
     INDEX idx_allocation_task_status (status)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
+-- v2: 排课任务-教学任务关联
+CREATE TABLE IF NOT EXISTS allocation_task_teaching_task (
+    id BIGINT PRIMARY KEY AUTO_INCREMENT,
+    allocation_task_id BIGINT NOT NULL,
+    teaching_task_id BIGINT NOT NULL,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE KEY uk_att (allocation_task_id, teaching_task_id),
+    INDEX idx_att_task (allocation_task_id),
+    INDEX idx_att_teaching (teaching_task_id),
+    CONSTRAINT fk_att_task FOREIGN KEY (allocation_task_id) REFERENCES allocation_task (id) ON DELETE CASCADE,
+    CONSTRAINT fk_att_teaching FOREIGN KEY (teaching_task_id) REFERENCES teaching_task (id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- v2: 候选方案（不变）
 CREATE TABLE IF NOT EXISTS allocation_scheme (
     id BIGINT PRIMARY KEY AUTO_INCREMENT,
     task_id BIGINT NOT NULL,
@@ -118,12 +182,11 @@ CREATE TABLE IF NOT EXISTS allocation_scheme (
     CONSTRAINT fk_allocation_scheme_task FOREIGN KEY (task_id) REFERENCES allocation_task (id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
+-- v2: 排课片段（改为 teaching_task_id 替代 course/classGroup/teacher）
 CREATE TABLE IF NOT EXISTS allocation_item (
     id BIGINT PRIMARY KEY AUTO_INCREMENT,
     scheme_id BIGINT NOT NULL,
-    course_id BIGINT NOT NULL,
-    class_group_id BIGINT NOT NULL,
-    teacher_id BIGINT NOT NULL,
+    teaching_task_id BIGINT NOT NULL,
     classroom_id BIGINT NOT NULL,
     time_slot_id BIGINT NOT NULL,
     valid BOOLEAN NOT NULL DEFAULT TRUE,
@@ -131,63 +194,35 @@ CREATE TABLE IF NOT EXISTS allocation_item (
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     INDEX idx_allocation_item_scheme (scheme_id),
-    INDEX idx_allocation_item_teacher_time (teacher_id, time_slot_id),
-    INDEX idx_allocation_item_class_time (class_group_id, time_slot_id),
+    INDEX idx_allocation_item_teaching_task (teaching_task_id),
     INDEX idx_allocation_item_classroom_time (classroom_id, time_slot_id),
     CONSTRAINT fk_allocation_item_scheme FOREIGN KEY (scheme_id) REFERENCES allocation_scheme (id),
-    CONSTRAINT fk_allocation_item_course FOREIGN KEY (course_id) REFERENCES course (id),
-    CONSTRAINT fk_allocation_item_class_group FOREIGN KEY (class_group_id) REFERENCES class_group (id),
-    CONSTRAINT fk_allocation_item_teacher FOREIGN KEY (teacher_id) REFERENCES teacher (id),
+    CONSTRAINT fk_allocation_item_teaching_task FOREIGN KEY (teaching_task_id) REFERENCES teaching_task (id),
     CONSTRAINT fk_allocation_item_classroom FOREIGN KEY (classroom_id) REFERENCES classroom (id),
     CONSTRAINT fk_allocation_item_time_slot FOREIGN KEY (time_slot_id) REFERENCES time_slot (id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
+-- v2: 正式课表（改为 teaching_task_id 替代 course/classGroup/teacher）
 CREATE TABLE IF NOT EXISTS course_assignment (
     id BIGINT PRIMARY KEY AUTO_INCREMENT,
     source_scheme_id BIGINT NULL,
-    course_id BIGINT NOT NULL,
-    class_group_id BIGINT NOT NULL,
-    teacher_id BIGINT NOT NULL,
+    teaching_task_id BIGINT NOT NULL,
     classroom_id BIGINT NOT NULL,
     time_slot_id BIGINT NOT NULL,
     status VARCHAR(30) NOT NULL DEFAULT 'ACTIVE',
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     INDEX idx_course_assignment_scheme (source_scheme_id),
-    INDEX idx_course_assignment_teacher_time (teacher_id, time_slot_id),
-    INDEX idx_course_assignment_class_time (class_group_id, time_slot_id),
+    INDEX idx_course_assignment_teaching_task (teaching_task_id),
     INDEX idx_course_assignment_classroom_time (classroom_id, time_slot_id),
     INDEX idx_course_assignment_status (status),
     CONSTRAINT fk_course_assignment_scheme FOREIGN KEY (source_scheme_id) REFERENCES allocation_scheme (id),
-    CONSTRAINT fk_course_assignment_course FOREIGN KEY (course_id) REFERENCES course (id),
-    CONSTRAINT fk_course_assignment_class_group FOREIGN KEY (class_group_id) REFERENCES class_group (id),
-    CONSTRAINT fk_course_assignment_teacher FOREIGN KEY (teacher_id) REFERENCES teacher (id),
+    CONSTRAINT fk_course_assignment_teaching_task FOREIGN KEY (teaching_task_id) REFERENCES teaching_task (id),
     CONSTRAINT fk_course_assignment_classroom FOREIGN KEY (classroom_id) REFERENCES classroom (id),
     CONSTRAINT fk_course_assignment_time_slot FOREIGN KEY (time_slot_id) REFERENCES time_slot (id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
-CREATE TABLE IF NOT EXISTS adjustment_request (
-    id BIGINT PRIMARY KEY AUTO_INCREMENT,
-    assignment_id BIGINT NOT NULL,
-    teacher_id BIGINT NOT NULL,
-    reason TEXT NOT NULL,
-    preferred_time_text TEXT NULL,
-    preferred_time_slot_id BIGINT NULL,
-    preferred_classroom_id BIGINT NULL,
-    ai_suggestion TEXT NULL,
-    status VARCHAR(30) NOT NULL DEFAULT 'SUBMITTED',
-    review_note TEXT NULL,
-    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-    INDEX idx_adjustment_request_assignment (assignment_id),
-    INDEX idx_adjustment_request_teacher (teacher_id),
-    INDEX idx_adjustment_request_status (status),
-    CONSTRAINT fk_adjustment_request_assignment FOREIGN KEY (assignment_id) REFERENCES course_assignment (id),
-    CONSTRAINT fk_adjustment_request_teacher FOREIGN KEY (teacher_id) REFERENCES teacher (id),
-    CONSTRAINT fk_adjustment_request_preferred_time FOREIGN KEY (preferred_time_slot_id) REFERENCES time_slot (id),
-    CONSTRAINT fk_adjustment_request_preferred_classroom FOREIGN KEY (preferred_classroom_id) REFERENCES classroom (id)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-
+-- v2: 冲突检测结果（biz_type 改为 SCHEDULE_SEGMENT）
 CREATE TABLE IF NOT EXISTS conflict_check_result (
     id BIGINT PRIMARY KEY AUTO_INCREMENT,
     biz_type VARCHAR(30) NOT NULL,
