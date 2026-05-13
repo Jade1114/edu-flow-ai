@@ -4,12 +4,14 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.stereotype.Component;
 import org.springframework.util.StringUtils;
 import org.springframework.web.client.RestClient;
 
+@Slf4j
 @Component
 public class QdrantVectorStoreClient {
 	private final QdrantProperties properties;
@@ -22,6 +24,8 @@ public class QdrantVectorStoreClient {
 
 	public void upsert(Long pointId, List<Double> vector, Map<String, Object> payload) {
 		validateVector(vector);
+		log.info("Qdrant upsert: pointId={}, payload keys={}, vectorText=[{}]",
+			pointId, payload.keySet(), payload.get("vectorText"));
 		Map<String, Object> point = new LinkedHashMap<>();
 		point.put("id", pointId);
 		point.put("vector", vector);
@@ -33,6 +37,7 @@ public class QdrantVectorStoreClient {
 			.body(Map.of("points", List.of(point)))
 			.retrieve()
 			.toBodilessEntity();
+		log.info("Qdrant upsert done ✅");
 	}
 
 	public List<VectorSearchResult> search(List<Double> vector, int topK, String status) {
