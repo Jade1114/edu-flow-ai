@@ -24,13 +24,12 @@ public class AllocationItemController {
 	@GetMapping
 	public ApiResponse<List<AllocationItem>> findAll(
 		@RequestParam(required = false) Long schemeId,
-		@RequestParam(required = false) Long teacherId,
-		@RequestParam(required = false) Long classGroupId,
+		@RequestParam(required = false) Long teachingTaskId,
 		@RequestParam(required = false) Long classroomId,
 		@RequestParam(required = false) Long timeSlotId
 	) {
 		return ApiResponse.success(
-			allocationItemService.findAll(schemeId, teacherId, classGroupId, classroomId, timeSlotId)
+			allocationItemService.findAll(schemeId, teachingTaskId, classroomId, timeSlotId)
 		);
 	}
 

@@ -2,6 +2,7 @@ package com.yuy.eduflow.allocation;
 
 import com.yuy.eduflow.common.ApiResponse;
 import java.util.List;
+import org.springframework.http.MediaType;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -11,6 +12,7 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 @RestController
 @RequestMapping("/api/allocation-tasks")
@@ -22,6 +24,7 @@ public class AllocationTaskController {
 	private final AllocationGeneratePreviewService allocationGeneratePreviewService;
 	private final AllocationGenerateParseService allocationGenerateParseService;
 	private final AllocationSchemeGenerationService allocationSchemeGenerationService;
+	private final GenerationTracker generationTracker;
 
 	public AllocationTaskController(
 		AllocationTaskService allocationTaskService,
@@ -30,7 +33,8 @@ public class AllocationTaskController {
 		AllocationPromptBuilderService allocationPromptBuilderService,
 		AllocationGeneratePreviewService allocationGeneratePreviewService,
 		AllocationGenerateParseService allocationGenerateParseService,
-		AllocationSchemeGenerationService allocationSchemeGenerationService
+		AllocationSchemeGenerationService allocationSchemeGenerationService,
+		GenerationTracker generationTracker
 	) {
 		this.allocationTaskService = allocationTaskService;
 		this.allocationSchemeService = allocationSchemeService;
@@ -39,6 +43,7 @@ public class AllocationTaskController {
 		this.allocationGeneratePreviewService = allocationGeneratePreviewService;
 		this.allocationGenerateParseService = allocationGenerateParseService;
 		this.allocationSchemeGenerationService = allocationSchemeGenerationService;
+		this.generationTracker = generationTracker;
 	}
 
 	@GetMapping
@@ -98,6 +103,28 @@ public class AllocationTaskController {
 		@RequestParam(required = false) Integer topK
 	) {
 		return ApiResponse.success(allocationSchemeGenerationService.generateSchemes(id, topK));
+	}
+
+	@PostMapping("/{id}/generate-async")
+	public ApiResponse<GenerationStatus> generateAsync(
+		@PathVariable Long id,
+		@RequestParam(required = false) Integer topK
+	) {
+		generationTracker.startGeneration(id, topK);
+		return ApiResponse.success(generationTracker.getStatus(id));
+	}
+
+	@GetMapping("/{id}/generation-status")
+	public ApiResponse<GenerationStatus> getGenerationStatus(@PathVariable Long id) {
+		return ApiResponse.success(generationTracker.getStatus(id));
+	}
+
+	@GetMapping(value = "/{id}/generate-sse", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
+	public SseEmitter generateSse(
+		@PathVariable Long id,
+		@RequestParam(required = false) Integer topK
+	) {
+		return generationTracker.startGenerationSse(id, topK);
 	}
 
 	@PostMapping

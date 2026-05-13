@@ -1,12 +1,17 @@
 package com.yuy.eduflow.allocation;
 
+import com.yuy.eduflow.course.Course;
+import com.yuy.eduflow.enums.TaskStatus;
+import com.yuy.eduflow.teacher.Teacher;
+import com.yuy.eduflow.teachingtask.TeachingTask;
 import java.util.List;
+import java.util.stream.Collectors;
 import org.springframework.stereotype.Service;
-import org.springframework.util.StringUtils;
+import org.springframework.transaction.annotation.Transactional;
 
 @Service
 public class AllocationTaskService {
-	private static final String DEFAULT_STATUS = "DRAFT";
+	
 
 	private final AllocationTaskMapper allocationTaskMapper;
 
@@ -15,7 +20,11 @@ public class AllocationTaskService {
 	}
 
 	public List<AllocationTask> findAll(String keyword, String status) {
-		return allocationTaskMapper.findAll(keyword, status);
+		List<AllocationTask> tasks = allocationTaskMapper.findAll(keyword, status);
+		for (AllocationTask task : tasks) {
+			task.setTeachingTasks(loadTeachingTasks(task.getId()));
+		}
+		return tasks;
 	}
 
 	public AllocationTask findById(Long id) {
@@ -23,41 +32,111 @@ public class AllocationTaskService {
 		if (task == null) {
 			throw new IllegalArgumentException("分课任务不存在");
 		}
+		task.setTeachingTasks(loadTeachingTasks(id));
 		return task;
 	}
 
+	private List<TeachingTask> loadTeachingTasks(Long taskId) {
+		List<AllocationTaskTeachingTaskResult> results = allocationTaskMapper.findTeachingTasks(taskId);
+		return results.stream().map(this::toTeachingTask).collect(Collectors.toList());
+	}
+
+	private TeachingTask toTeachingTask(AllocationTaskTeachingTaskResult r) {
+		TeachingTask tt = new TeachingTask();
+		tt.setId(r.getId());
+		tt.setCourseId(r.getCourseId());
+		tt.setPrimaryTeacherId(r.getPrimaryTeacherId());
+		tt.setAssistantTeacherId(r.getAssistantTeacherId());
+		tt.setTotalHours(r.getTotalHours());
+		tt.setClassroomId(r.getClassroomId());
+		tt.setNotes(r.getNotes());
+		tt.setStatus(r.getStatus());
+		tt.setCreatedAt(r.getCreatedAt());
+		tt.setUpdatedAt(r.getUpdatedAt());
+
+		if (r.getCourseName() != null) {
+			Course course = new Course();
+			course.setId(r.getCourseId());
+			course.setName(r.getCourseName());
+			tt.setCourse(course);
+		}
+		if (r.getPrimaryTeacherName() != null) {
+			Teacher teacher = new Teacher();
+			teacher.setId(r.getPrimaryTeacherId());
+			teacher.setName(r.getPrimaryTeacherName());
+			tt.setPrimaryTeacher(teacher);
+		}
+		if (r.getAssistantTeacherName() != null) {
+			Teacher teacher = new Teacher();
+			teacher.setId(r.getAssistantTeacherId());
+			teacher.setName(r.getAssistantTeacherName());
+			tt.setAssistantTeacher(teacher);
+		}
+		return tt;
+	}
+
+    @Transactional
 	public AllocationTask create(AllocationTaskRequest request) {
+        validateRequest(request);
 		AllocationTask task = toTask(new AllocationTask(), request);
 		allocationTaskMapper.insert(task);
+        if (request.teachingTaskIds() != null) {
+            bindTeachingTasks(task.getId(), request.teachingTaskIds());
+        }
 		return findById(task.getId());
 	}
 
+    @Transactional
 	public AllocationTask update(Long id, AllocationTaskRequest request) {
-		findById(id);
-		AllocationTask task = toTask(new AllocationTask(), request);
-		task.setId(id);
+		AllocationTask existing = findById(id);
+        validateRequest(request);
+		AllocationTask task = toTask(existing, request);
 		allocationTaskMapper.update(task);
+        allocationTaskMapper.deleteTeachingTasks(id);
+        if (request.teachingTaskIds() != null) {
+            bindTeachingTasks(id, request.teachingTaskIds());
+        }
 		return findById(id);
 	}
 
+    @Transactional
 	public void delete(Long id) {
 		findById(id);
-		allocationTaskMapper.cancel(id);
+        allocationTaskMapper.deleteTeachingTasks(id);
+		allocationTaskMapper.cancel(id, TaskStatus.REJECTED.code());
 	}
 
+    private void bindTeachingTasks(Long taskId, List<Long> teachingTaskIds) {
+        for (Long teachingTaskId : teachingTaskIds) {
+            if (teachingTaskId != null && teachingTaskId > 0) {
+                allocationTaskMapper.insertTeachingTask(taskId, teachingTaskId);
+            }
+        }
+    }
+
 	private AllocationTask toTask(AllocationTask task, AllocationTaskRequest request) {
-		if (!StringUtils.hasText(request.name())) {
-			throw new IllegalArgumentException("分课任务名称不能为空");
-		}
-		task.setName(request.name().trim());
-		task.setDescription(clean(request.description()));
-		task.setPriorityRule(clean(request.priorityRule()));
-		task.setStatus(StringUtils.hasText(request.status()) ? request.status().trim() : DEFAULT_STATUS);
-		task.setCreatedBy(clean(request.createdBy()));
+        task.setName(request.name());
+        task.setDescription(request.description());
+        task.setStartWeek(request.startWeek() != null ? request.startWeek() : 1);
+        task.setEndWeek(request.endWeek() != null ? request.endWeek() : 18);
+        task.setStatus(
+                request.status() != null && !request.status().isBlank() ? request.status().trim() : TaskStatus.DRAFT.code());
+        task.setCreatedBy(request.createdBy());
 		return task;
 	}
 
-	private String clean(String value) {
-		return StringUtils.hasText(value) ? value.trim() : null;
+    private void validateRequest(AllocationTaskRequest request) {
+        if (request.name() == null || request.name().isBlank()) {
+            throw new IllegalArgumentException("任务名称不能为空");
+        }
+        if (request.startWeek() != null && (request.startWeek() < 1 || request.startWeek() > 18)) {
+            throw new IllegalArgumentException("起始周次必须在1到18之间");
+        }
+        if (request.endWeek() != null && (request.endWeek() < 1 || request.endWeek() > 18)) {
+            throw new IllegalArgumentException("结束周次必须在1到18之间");
+        }
+        if (request.startWeek() != null && request.endWeek() != null && request.startWeek() > request.endWeek()) {
+            throw new IllegalArgumentException("起始周次不能大于结束周次");
+        }
 	}
 }

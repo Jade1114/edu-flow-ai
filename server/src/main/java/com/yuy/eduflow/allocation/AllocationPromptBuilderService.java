@@ -1,86 +1,80 @@
 package com.yuy.eduflow.allocation;
 
 import com.yuy.eduflow.classgroup.ClassGroup;
-import com.yuy.eduflow.classgroup.ClassGroupService;
-import com.yuy.eduflow.classroom.Classroom;
-import com.yuy.eduflow.classroom.ClassroomService;
 import com.yuy.eduflow.course.Course;
-import com.yuy.eduflow.course.CourseService;
+import com.yuy.eduflow.teachingtask.TeachingTask;
 import com.yuy.eduflow.timeslot.TimeSlot;
 import com.yuy.eduflow.timeslot.TimeSlotService;
+import java.io.InputStream;
+import java.nio.charset.StandardCharsets;
 import java.util.List;
 import java.util.function.Function;
 import java.util.stream.Collectors;
+import lombok.extern.slf4j.Slf4j;
+import com.yuy.eduflow.enums.ActiveStatus;
+import org.springframework.core.io.ClassPathResource;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 
+@Slf4j
 @Service
 public class AllocationPromptBuilderService {
-	private static final String ACTIVE_STATUS = "ACTIVE";
-	private static final int COURSE_LIST_LIMIT = 30;
-	private static final int CLASS_GROUP_LIST_LIMIT = 40;
-	private static final int CLASSROOM_LIST_LIMIT = 20;
+	
 	private static final int TIME_SLOT_LIST_LIMIT = 30;
 	private static final int TEACHER_PROFILE_TEXT_LIMIT = 220;
 	private static final int TEXT_FIELD_LIMIT = 220;
 
 	private final AllocationTaskService allocationTaskService;
 	private final AllocationRagContextService allocationRagContextService;
-	private final CourseService courseService;
-	private final ClassGroupService classGroupService;
-	private final ClassroomService classroomService;
 	private final TimeSlotService timeSlotService;
 
 	public AllocationPromptBuilderService(
 		AllocationTaskService allocationTaskService,
 		AllocationRagContextService allocationRagContextService,
-		CourseService courseService,
-		ClassGroupService classGroupService,
-		ClassroomService classroomService,
 		TimeSlotService timeSlotService
 	) {
 		this.allocationTaskService = allocationTaskService;
 		this.allocationRagContextService = allocationRagContextService;
-		this.courseService = courseService;
-		this.classGroupService = classGroupService;
-		this.classroomService = classroomService;
 		this.timeSlotService = timeSlotService;
 	}
 
+	private static String readResource(String path) {
+		try {
+			InputStream is = new ClassPathResource(path).getInputStream();
+			return new String(is.readAllBytes(), StandardCharsets.UTF_8).trim();
+		} catch (Exception e) {
+			throw new RuntimeException("读取 prompt 文件失败: " + path, e);
+		}
+	}
+
 	public AllocationPromptPreview buildPreview(Long taskId, Integer topK) {
+		log.info("=== PromptBuilder buildPreview() start === taskId={}, topK={}", taskId, topK);
 		AllocationTask task = allocationTaskService.findById(taskId);
 		AllocationRagContext ragContext = allocationRagContextService.buildContext(taskId, topK);
-		List<Course> courses = courseService.findAll(null, ACTIVE_STATUS);
-		List<ClassGroup> classGroups = classGroupService.findAll(null);
-		List<Classroom> classrooms = classroomService.findAll(null, ACTIVE_STATUS);
 		List<TimeSlot> timeSlots = timeSlotService.findAll(null, null);
 		String outputSchema = buildOutputSchema();
+		String systemPrompt = buildSystemPrompt();
+		String userPrompt = buildUserPrompt(task, timeSlots, ragContext, outputSchema);
+		log.info("Prompt built: sysPrompt={} chars, userPrompt={} chars, teachersInRag={}",
+			systemPrompt.length(), userPrompt.length(),
+			ragContext.teachers() != null ? ragContext.teachers().size() : 0);
+		log.info("=== PromptBuilder buildPreview() end ===");
 		return new AllocationPromptPreview(
 			task.getId(),
 			task.getName(),
-			buildSystemPrompt(),
-			buildUserPrompt(task, courses, classGroups, classrooms, timeSlots, ragContext, outputSchema),
+			systemPrompt,
+			userPrompt,
 			outputSchema,
 			ragContext
 		);
 	}
 
 	private String buildSystemPrompt() {
-		return """
-			你是高校教务分课助手，负责根据后端提供的结构化数据和教师画像生成候选分课方案。
-			你只能使用输入中明确给出的 ID：courseId、classGroupId、teacherId、classroomId、timeSlotId。
-			不得编造课程、班级、教师、教室或时间段；不得输出未提供的 ID。
-			你必须只输出合法 JSON，不输出 Markdown、解释文字或代码块。
-			你需要尽量满足教师能力、可用时间、不可用时间、工作量、教室容量和分课优先规则。
-			你不负责最终合法性判定；后端会继续执行确定性的冲突检测和落库校验。
-			""".trim();
+		return readResource("prompts/system-prompt.md");
 	}
 
 	private String buildUserPrompt(
 		AllocationTask task,
-		List<Course> courses,
-		List<ClassGroup> classGroups,
-		List<Classroom> classrooms,
 		List<TimeSlot> timeSlots,
 		AllocationRagContext ragContext,
 		String outputSchema
@@ -92,78 +86,39 @@ public class AllocationPromptBuilderService {
 		appendLine(prompt, "taskId: " + task.getId());
 		appendLine(prompt, "taskName: " + task.getName());
 		appendLine(prompt, "description: " + valueOrDefault(task.getDescription(), "未提供"));
-		appendLine(prompt, "priorityRule: " + valueOrDefault(task.getPriorityRule(), "优先匹配教师课程能力、可用时间、工作量约束与特殊说明。"));
+		appendLine(prompt, "priorityRule: 优先匹配教师可用时间、不可用时间、工作量约束与特殊说明。");
 		appendLine(prompt, "");
-		appendLine(prompt, "## 课程列表（ACTIVE，共 " + courses.size() + " 门，以下为预览摘要）");
-		appendLine(prompt, summarize(courses, COURSE_LIST_LIMIT, this::formatCourse));
+		appendLine(prompt, "## 教学任务列表（本分课任务包含以下教学任务，必须按照每个教学任务的 totalHours 分配排课片段）");
+		appendLine(prompt, formatTeachingTasks(task));
 		appendLine(prompt, "");
-		appendLine(prompt, "## 班级列表（全部，共 " + classGroups.size() + " 个，以下为预览摘要）");
-		appendLine(prompt, summarize(classGroups, CLASS_GROUP_LIST_LIMIT, this::formatClassGroup));
-		appendLine(prompt, "");
-		appendLine(prompt, "## 可用教室（ACTIVE，共 " + classrooms.size() + " 间，以下为预览摘要）");
-		appendLine(prompt, summarize(classrooms, CLASSROOM_LIST_LIMIT, this::formatClassroom));
-		appendLine(prompt, "");
-		appendLine(prompt, "## 可用时间段（共 " + timeSlots.size() + " 个，以下为预览摘要）");
-		appendLine(prompt, summarize(timeSlots, TIME_SLOT_LIST_LIMIT, this::formatTimeSlot));
+		appendLine(prompt, "## 可用时间段（第 " + task.getStartWeek() + " ~ " + task.getEndWeek() + " 周，周一 ~ 周日，每天 5 节：上午 2 节、下午 2 节、晚上 1 节，共 " + timeSlots.size() + " 个）");
+		appendLine(prompt, formatTimeSlotSummary(timeSlots, task));
 		appendLine(prompt, "");
 		appendLine(prompt, "## RAG 检索到的教师画像（topK=" + ragContext.topK() + "）");
 		appendLine(prompt, "ragQuery: " + ragContext.query());
 		appendLine(prompt, summarize(ragContext.teachers(), ragContext.teachers().size(), this::formatTeacherProfile));
 		appendLine(prompt, "");
 		appendLine(prompt, "## 固定规则");
-		appendLine(prompt, "1. 只允许使用上文列出的 courseId、classGroupId、teacherId、classroomId、timeSlotId。");
-		appendLine(prompt, "2. 每个 items 元素表示一个课程、班级、教师、教室和时间段的分配建议。");
-		appendLine(prompt, "3. 优先匹配课程 requiredSkill 与教师画像中的 skillText / vectorText。");
-		appendLine(prompt, "4. 尽量避开教师 unavailableTimeText，优先使用 availableTimeText 中匹配的时间。");
-		appendLine(prompt, "5. 尽量让 classroom.capacity 覆盖 classGroup.studentCount，并匹配 classroomType 与 courseType。");
-		appendLine(prompt, "6. 尽量避免同一教师、同一班级、同一教室在同一 timeSlotId 重复出现，但最终冲突检测以后端为准。");
-		appendLine(prompt, "7. 如果信息不足，不要编造 ID；可以减少安排数量，并在 summary 或 satisfiedSummary 中说明原因。");
+		String rules = readResource("prompts/rules.md")
+			.replace("{startWeek}", String.valueOf(task.getStartWeek()))
+			.replace("{endWeek}", String.valueOf(task.getEndWeek()));
+		appendLine(prompt, rules);
 		appendLine(prompt, "");
+		List<TeachingTask> teachingTasks = task.getTeachingTasks();
+		int totalTasks = teachingTasks != null ? teachingTasks.size() : 0;
+		int totalItems = teachingTasks != null
+			? teachingTasks.stream().mapToInt(tt -> tt.getTotalHours() / 2).sum()
+			: 0;
 		appendLine(prompt, "## 输出要求");
+		appendLine(prompt, "本排课任务共 " + totalTasks + " 个教学任务，总计需要 " + totalItems + " 个排课片段。");
+		appendLine(prompt, "请确保 items 数组中包含所有教学任务的全部排课片段，每个教学任务恰好 " + totalHoursPhrase(teachingTasks) + "。");
 		appendLine(prompt, "只输出 JSON，业务输出必须符合以下 JSON Schema；items 中不得包含 schema 未列字段：");
 		appendLine(prompt, outputSchema);
 		return prompt.toString().trim();
 	}
 
 	private String buildOutputSchema() {
-		return """
-			{
-			  "type": "object",
-			  "required": ["schemes"],
-			  "additionalProperties": false,
-			  "properties": {
-			    "schemes": {
-			      "type": "array",
-			      "items": {
-			        "type": "object",
-			        "required": ["schemeName", "summary", "score", "satisfiedSummary", "items"],
-			        "additionalProperties": false,
-			        "properties": {
-			          "schemeName": { "type": "string" },
-			          "summary": { "type": "string" },
-			          "score": { "type": "integer", "minimum": 0, "maximum": 100 },
-			          "satisfiedSummary": { "type": "string" },
-			          "items": {
-			            "type": "array",
-			            "items": {
-			              "type": "object",
-			              "required": ["courseId", "classGroupId", "teacherId", "classroomId", "timeSlotId"],
-			              "additionalProperties": false,
-			              "properties": {
-			                "courseId": { "type": "integer" },
-			                "classGroupId": { "type": "integer" },
-			                "teacherId": { "type": "integer" },
-			                "classroomId": { "type": "integer" },
-			                "timeSlotId": { "type": "integer" }
-			              }
-			            }
-			          }
-			        }
-			      }
-			    }
-			  }
-			}
-			""".trim();
+		return readResource("prompts/output-schema.json");
 	}
 
 	private void appendLine(StringBuilder builder, String value) {
@@ -184,38 +139,100 @@ public class AllocationPromptBuilderService {
 		return summary;
 	}
 
-	private String formatCourse(Course course) {
-		return "- courseId=" + course.getId()
-			+ ", name=" + course.getName()
-			+ optionalPart("courseType", course.getCourseType())
-			+ optionalPart("requiredHours", course.getRequiredHours())
-			+ optionalPart("requiredSkill", course.getRequiredSkill())
-			+ optionalPart("description", course.getDescription());
+	private String formatTeachingTasks(AllocationTask task) {
+		List<TeachingTask> teachingTasks = task.getTeachingTasks();
+		if (teachingTasks == null || teachingTasks.isEmpty()) {
+			return "无";
+		}
+		StringBuilder sb = new StringBuilder();
+		for (TeachingTask tt : teachingTasks) {
+			Course course = tt.getCourse();
+			String courseName = course != null ? course.getName() : "未知课程";
+			String courseType = course != null ? course.getCourseType() : null;
+			String teacherName = tt.getPrimaryTeacher() != null ? tt.getPrimaryTeacher().getName() : "未知教师";
+			sb.append("- teachingTaskId=").append(tt.getId())
+				.append(", course=").append(courseName);
+			if (courseType != null) {
+				sb.append("(").append(courseType).append(")");
+			}
+			sb.append(", teacher=").append(teacherName)
+				.append(", totalHours=").append(tt.getTotalHours())
+				.append("（需安排 ").append(tt.getTotalHours() / 2).append(" 个片段）");
+			// 班级信息
+			List<ClassGroup> groups = tt.getClassGroups();
+			if (groups != null && !groups.isEmpty()) {
+				sb.append(", classes=");
+				for (int i = 0; i < groups.size(); i++) {
+					ClassGroup g = groups.get(i);
+					if (i > 0) sb.append("+");
+					sb.append(g.getName()).append("(").append(g.getStudentCount()).append("人)");
+				}
+			}
+			sb.append('\n');
+		}
+		return sb.toString().trim();
 	}
 
-	private String formatClassGroup(ClassGroup classGroup) {
-		return "- classGroupId=" + classGroup.getId()
-			+ ", name=" + classGroup.getName()
-			+ optionalPart("major", classGroup.getMajor())
-			+ optionalPart("grade", classGroup.getGrade())
-			+ optionalPart("studentCount", classGroup.getStudentCount())
-			+ optionalPart("description", classGroup.getDescription());
+	private String totalHoursPhrase(List<TeachingTask> tasks) {
+		if (tasks == null || tasks.isEmpty()) return "0个片段";
+		long distinct = tasks.stream().map(tt -> tt.getTotalHours() / 2).distinct().count();
+		if (distinct == 1) {
+			return tasks.getFirst().getTotalHours() / 2 + "个片段";
+		}
+		StringBuilder sb = new StringBuilder();
+		for (TeachingTask tt : tasks) {
+			sb.append("teachingTaskId=").append(tt.getId())
+				.append(": ").append(tt.getTotalHours() / 2).append("个, ");
+		}
+		return sb.substring(0, sb.length() - 2);
 	}
 
-	private String formatClassroom(Classroom classroom) {
-		return "- classroomId=" + classroom.getId()
-			+ ", name=" + classroom.getName()
-			+ optionalPart("building", classroom.getBuilding())
-			+ optionalPart("capacity", classroom.getCapacity())
-			+ optionalPart("classroomType", classroom.getClassroomType());
+	private String formatTimeSlotSummary(List<TimeSlot> timeSlots, AllocationTask task) {
+		if (timeSlots.isEmpty()) {
+			return "无";
+		}
+		int startWeek = task.getStartWeek() != null ? task.getStartWeek() : 1;
+		int endWeek = task.getEndWeek() != null ? task.getEndWeek() : 18;
+		int slotsPerWeek = 35; // 7天 × 5节
+
+		StringBuilder sb = new StringBuilder();
+		sb.append("时间段说明：每 ").append(slotsPerWeek).append(" 个 timeSlotId 为一周循环。示例：\n");
+		// 取起始周、中间周、结束周的第1个时间段作为示例
+		int[] sampleWeeks = {startWeek, (startWeek + endWeek) / 2, endWeek};
+		for (int i = 0; i < sampleWeeks.length; i++) {
+			int idx = (sampleWeeks[i] - 1) * slotsPerWeek;
+			if (idx < timeSlots.size()) {
+				TimeSlot ts = timeSlots.get(idx);
+				sb.append("- timeSlotId=").append(ts.getId())
+					.append(", weekNumber=").append(ts.getWeekNumber())
+					.append(", dayOfWeek=").append(ts.getDayOfWeek())
+					.append(", periodIndex=").append(ts.getPeriodIndex())
+					.append(" (第").append(ts.getWeekNumber()).append("周 周")
+					.append(dayName(ts.getDayOfWeek())).append(" 第").append(ts.getPeriodIndex()).append("节)\n");
+			}
+		}
+		// 再加一个晚上第5节的示例
+		int eveningIdx = (startWeek - 1) * slotsPerWeek + 4; // 周一第5节（晚上）
+		if (eveningIdx < timeSlots.size()) {
+			TimeSlot ts = timeSlots.get(eveningIdx);
+			sb.append("- timeSlotId=").append(ts.getId())
+				.append(", weekNumber=").append(ts.getWeekNumber())
+				.append(", dayOfWeek=").append(ts.getDayOfWeek())
+				.append(", periodIndex=").append(ts.getPeriodIndex())
+				.append(" (第").append(ts.getWeekNumber()).append("周 周")
+				.append(dayName(ts.getDayOfWeek())).append(" 第").append(ts.getPeriodIndex()).append("节，晚间)\n");
+		}
+		sb.append("其他时间段按相同规律类推，timeSlotId 随 weekNumber 递增。所有 weekNumber 均可以在第 ")
+			.append(startWeek).append(" ~ ").append(endWeek).append(" 周范围内自由使用。");
+		return sb.toString().trim();
 	}
 
-	private String formatTimeSlot(TimeSlot timeSlot) {
-		return "- timeSlotId=" + timeSlot.getId()
-			+ ", weekNumber=" + timeSlot.getWeekNumber()
-			+ ", dayOfWeek=" + timeSlot.getDayOfWeek()
-			+ ", periodIndex=" + timeSlot.getPeriodIndex()
-			+ optionalPart("label", timeSlot.getLabel());
+	private String dayName(int dayOfWeek) {
+		return switch (dayOfWeek) {
+			case 1 -> "一"; case 2 -> "二"; case 3 -> "三"; case 4 -> "四";
+			case 5 -> "五"; case 6 -> "六"; case 7 -> "日";
+			default -> "?";
+		};
 	}
 
 	private String formatTeacherProfile(AllocationRagTeacherResult teacher) {

@@ -7,9 +7,7 @@ import lombok.Data;
 public class AllocationItem {
 	private Long id;
 	private Long schemeId;
-	private Long courseId;
-	private Long classGroupId;
-	private Long teacherId;
+	private Long teachingTaskId;
 	private Long classroomId;
 	private Long timeSlotId;
 	private Boolean valid;

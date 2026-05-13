@@ -1,12 +1,13 @@
 package com.yuy.eduflow.allocation;
 
+import com.yuy.eduflow.enums.SchemeStatus;
 import java.util.List;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 
 @Service
 public class AllocationSchemeService {
-	private static final String DEFAULT_STATUS = "CANDIDATE";
+	
 
 	private final AllocationSchemeMapper allocationSchemeMapper;
 
@@ -36,16 +37,15 @@ public class AllocationSchemeService {
 	}
 
 	public AllocationScheme update(Long id, AllocationSchemeRequest request) {
-		findById(id);
-		AllocationScheme scheme = toScheme(new AllocationScheme(), request);
-		scheme.setId(id);
+		AllocationScheme existing = findById(id);
+		AllocationScheme scheme = toScheme(existing, request);
 		allocationSchemeMapper.update(scheme);
 		return findById(id);
 	}
 
 	public void delete(Long id) {
 		findById(id);
-		allocationSchemeMapper.reject(id);
+		allocationSchemeMapper.updateStatus(id, SchemeStatus.REJECTED.code());
 	}
 
 	private AllocationScheme toScheme(AllocationScheme scheme, AllocationSchemeRequest request) {
@@ -63,7 +63,7 @@ public class AllocationSchemeService {
 		scheme.setSatisfiedSummary(clean(request.satisfiedSummary()));
 		scheme.setConflictSummary(clean(request.conflictSummary()));
 		scheme.setValid(request.valid() != null ? request.valid() : true);
-		scheme.setStatus(StringUtils.hasText(request.status()) ? request.status().trim() : DEFAULT_STATUS);
+		scheme.setStatus(StringUtils.hasText(request.status()) ? request.status().trim() : SchemeStatus.CANDIDATE.code());
 		return scheme;
 	}
 

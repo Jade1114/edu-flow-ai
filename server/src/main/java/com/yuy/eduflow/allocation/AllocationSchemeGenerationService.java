@@ -2,16 +2,20 @@ package com.yuy.eduflow.allocation;
 
 import com.yuy.eduflow.conflict.ConflictCheckResult;
 import com.yuy.eduflow.conflict.ConflictCheckResultMapper;
+import com.yuy.eduflow.teachingtask.TeachingTaskMapper;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
+import java.util.function.Consumer;
+import com.yuy.eduflow.enums.SchemeStatus;
 import java.util.List;
 import java.util.Map;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
 
+@Slf4j
 @Service
 public class AllocationSchemeGenerationService {
-	private static final String CANDIDATE_STATUS = "CANDIDATE";
+	
 	private static final String CONFLICT_BIZ_TYPE = "ALLOCATION_ITEM";
 
 	private final AllocationGenerateParseService allocationGenerateParseService;
@@ -19,23 +23,26 @@ public class AllocationSchemeGenerationService {
 	private final AllocationItemMapper allocationItemMapper;
 	private final ConflictCheckResultMapper conflictCheckResultMapper;
 	private final AllocationSchemeConflictDetector conflictDetector;
+	private final TeachingTaskMapper teachingTaskMapper;
 
 	public AllocationSchemeGenerationService(
 		AllocationGenerateParseService allocationGenerateParseService,
 		AllocationSchemeMapper allocationSchemeMapper,
 		AllocationItemMapper allocationItemMapper,
 		ConflictCheckResultMapper conflictCheckResultMapper,
-		AllocationSchemeConflictDetector conflictDetector
+		AllocationSchemeConflictDetector conflictDetector,
+		TeachingTaskMapper teachingTaskMapper
 	) {
 		this.allocationGenerateParseService = allocationGenerateParseService;
 		this.allocationSchemeMapper = allocationSchemeMapper;
 		this.allocationItemMapper = allocationItemMapper;
 		this.conflictCheckResultMapper = conflictCheckResultMapper;
 		this.conflictDetector = conflictDetector;
+		this.teachingTaskMapper = teachingTaskMapper;
 	}
 
-	@Transactional
 	public AllocationGenerateResult generateSchemes(Long taskId, Integer topK) {
+		log.info("=== SchemeGeneration generateSchemes() start === taskId={}, topK={}", taskId, topK);
 		if (taskId == null) {
 			throw new IllegalArgumentException("分课任务ID不能为空");
 		}
@@ -43,21 +50,89 @@ public class AllocationSchemeGenerationService {
 			throw new IllegalArgumentException("分课任务ID必须大于0");
 		}
 		AllocationParsePreview parsePreview = allocationGenerateParseService.generateParsePreview(taskId, topK);
-		allocationSchemeMapper.rejectCandidatesByTaskId(taskId);
+		log.info("Parsed {} schemes from LLM, rejecting old candidates...",
+			parsePreview.schemes() != null ? parsePreview.schemes().size() : 0);
+		allocationSchemeMapper.rejectCandidatesByTaskId(taskId, SchemeStatus.CANDIDATE.code(), SchemeStatus.REJECTED.code());
+		log.info("Old candidates rejected");
 
 		List<AllocationScheme> generatedSchemes = new ArrayList<>();
 		for (AllocationParsedScheme parsedScheme : safeSchemes(parsePreview)) {
+			log.info("Persisting scheme [{}]...", parsedScheme.schemeName());
 			AllocationScheme scheme = persistScheme(taskId, parsedScheme);
+			log.info("Scheme persisted: id={}, name={}", scheme.getId(), scheme.getSchemeName());
 			List<AllocationItem> items = persistItems(scheme.getId(), parsedScheme.items());
+			log.info("Persisted {} items for scheme id={}", items.size(), scheme.getId());
 			List<AllocationConflictViolation> violations = conflictDetector.detect(items);
+			log.info("Conflict detection: {} violations found", violations.size());
 			applyItemConflictState(items, violations);
 			persistConflictResults(scheme.getId(), violations);
 			String conflictSummary = conflictDetector.summarize(violations);
 			boolean valid = violations.isEmpty();
 			allocationSchemeMapper.updateConflictState(scheme.getId(), valid, conflictSummary);
+			log.info("Scheme id={}: valid={}, conflictSummary=[{}]", scheme.getId(), valid, conflictSummary);
 			generatedSchemes.add(allocationSchemeMapper.findById(scheme.getId()));
 		}
 
+		log.info("=== SchemeGeneration generateSchemes() end === totalSchemes={}", generatedSchemes.size());
+		return new AllocationGenerateResult(parsePreview.taskId(), generatedSchemes.size(), generatedSchemes);
+	}
+
+	/**
+	 * SSE 版本的生成方法。在原有逻辑基础上插入进度回调，推送给前端。
+	 */
+	public AllocationGenerateResult generateSchemesWithProgress(Long taskId, Integer topK, Consumer<ProgressEvent> callback) {
+		log.info("=== SchemeGeneration generateSchemesWithProgress() start === taskId={}, topK={}", taskId, topK);
+		if (taskId == null) {
+			throw new IllegalArgumentException("分课任务ID不能为空");
+		}
+		if (taskId <= 0) {
+			throw new IllegalArgumentException("分课任务ID必须大于0");
+		}
+
+		long t0 = System.currentTimeMillis();
+		AllocationParsePreview parsePreview = allocationGenerateParseService.generateParsePreview(taskId, topK, callback);
+		log.info("[{}ms] ParsePreview done: {} schemes", System.currentTimeMillis() - t0,
+			parsePreview.schemes() != null ? parsePreview.schemes().size() : 0);
+
+		log.info("Parsed {} schemes from LLM, rejecting old candidates...",
+			parsePreview.schemes() != null ? parsePreview.schemes().size() : 0);
+		allocationSchemeMapper.rejectCandidatesByTaskId(taskId, SchemeStatus.CANDIDATE.code(), SchemeStatus.REJECTED.code());
+		log.info("Old candidates rejected");
+
+		List<AllocationParsedScheme> parsedSchemes = safeSchemes(parsePreview);
+		int total = parsedSchemes.size();
+		callback.accept(ProgressEvent.of("parse", 50, "解析完成，共 " + total + " 个方案，开始持久化..."));
+
+		List<AllocationScheme> generatedSchemes = new ArrayList<>();
+		for (int i = 0; i < total; i++) {
+			AllocationParsedScheme parsedScheme = parsedSchemes.get(i);
+			int percent = 50 + (i + 1) * 40 / total;
+			log.info("Persisting scheme [{}]...", parsedScheme.schemeName());
+			callback.accept(ProgressEvent.of("persist", percent, "正在持久化方案 " + (i + 1) + "/" + total));
+
+			AllocationScheme scheme = persistScheme(taskId, parsedScheme);
+			log.info("Scheme persisted: id={}, name={}", scheme.getId(), scheme.getSchemeName());
+			List<AllocationItem> items = persistItems(scheme.getId(), parsedScheme.items());
+
+			log.info("Persisted {} items for scheme id={}", items.size(), scheme.getId());
+			callback.accept(ProgressEvent.of("persist", percent, "方案 " + (i + 1) + "/" + total + " 入库完成，检测冲突..."));
+
+			List<AllocationConflictViolation> violations = conflictDetector.detect(items);
+			log.info("Conflict detection: {} violations found", violations.size());
+			applyItemConflictState(items, violations);
+			persistConflictResults(scheme.getId(), violations);
+			String conflictSummary = conflictDetector.summarize(violations);
+			boolean valid = violations.isEmpty();
+			allocationSchemeMapper.updateConflictState(scheme.getId(), valid, conflictSummary);
+			log.info("Scheme id={}: valid={}, conflictSummary=[{}]", scheme.getId(), valid, conflictSummary);
+			generatedSchemes.add(allocationSchemeMapper.findById(scheme.getId()));
+
+			// 逐方案推送
+			callback.accept(ProgressEvent.schemeReady(i, parsedScheme.schemeName()));
+		}
+
+		log.info("=== SchemeGeneration generateSchemesWithProgress() end === totalSchemes={}", generatedSchemes.size());
+		callback.accept(ProgressEvent.done(generatedSchemes.size()));
 		return new AllocationGenerateResult(parsePreview.taskId(), generatedSchemes.size(), generatedSchemes);
 	}
 
@@ -70,11 +145,11 @@ public class AllocationSchemeGenerationService {
 		scheme.setTaskId(taskId);
 		scheme.setSchemeName(parsedScheme.schemeName());
 		scheme.setSummary(parsedScheme.summary());
-		scheme.setScore(parsedScheme.score());
+		scheme.setScore(null);
 		scheme.setSatisfiedSummary(parsedScheme.satisfiedSummary());
 		scheme.setConflictSummary(null);
 		scheme.setValid(true);
-		scheme.setStatus(CANDIDATE_STATUS);
+		scheme.setStatus(SchemeStatus.CANDIDATE.code());
 		allocationSchemeMapper.insert(scheme);
 		return scheme;
 	}
@@ -87,10 +162,10 @@ public class AllocationSchemeGenerationService {
 		for (AllocationParsedItem parsedItem : parsedItems) {
 			AllocationItem item = new AllocationItem();
 			item.setSchemeId(schemeId);
-			item.setCourseId(parsedItem.courseId());
-			item.setClassGroupId(parsedItem.classGroupId());
-			item.setTeacherId(parsedItem.teacherId());
-			item.setClassroomId(parsedItem.classroomId());
+			item.setTeachingTaskId(parsedItem.teachingTaskId());
+			// 教室由教学任务绑定的固定教室决定，AI 输出已不包含 classroomId
+			var tt = teachingTaskMapper.findById(parsedItem.teachingTaskId());
+			item.setClassroomId(tt != null ? tt.getClassroomId() : null);
 			item.setTimeSlotId(parsedItem.timeSlotId());
 			item.setValid(true);
 			item.setConflictMessage(null);

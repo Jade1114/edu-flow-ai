@@ -43,9 +43,9 @@ public class AllocationSchemeController {
 	}
 
 	@GetMapping("/{id}/items")
-	public ApiResponse<List<AllocationItem>> findItems(@PathVariable Long id) {
+	public ApiResponse<List<AllocationItemView>> findItems(@PathVariable Long id) {
 		allocationSchemeService.findById(id);
-		return ApiResponse.success(allocationItemService.findAll(id, null, null, null, null));
+		return ApiResponse.success(allocationItemService.findViewsBySchemeId(id));
 	}
 
 	@PostMapping
@@ -67,5 +67,19 @@ public class AllocationSchemeController {
 	public ApiResponse<Void> delete(@PathVariable Long id) {
 		allocationSchemeService.delete(id);
 		return ApiResponse.success();
+	}
+
+	@PutMapping("/{schemeId}/items/{itemId}")
+	public ApiResponse<List<AllocationItemView>> moveItem(
+		@PathVariable Long schemeId,
+		@PathVariable Long itemId,
+		@RequestBody AllocationItemMoveRequest request
+	) {
+		return ApiResponse.success(allocationItemService.moveAndRecheck(schemeId, itemId, request));
+	}
+
+	@PostMapping("/{schemeId}/recheck")
+	public ApiResponse<List<AllocationItemView>> recheckConflicts(@PathVariable Long schemeId) {
+		return ApiResponse.success(allocationItemService.recheckScheme(schemeId));
 	}
 }

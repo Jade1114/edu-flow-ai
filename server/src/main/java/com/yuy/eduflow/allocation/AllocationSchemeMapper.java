@@ -65,18 +65,15 @@ public interface AllocationSchemeMapper {
 
 	@Update("""
 		UPDATE allocation_scheme
-		SET status = 'REJECTED'
-		WHERE id = #{id}
-		""")
-	int reject(Long id);
-
-	@Update("""
-		UPDATE allocation_scheme
-		SET status = 'REJECTED'
+		SET status = #{newStatus}
 		WHERE task_id = #{taskId}
-		  AND status = 'CANDIDATE'
+		  AND status = #{oldStatus}
 		""")
-	int rejectCandidatesByTaskId(@Param("taskId") Long taskId);
+	int rejectCandidatesByTaskId(
+		@Param("taskId") Long taskId,
+		@Param("oldStatus") String oldStatus,
+		@Param("newStatus") String newStatus
+	);
 
 	@Update("""
 		UPDATE allocation_scheme
@@ -87,14 +84,16 @@ public interface AllocationSchemeMapper {
 
 	@Update("""
 		UPDATE allocation_scheme
-		SET status = 'REJECTED'
+		SET status = #{newStatus}
 		WHERE task_id = #{taskId}
 		  AND id <> #{confirmedSchemeId}
-		  AND status = 'CANDIDATE'
+		  AND status = #{oldStatus}
 		""")
 	int rejectOtherCandidates(
 		@Param("taskId") Long taskId,
-		@Param("confirmedSchemeId") Long confirmedSchemeId
+		@Param("confirmedSchemeId") Long confirmedSchemeId,
+		@Param("oldStatus") String oldStatus,
+		@Param("newStatus") String newStatus
 	);
 
 	@Update("""

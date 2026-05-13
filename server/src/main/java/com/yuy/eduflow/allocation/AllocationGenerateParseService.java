@@ -1,21 +1,25 @@
 package com.yuy.eduflow.allocation;
 
-import com.yuy.eduflow.classgroup.ClassGroupService;
 import com.yuy.eduflow.classroom.ClassroomService;
-import com.yuy.eduflow.course.CourseService;
-import com.yuy.eduflow.teacher.TeacherService;
+import com.yuy.eduflow.teachingtask.TeachingTask;
+import com.yuy.eduflow.teachingtask.TeachingTaskMapper;
 import com.yuy.eduflow.timeslot.TimeSlotService;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
+import java.util.function.Consumer;
 import java.util.function.Supplier;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
+import java.util.stream.Collectors;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 import tools.jackson.core.JacksonException;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;
 
+@Slf4j
 @Service
 public class AllocationGenerateParseService {
 	private static final Pattern CODE_FENCE_PATTERN = Pattern.compile(
@@ -24,38 +28,54 @@ public class AllocationGenerateParseService {
 	);
 
 	private final AllocationGeneratePreviewService allocationGeneratePreviewService;
-	private final CourseService courseService;
-	private final ClassGroupService classGroupService;
-	private final TeacherService teacherService;
+	private final TeachingTaskMapper teachingTaskMapper;
+	private final AllocationTaskMapper allocationTaskMapper;
 	private final ClassroomService classroomService;
 	private final TimeSlotService timeSlotService;
 	private final ObjectMapper objectMapper;
 
 	public AllocationGenerateParseService(
 		AllocationGeneratePreviewService allocationGeneratePreviewService,
-		CourseService courseService,
-		ClassGroupService classGroupService,
-		TeacherService teacherService,
+		TeachingTaskMapper teachingTaskMapper,
+		AllocationTaskMapper allocationTaskMapper,
 		ClassroomService classroomService,
 		TimeSlotService timeSlotService,
 		ObjectMapper objectMapper
 	) {
 		this.allocationGeneratePreviewService = allocationGeneratePreviewService;
-		this.courseService = courseService;
-		this.classGroupService = classGroupService;
-		this.teacherService = teacherService;
+		this.teachingTaskMapper = teachingTaskMapper;
+		this.allocationTaskMapper = allocationTaskMapper;
 		this.classroomService = classroomService;
 		this.timeSlotService = timeSlotService;
 		this.objectMapper = objectMapper;
 	}
 
 	public AllocationParsePreview generateParsePreview(Long taskId, Integer topK) {
-		AllocationGeneratePreview generatePreview = allocationGeneratePreviewService.generate(taskId, topK);
+		return generateParsePreview(taskId, topK, null);
+	}
+
+	public AllocationParsePreview generateParsePreview(Long taskId, Integer topK, Consumer<ProgressEvent> callback) {
+		log.info("=== ParseService generateParsePreview() start === taskId={}, topK={}", taskId, topK);
+		long t0 = System.currentTimeMillis();
+		if (callback != null) callback.accept(ProgressEvent.of("rag", 10, "正在检索教师画像..."));
+		AllocationGeneratePreview generatePreview = allocationGeneratePreviewService.generate(taskId, topK, callback);
+		log.info("[{}ms] LLM + parse done, raw response length={}chars", System.currentTimeMillis() - t0, generatePreview.rawResponse().length());
 		String jsonText = extractJson(generatePreview.rawResponse());
+		log.info("Extracted JSON length={}chars", jsonText.length());
 		JsonNode root = readRoot(jsonText);
 		JsonNode schemesNode = requireArray(root, "schemes", "AI 输出顶层必须包含 schemes 数组");
+		log.info("Parsing {} schemes from AI output...", schemesNode.size());
 		List<String> validationMessages = new ArrayList<>();
-		List<AllocationParsedScheme> schemes = parseSchemes(schemesNode, validationMessages);
+		List<AllocationParsedScheme> schemes = parseSchemes(schemesNode, taskId, validationMessages);
+		log.info("Parsed {} schemes, {} validation messages", schemes.size(), validationMessages.size());
+		for (AllocationParsedScheme s : schemes) {
+			log.info("  >> scheme=[{}], items={}",
+				s.schemeName(), s.items() != null ? s.items().size() : 0);
+		}
+		if (!validationMessages.isEmpty()) {
+			log.warn("Validation messages: {}", validationMessages);
+		}
+		log.info("=== ParseService generateParsePreview() end ===");
 		return new AllocationParsePreview(
 			generatePreview.taskId(),
 			generatePreview.taskName(),
@@ -84,7 +104,10 @@ public class AllocationGenerateParseService {
 
 	private JsonNode readRoot(String jsonText) {
 		try {
-			JsonNode root = objectMapper.readTree(jsonText);
+			// AI 可能在 JSON 中添加 // 注释，启用 ALLOW_COMMENTS 以兼容
+			JsonNode root = objectMapper.reader()
+				.with(tools.jackson.core.json.JsonReadFeature.ALLOW_JAVA_COMMENTS)
+				.readTree(jsonText);
 			if (root == null || !root.isObject()) {
 				throw new IllegalArgumentException("AI 输出 JSON 顶层必须是对象");
 			}
@@ -94,7 +117,26 @@ public class AllocationGenerateParseService {
 		}
 	}
 
-	private List<AllocationParsedScheme> parseSchemes(JsonNode schemesNode, List<String> validationMessages) {
+	private List<AllocationParsedScheme> parseSchemes(JsonNode schemesNode, Long taskId, List<String> validationMessages) {
+		// 预加载该任务包含的所有教学任务
+		AllocationTask task = allocationTaskMapper.findById(taskId);
+		if (task == null) {
+			throw new IllegalArgumentException("排课任务不存在");
+		}
+		var taskResults = allocationTaskMapper.findTeachingTasks(taskId);
+		Map<Long, TeachingTask> taskMap = taskResults.stream()
+			.collect(Collectors.toMap(
+				AllocationTaskTeachingTaskResult::getId,
+				r -> {
+					var tt = new TeachingTask();
+					tt.setId(r.getId());
+					tt.setTotalHours(r.getTotalHours());
+					tt.setPrimaryTeacherId(r.getPrimaryTeacherId());
+					tt.setClassroomId(r.getClassroomId());
+					return tt;
+				}
+			));
+
 		List<AllocationParsedScheme> schemes = new ArrayList<>();
 		for (int i = 0; i < schemesNode.size(); i++) {
 			JsonNode schemeNode = schemesNode.get(i);
@@ -104,38 +146,67 @@ public class AllocationGenerateParseService {
 			}
 			String schemeName = requireText(schemeNode, "schemeName", "第 " + schemeNumber + " 个方案 schemeName 不能为空");
 			JsonNode itemsNode = requireArray(schemeNode, "items", "第 " + schemeNumber + " 个方案 items 必须是数组");
-			Integer score = parseScore(schemeNode.get("score"), schemeNumber, validationMessages);
 			schemes.add(new AllocationParsedScheme(
 				schemeName,
 				optionalText(schemeNode.get("summary")),
-				score,
 				optionalText(schemeNode.get("satisfiedSummary")),
-				parseItems(itemsNode, schemeNumber)
+				parseItems(itemsNode, schemeNumber, taskMap, task)
 			));
 		}
 		return schemes;
 	}
 
-	private List<AllocationParsedItem> parseItems(JsonNode itemsNode, int schemeNumber) {
+	private List<AllocationParsedItem> parseItems(JsonNode itemsNode, int schemeNumber,
+		Map<Long, TeachingTask> taskMap, AllocationTask task) {
 		List<AllocationParsedItem> items = new ArrayList<>();
+		Map<Long, Integer> itemCountByTaskId = new java.util.HashMap<>();
 		for (int i = 0; i < itemsNode.size(); i++) {
 			JsonNode itemNode = itemsNode.get(i);
 			int itemNumber = i + 1;
 			if (itemNode == null || !itemNode.isObject()) {
 				throw new IllegalArgumentException("第 " + schemeNumber + " 个方案第 " + itemNumber + " 个明细必须是对象");
 			}
-			Long courseId = requireId(itemNode, "courseId", schemeNumber, itemNumber);
-			Long classGroupId = requireId(itemNode, "classGroupId", schemeNumber, itemNumber);
-			Long teacherId = requireId(itemNode, "teacherId", schemeNumber, itemNumber);
-			Long classroomId = requireId(itemNode, "classroomId", schemeNumber, itemNumber);
+			Long teachingTaskId = requireId(itemNode, "teachingTaskId", schemeNumber, itemNumber);
 			Long timeSlotId = requireId(itemNode, "timeSlotId", schemeNumber, itemNumber);
-			validateExists("courseId", courseId, schemeNumber, itemNumber, () -> courseService.findById(courseId));
-			validateExists("classGroupId", classGroupId, schemeNumber, itemNumber, () -> classGroupService.findById(classGroupId));
-			validateExists("teacherId", teacherId, schemeNumber, itemNumber, () -> teacherService.findById(teacherId));
-			validateExists("classroomId", classroomId, schemeNumber, itemNumber, () -> classroomService.findById(classroomId));
+
+			// 校验教学任务属于当前排课任务
+			TeachingTask teachingTask = taskMap.get(teachingTaskId);
+			if (teachingTask == null) {
+				throw new IllegalArgumentException("第 " + schemeNumber + " 个方案第 " + itemNumber + " 个明细 teachingTaskId="
+					+ teachingTaskId + " 不属于当前排课任务");
+			}
+
+			// classroomId 已从 LLM 输出中移除，由后端自动从教学任务固定教室填充
 			validateExists("timeSlotId", timeSlotId, schemeNumber, itemNumber, () -> timeSlotService.findById(timeSlotId));
-			items.add(new AllocationParsedItem(courseId, classGroupId, teacherId, classroomId, timeSlotId));
+
+
+			// 校验 timeSlot 在 startWeek-endWeek 范围内
+			var timeSlot = timeSlotService.findById(timeSlotId);
+			if (task.getStartWeek() != null && timeSlot.getWeekNumber() < task.getStartWeek()) {
+				throw new IllegalArgumentException("第 " + schemeNumber + " 个方案第 " + itemNumber + " 个明细 timeSlotId="
+					+ timeSlotId + " 所在周次 " + timeSlot.getWeekNumber() + " 小于任务起始周次 " + task.getStartWeek());
+			}
+			if (task.getEndWeek() != null && timeSlot.getWeekNumber() > task.getEndWeek()) {
+				throw new IllegalArgumentException("第 " + schemeNumber + " 个方案第 " + itemNumber + " 个明细 timeSlotId="
+					+ timeSlotId + " 所在周次 " + timeSlot.getWeekNumber() + " 大于任务结束周次 " + task.getEndWeek());
+			}
+
+			items.add(new AllocationParsedItem(teachingTaskId, timeSlotId));
+			itemCountByTaskId.merge(teachingTaskId, 1, Integer::sum);
 		}
+
+		// 校验每个教学任务的片段数量 = totalHours / 2
+		for (Map.Entry<Long, TeachingTask> entry : taskMap.entrySet()) {
+			Long taskId = entry.getKey();
+			TeachingTask tt = entry.getValue();
+			int expectedCount = tt.getTotalHours() / 2;
+			int actualCount = itemCountByTaskId.getOrDefault(taskId, 0);
+			if (actualCount != expectedCount) {
+				throw new IllegalArgumentException("教学任务ID " + taskId + " 需要 " + expectedCount
+					+ " 个排课片段，实际只有 " + actualCount + " 个");
+			}
+		}
+
 		return items;
 	}
 
@@ -196,40 +267,6 @@ public class AllocationGenerateParseService {
 			}
 		}
 		return null;
-	}
-
-	private Integer parseScore(JsonNode node, int schemeNumber, List<String> validationMessages) {
-		if (node == null || node.isNull()) {
-			return null;
-		}
-		Integer score = null;
-		if (node.isIntegralNumber() && node.canConvertToInt()) {
-			score = node.intValue();
-		} else if (node.isNumber()) {
-			double rawScore = node.doubleValue();
-			if (Double.isFinite(rawScore) && rawScore <= Integer.MAX_VALUE && rawScore >= Integer.MIN_VALUE) {
-				score = (int) Math.round(rawScore);
-				validationMessages.add("第 " + schemeNumber + " 个方案 score 不是整数，已四舍五入为 " + score);
-			} else {
-				validationMessages.add("第 " + schemeNumber + " 个方案 score 超出整数范围，已置为空");
-			}
-		} else if (node.isTextual()) {
-			String text = node.asText().trim();
-			if (StringUtils.hasText(text)) {
-				try {
-					score = Integer.parseInt(text);
-					validationMessages.add("第 " + schemeNumber + " 个方案 score 是字符串，已按整数解析");
-				} catch (NumberFormatException exception) {
-					validationMessages.add("第 " + schemeNumber + " 个方案 score 不是数字，已置为空");
-				}
-			}
-		} else {
-			validationMessages.add("第 " + schemeNumber + " 个方案 score 不是数字，已置为空");
-		}
-		if (score != null && (score < 0 || score > 100)) {
-			validationMessages.add("第 " + schemeNumber + " 个方案 score=" + score + " 超出建议范围 0-100");
-		}
-		return score;
 	}
 
 	private void validateExists(
