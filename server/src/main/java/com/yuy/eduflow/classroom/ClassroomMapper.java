@@ -54,8 +54,8 @@ public interface ClassroomMapper {
 
 	@Update("""
 		UPDATE classroom
-		SET status = 'INACTIVE'
+		SET status = #{status}
 		WHERE id = #{id}
 		""")
-	int deactivate(Long id);
+	int deactivate(@Param("id") Long id, @Param("status") String status);
 }

@@ -2,11 +2,12 @@ package com.yuy.eduflow.classroom;
 
 import java.util.List;
 import org.springframework.stereotype.Service;
+import com.yuy.eduflow.enums.ActiveStatus;
 import org.springframework.util.StringUtils;
 
 @Service
 public class ClassroomService {
-	private static final String DEFAULT_STATUS = "ACTIVE";
+	
 
 	private final ClassroomMapper classroomMapper;
 
@@ -42,7 +43,7 @@ public class ClassroomService {
 
 	public void delete(Long id) {
 		findById(id);
-		classroomMapper.deactivate(id);
+		classroomMapper.deactivate(id, ActiveStatus.INACTIVE.code());
 	}
 
 	private Classroom toClassroom(Classroom classroom, ClassroomRequest request) {
@@ -56,7 +57,7 @@ public class ClassroomService {
 		classroom.setBuilding(clean(request.building()));
 		classroom.setCapacity(request.capacity());
 		classroom.setClassroomType(clean(request.classroomType()));
-		classroom.setStatus(StringUtils.hasText(request.status()) ? request.status().trim() : DEFAULT_STATUS);
+		classroom.setStatus(StringUtils.hasText(request.status()) ? request.status().trim() : ActiveStatus.ACTIVE.code());
 		return classroom;
 	}
 
