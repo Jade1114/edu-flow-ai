@@ -5,6 +5,7 @@ import lombok.Data;
 @Data
 public class CourseAssignmentView {
 	private Long id;
+	private Long teachingTaskId;
 	private Long courseId;
 	private String courseName;
 	private Long classGroupId;

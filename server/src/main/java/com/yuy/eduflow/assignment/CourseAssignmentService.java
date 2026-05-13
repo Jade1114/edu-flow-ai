@@ -2,11 +2,12 @@ package com.yuy.eduflow.assignment;
 
 import java.util.List;
 import org.springframework.stereotype.Service;
+import com.yuy.eduflow.enums.AssignmentStatus;
 import org.springframework.util.StringUtils;
 
 @Service
 public class CourseAssignmentService {
-	private static final String DEFAULT_STATUS = "ACTIVE";
+	
 
 	private final CourseAssignmentMapper courseAssignmentMapper;
 
@@ -85,23 +86,19 @@ public class CourseAssignmentService {
 
 	public void delete(Long id) {
 		findById(id);
-		courseAssignmentMapper.cancel(id);
+		courseAssignmentMapper.cancel(id, AssignmentStatus.ACTIVE.code());
 	}
 
 	private CourseAssignment toAssignment(CourseAssignment assignment, CourseAssignmentRequest request) {
 		validateOptionalId(request.sourceSchemeId(), "来源方案ID必须大于0");
-		requirePositiveId(request.courseId(), "课程ID不能为空");
-		requirePositiveId(request.classGroupId(), "班级ID不能为空");
-		requirePositiveId(request.teacherId(), "教师ID不能为空");
+		requirePositiveId(request.teachingTaskId(), "教学任务ID不能为空");
 		requirePositiveId(request.classroomId(), "教室ID不能为空");
 		requirePositiveId(request.timeSlotId(), "时间段ID不能为空");
 		assignment.setSourceSchemeId(request.sourceSchemeId());
-		assignment.setCourseId(request.courseId());
-		assignment.setClassGroupId(request.classGroupId());
-		assignment.setTeacherId(request.teacherId());
+		assignment.setTeachingTaskId(request.teachingTaskId());
 		assignment.setClassroomId(request.classroomId());
 		assignment.setTimeSlotId(request.timeSlotId());
-		assignment.setStatus(StringUtils.hasText(request.status()) ? request.status().trim() : DEFAULT_STATUS);
+		assignment.setStatus(StringUtils.hasText(request.status()) ? request.status().trim() : AssignmentStatus.ACTIVE.code());
 		return assignment;
 	}
 
@@ -133,6 +130,6 @@ public class CourseAssignmentService {
 	}
 
 	private String normalizeStatus(String status) {
-		return StringUtils.hasText(status) ? status.trim() : DEFAULT_STATUS;
+		return StringUtils.hasText(status) ? status.trim() : AssignmentStatus.ACTIVE.code();
 	}
 }
