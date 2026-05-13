@@ -2,11 +2,12 @@ package com.yuy.eduflow.course;
 
 import java.util.List;
 import org.springframework.stereotype.Service;
+import com.yuy.eduflow.enums.ActiveStatus;
 import org.springframework.util.StringUtils;
 
 @Service
 public class CourseService {
-	private static final String DEFAULT_STATUS = "ACTIVE";
+	
 
 	private final CourseMapper courseMapper;
 
@@ -33,16 +34,15 @@ public class CourseService {
 	}
 
 	public Course update(Long id, CourseRequest request) {
-		findById(id);
-		Course course = toCourse(new Course(), request);
-		course.setId(id);
+		Course existing = findById(id);
+		Course course = toCourse(existing, request);
 		courseMapper.update(course);
 		return findById(id);
 	}
 
 	public void delete(Long id) {
 		findById(id);
-		courseMapper.deactivate(id);
+		courseMapper.deactivate(id, ActiveStatus.INACTIVE.code());
 	}
 
 	private Course toCourse(Course course, CourseRequest request) {
@@ -55,9 +55,8 @@ public class CourseService {
 		course.setName(request.name().trim());
 		course.setCourseType(clean(request.courseType()));
 		course.setRequiredHours(request.requiredHours());
-		course.setRequiredSkill(clean(request.requiredSkill()));
 		course.setDescription(clean(request.description()));
-		course.setStatus(StringUtils.hasText(request.status()) ? request.status().trim() : DEFAULT_STATUS);
+		course.setStatus(StringUtils.hasText(request.status()) ? request.status().trim() : ActiveStatus.ACTIVE.code());
 		return course;
 	}
 

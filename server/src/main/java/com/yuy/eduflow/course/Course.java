@@ -9,7 +9,6 @@ public class Course {
 	private String name;
 	private String courseType;
 	private Integer requiredHours;
-	private String requiredSkill;
 	private String description;
 	private String status;
 	private LocalDateTime createdAt;
