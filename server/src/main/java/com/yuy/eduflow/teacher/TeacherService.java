@@ -3,11 +3,12 @@ package com.yuy.eduflow.teacher;
 import java.util.List;
 import java.util.Objects;
 import org.springframework.stereotype.Service;
+import com.yuy.eduflow.enums.ActiveStatus;
 import org.springframework.util.StringUtils;
 
 @Service
 public class TeacherService {
-	private static final String DEFAULT_STATUS = "ACTIVE";
+	
 	private static final String DEFAULT_ROLE = "TEACHER";
 
 	private final TeacherMapper teacherMapper;
@@ -44,7 +45,7 @@ public class TeacherService {
 
 	public void delete(Long id) {
 		findById(id);
-		teacherMapper.deactivate(id);
+		teacherMapper.deactivate(id, ActiveStatus.INACTIVE.code());
 	}
 
 	private Teacher toTeacher(Teacher teacher, TeacherRequest request, boolean requirePassword) {
@@ -78,7 +79,7 @@ public class TeacherService {
 		teacher.setDepartment(request.department().trim());
 		teacher.setTitle(StringUtils.hasText(request.title()) ? request.title().trim() : null);
 		teacher.setMaxWeeklyHours(request.maxWeeklyHours());
-		teacher.setStatus(StringUtils.hasText(request.status()) ? request.status().trim() : DEFAULT_STATUS);
+		teacher.setStatus(StringUtils.hasText(request.status()) ? request.status().trim() : ActiveStatus.ACTIVE.code());
 		return teacher;
 	}
 

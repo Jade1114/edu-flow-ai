@@ -7,8 +7,7 @@ import lombok.Data;
 public class TeacherProfile {
 	private Long id;
 	private Long teacherId;
-	private String skillText;
-	private String availableTimeText;
+    private String availableTimeText;
 	private String unavailableTimeText;
 	private String workloadRequirement;
 	private String specialNote;

@@ -3,9 +3,11 @@ package com.yuy.eduflow.teacher;
 import com.yuy.eduflow.rag.TeacherProfileVectorService;
 import java.util.ArrayList;
 import java.util.List;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 
+@Slf4j
 @Service
 public class TeacherProfileService {
 	private final TeacherService teacherService;
@@ -28,49 +30,54 @@ public class TeacherProfileService {
 	}
 
 	public TeacherProfile save(Long teacherId, TeacherProfileRequest request) {
+		log.info("=== save() start === teacherId={}", teacherId);
+		log.info("request={}", request);
 		Teacher teacher = teacherService.findById(teacherId);
+		log.info("teacher found: id={}, name={}", teacher.getId(), teacher.getName());
 		TeacherProfile profile = toProfile(teacher, request);
+		log.info("vectorText built: [{}]", profile.getVectorText());
 		TeacherProfile existing = teacherProfileMapper.findByTeacherId(teacherId);
+		log.info("existing profile: {}", existing);
 		if (existing == null) {
-			teacherProfileMapper.insert(profile);
+			int rows = teacherProfileMapper.insert(profile);
+			log.info("INSERT affected rows={}, generated id={}", rows, profile.getId());
 		} else {
-			teacherProfileMapper.updateByTeacherId(profile);
+			int rows = teacherProfileMapper.updateByTeacherId(profile);
+			log.info("UPDATE affected rows={}", rows);
 		}
-		return teacherProfileVectorService.indexTeacherProfile(teacherId);
+		TeacherProfile result = teacherProfileVectorService.indexTeacherProfile(teacherId);
+		log.info("=== save() end === profile={}", result);
+		return result;
 	}
 
-	private TeacherProfile toProfile(Teacher teacher, TeacherProfileRequest request) {
-		TeacherProfile profile = new TeacherProfile();
-		profile.setTeacherId(teacher.getId());
-		profile.setSkillText(clean(request.skillText()));
-		profile.setAvailableTimeText(clean(request.availableTimeText()));
-		profile.setUnavailableTimeText(clean(request.unavailableTimeText()));
-		profile.setWorkloadRequirement(clean(request.workloadRequirement()));
-		profile.setSpecialNote(clean(request.specialNote()));
-		profile.setVectorText(buildVectorText(teacher, profile));
-		profile.setVectorIndexed(false);
-		return profile;
-	}
+    private TeacherProfile toProfile(Teacher teacher, TeacherProfileRequest request) {
+        TeacherProfile profile = new TeacherProfile();
+        profile.setTeacherId(teacher.getId());
+        profile.setAvailableTimeText(clean(request.availableTimeText()));
+        profile.setUnavailableTimeText(clean(request.unavailableTimeText()));
+        profile.setWorkloadRequirement(clean(request.workloadRequirement()));
+        profile.setSpecialNote(clean(request.specialNote()));
+        profile.setVectorText(buildVectorText(teacher, profile));
+        profile.setVectorIndexed(false);
+        return profile;
+    }
 
-	private String buildVectorText(Teacher teacher, TeacherProfile profile) {
-		List<String> lines = new ArrayList<>();
-		if (StringUtils.hasText(profile.getSkillText())) {
-			lines.add(teacher.getName() + "擅长" + profile.getSkillText() + "。");
-		}
-		if (StringUtils.hasText(profile.getAvailableTimeText())) {
-			lines.add("可用时间：" + profile.getAvailableTimeText() + "。");
-		}
-		if (StringUtils.hasText(profile.getUnavailableTimeText())) {
-			lines.add("不可用时间：" + profile.getUnavailableTimeText() + "。");
-		}
-		if (StringUtils.hasText(profile.getWorkloadRequirement())) {
-			lines.add("课时要求：" + profile.getWorkloadRequirement() + "。");
-		}
-		if (StringUtils.hasText(profile.getSpecialNote())) {
-			lines.add("特殊说明：" + profile.getSpecialNote() + "。");
-		}
-		return String.join("\n", lines);
-	}
+    private String buildVectorText(Teacher teacher, TeacherProfile profile) {
+        List<String> lines = new ArrayList<>();
+        if (StringUtils.hasText(profile.getAvailableTimeText())) {
+            lines.add(teacher.getName() + "可用时间：" + profile.getAvailableTimeText() + "。");
+        }
+        if (StringUtils.hasText(profile.getUnavailableTimeText())) {
+            lines.add(teacher.getName() + "不可用时间：" + profile.getUnavailableTimeText() + "。");
+        }
+        if (StringUtils.hasText(profile.getWorkloadRequirement())) {
+            lines.add(teacher.getName() + "课时要求：" + profile.getWorkloadRequirement() + "。");
+        }
+        if (StringUtils.hasText(profile.getSpecialNote())) {
+            lines.add(teacher.getName() + "特殊说明：" + profile.getSpecialNote() + "。");
+        }
+        return String.join("\n", lines);
+    }
 
 	private String clean(String value) {
 		return StringUtils.hasText(value) ? value.trim() : null;
