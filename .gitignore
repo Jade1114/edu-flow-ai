@@ -4,5 +4,7 @@
 .env.*
 !.env_example
 !.env.example
+.DS_Store
+.claude
 
 server/target/
