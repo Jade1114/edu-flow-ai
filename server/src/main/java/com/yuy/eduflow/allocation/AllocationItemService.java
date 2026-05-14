@@ -1,6 +1,7 @@
 package com.yuy.eduflow.allocation;
 
 import com.yuy.eduflow.classroom.ClassroomService;
+import com.yuy.eduflow.common.Assert;
 import com.yuy.eduflow.timeslot.TimeSlotService;
 import java.util.ArrayList;
 import java.util.List;
@@ -31,14 +32,10 @@ public class AllocationItemService {
 		this.timeSlotService = timeSlotService;
 	}
 
-	/**
-	 * 更新单条排课片段的位置（教室/时间段），然后重新检测整个方案的冲突。
-	 */
 	public List<AllocationItemView> moveAndRecheck(Long schemeId, Long itemId, AllocationItemMoveRequest request) {
 		log.info("Moving item: schemeId={}, itemId={}, new classroomId={}, new timeSlotId={}",
 			schemeId, itemId, request.classroomId(), request.timeSlotId());
 
-		// 1. 校验
 		classroomService.findById(request.classroomId());
 		timeSlotService.findById(request.timeSlotId());
 		AllocationItem item = findById(itemId);
@@ -46,25 +43,19 @@ public class AllocationItemService {
 			throw new IllegalArgumentException("该明细不属于此方案");
 		}
 
-		// 2. 更新 classroom_id 和 time_slot_id（持久化到数据库）
 		item.setClassroomId(request.classroomId());
 		item.setTimeSlotId(request.timeSlotId());
 		allocationItemMapper.update(item);
 
-		// 3. 重新获取方案所有 items 并检测冲突
 		return recheckScheme(schemeId);
 	}
 
-	/**
-	 * 重新检测整个方案的冲突，返回最新 items。
-	 */
 	public List<AllocationItemView> recheckScheme(Long schemeId) {
 		log.info("Rechecking conflicts for schemeId={}", schemeId);
 		List<AllocationItem> allItems = allocationItemMapper.findAll(schemeId, null, null, null);
 		List<AllocationConflictViolation> violations = conflictDetector.detect(allItems);
 		log.info("Recheck done: {} violations found", violations.size());
 
-		// 应用冲突状态到每个 item
 		for (AllocationItem ai : allItems) {
 			List<String> msgs = new ArrayList<>();
 			for (AllocationConflictViolation v : violations) {
@@ -83,7 +74,6 @@ public class AllocationItemService {
 			}
 		}
 
-		// 更新方案的总体冲突摘要
 		boolean hasConflicts = violations.stream().anyMatch(v -> allItems.stream()
 			.anyMatch(ai -> ai.getId().equals(v.itemId())));
 		String conflictSummary = hasConflicts ? conflictDetector.summarize(violations) : null;
@@ -137,10 +127,10 @@ public class AllocationItemService {
 	}
 
 	private AllocationItem toItem(AllocationItem item, AllocationItemRequest request) {
-		requirePositiveId(request.schemeId(), "分课方案ID不能为空");
-		requirePositiveId(request.teachingTaskId(), "教学任务ID不能为空");
-		requirePositiveId(request.classroomId(), "教室ID不能为空");
-		requirePositiveId(request.timeSlotId(), "时间段ID不能为空");
+		Assert.positiveId(request.schemeId(), "分课方案ID");
+		Assert.positiveId(request.teachingTaskId(), "教学任务ID");
+		Assert.positiveId(request.classroomId(), "教室ID");
+		Assert.positiveId(request.timeSlotId(), "时间段ID");
 		item.setSchemeId(request.schemeId());
 		item.setTeachingTaskId(request.teachingTaskId());
 		item.setClassroomId(request.classroomId());
@@ -148,15 +138,6 @@ public class AllocationItemService {
 		item.setValid(request.valid() != null ? request.valid() : true);
 		item.setConflictMessage(clean(request.conflictMessage()));
 		return item;
-	}
-
-	private void requirePositiveId(Long id, String emptyMessage) {
-		if (id == null) {
-			throw new IllegalArgumentException(emptyMessage);
-		}
-		if (id <= 0) {
-			throw new IllegalArgumentException(emptyMessage.replace("不能为空", "必须大于0"));
-		}
 	}
 
 	private void validateOptionalId(Long id, String message) {

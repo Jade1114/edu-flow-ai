@@ -1,5 +1,6 @@
 package com.yuy.eduflow.allocation;
 
+import com.yuy.eduflow.common.Assert;
 import com.yuy.eduflow.enums.SchemeStatus;
 import java.util.List;
 import org.springframework.stereotype.Service;
@@ -49,7 +50,7 @@ public class AllocationSchemeService {
 	}
 
 	private AllocationScheme toScheme(AllocationScheme scheme, AllocationSchemeRequest request) {
-		requirePositiveId(request.taskId(), "分课任务ID不能为空");
+		Assert.positiveId(request.taskId(), "分课任务ID");
 		if (!StringUtils.hasText(request.schemeName())) {
 			throw new IllegalArgumentException("分课方案名称不能为空");
 		}
@@ -65,15 +66,6 @@ public class AllocationSchemeService {
 		scheme.setValid(request.valid() != null ? request.valid() : true);
 		scheme.setStatus(StringUtils.hasText(request.status()) ? request.status().trim() : SchemeStatus.CANDIDATE.code());
 		return scheme;
-	}
-
-	private void requirePositiveId(Long id, String emptyMessage) {
-		if (id == null) {
-			throw new IllegalArgumentException(emptyMessage);
-		}
-		if (id <= 0) {
-			throw new IllegalArgumentException(emptyMessage.replace("不能为空", "必须大于0"));
-		}
 	}
 
 	private String clean(String value) {

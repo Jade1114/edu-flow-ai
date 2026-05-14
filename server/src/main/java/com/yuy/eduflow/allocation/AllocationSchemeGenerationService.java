@@ -1,5 +1,6 @@
 package com.yuy.eduflow.allocation;
 
+import com.yuy.eduflow.common.Assert;
 import com.yuy.eduflow.conflict.ConflictCheckResult;
 import com.yuy.eduflow.conflict.ConflictCheckResultMapper;
 import com.yuy.eduflow.teachingtask.TeachingTaskMapper;
@@ -43,12 +44,7 @@ public class AllocationSchemeGenerationService {
 
 	public AllocationGenerateResult generateSchemes(Long taskId, Integer topK) {
 		log.info("=== SchemeGeneration generateSchemes() start === taskId={}, topK={}", taskId, topK);
-		if (taskId == null) {
-			throw new IllegalArgumentException("分课任务ID不能为空");
-		}
-		if (taskId <= 0) {
-			throw new IllegalArgumentException("分课任务ID必须大于0");
-		}
+		Assert.positiveId(taskId, "分课任务ID");
 		AllocationParsePreview parsePreview = allocationGenerateParseService.generateParsePreview(taskId, topK);
 		log.info("Parsed {} schemes from LLM, rejecting old candidates...",
 			parsePreview.schemes() != null ? parsePreview.schemes().size() : 0);
@@ -82,12 +78,7 @@ public class AllocationSchemeGenerationService {
 	 */
 	public AllocationGenerateResult generateSchemesWithProgress(Long taskId, Integer topK, Consumer<ProgressEvent> callback) {
 		log.info("=== SchemeGeneration generateSchemesWithProgress() start === taskId={}, topK={}", taskId, topK);
-		if (taskId == null) {
-			throw new IllegalArgumentException("分课任务ID不能为空");
-		}
-		if (taskId <= 0) {
-			throw new IllegalArgumentException("分课任务ID必须大于0");
-		}
+		Assert.positiveId(taskId, "分课任务ID");
 
 		long t0 = System.currentTimeMillis();
 		AllocationParsePreview parsePreview = allocationGenerateParseService.generateParsePreview(taskId, topK, callback);

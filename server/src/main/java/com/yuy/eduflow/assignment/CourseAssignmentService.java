@@ -1,5 +1,6 @@
 package com.yuy.eduflow.assignment;
 
+import com.yuy.eduflow.common.Assert;
 import java.util.List;
 import org.springframework.stereotype.Service;
 import com.yuy.eduflow.enums.AssignmentStatus;
@@ -53,12 +54,12 @@ public class CourseAssignmentService {
 	}
 
 	public List<CourseAssignmentView> findTeacherAssignments(Long teacherId, Integer weekNumber, Integer dayOfWeek) {
-		requirePositiveId(teacherId, "教师ID不能为空");
+		Assert.positiveId(teacherId, "教师ID");
 		return findViews(teacherId, null, null, weekNumber, dayOfWeek, null);
 	}
 
 	public List<CourseAssignmentView> findClassGroupAssignments(Long classGroupId, Integer weekNumber, Integer dayOfWeek) {
-		requirePositiveId(classGroupId, "班级ID不能为空");
+		Assert.positiveId(classGroupId, "班级ID");
 		return findViews(null, classGroupId, null, weekNumber, dayOfWeek, null);
 	}
 
@@ -91,24 +92,15 @@ public class CourseAssignmentService {
 
 	private CourseAssignment toAssignment(CourseAssignment assignment, CourseAssignmentRequest request) {
 		validateOptionalId(request.sourceSchemeId(), "来源方案ID必须大于0");
-		requirePositiveId(request.teachingTaskId(), "教学任务ID不能为空");
-		requirePositiveId(request.classroomId(), "教室ID不能为空");
-		requirePositiveId(request.timeSlotId(), "时间段ID不能为空");
+		Assert.positiveId(request.teachingTaskId(), "教学任务ID");
+		Assert.positiveId(request.classroomId(), "教室ID");
+		Assert.positiveId(request.timeSlotId(), "时间段ID");
 		assignment.setSourceSchemeId(request.sourceSchemeId());
 		assignment.setTeachingTaskId(request.teachingTaskId());
 		assignment.setClassroomId(request.classroomId());
 		assignment.setTimeSlotId(request.timeSlotId());
 		assignment.setStatus(StringUtils.hasText(request.status()) ? request.status().trim() : AssignmentStatus.ACTIVE.code());
 		return assignment;
-	}
-
-	private void requirePositiveId(Long id, String emptyMessage) {
-		if (id == null) {
-			throw new IllegalArgumentException(emptyMessage);
-		}
-		if (id <= 0) {
-			throw new IllegalArgumentException(emptyMessage.replace("不能为空", "必须大于0"));
-		}
 	}
 
 	private void validateOptionalId(Long id, String message) {

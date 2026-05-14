@@ -4,6 +4,7 @@ import com.yuy.eduflow.classgroup.ClassGroup;
 import com.yuy.eduflow.classgroup.ClassGroupService;
 import com.yuy.eduflow.classroom.Classroom;
 import com.yuy.eduflow.classroom.ClassroomService;
+import com.yuy.eduflow.common.Assert;
 import com.yuy.eduflow.course.CourseService;
 import com.yuy.eduflow.enums.ActiveStatus;
 import com.yuy.eduflow.teacher.TeacherService;
@@ -147,9 +148,9 @@ public class TeachingTaskService {
      * 包含：非空校验、MVP 业务规则校验（2课时块、班级数量限制）、外部引用合法性检查
      */
     private void validateRequest(TeachingTaskRequest request) {
-        requirePositiveId(request.courseId(), "课程ID不能为空");
-        requirePositiveId(request.primaryTeacherId(), "主讲教师ID不能为空");
-        requirePositiveId(request.classroomId(), "教室ID不能为空");
+        Assert.positiveId(request.courseId(), "课程ID");
+        Assert.positiveId(request.primaryTeacherId(), "主讲教师ID");
+        Assert.positiveId(request.classroomId(), "教室ID");
 
         // 课时校验：MVP 阶段要求必须是 2 的倍数（时间块排课需求）
         if (request.totalHours() == null || request.totalHours() <= 0) {
@@ -198,18 +199,6 @@ public class TeachingTaskService {
         // 班级校验（主要是检查存在性，人数已在上方汇总）
         for (Long classGroupId : request.classGroupIds()) {
             classGroupService.findById(classGroupId);
-        }
-    }
-
-    /**
-     * 辅助工具方法：校验 ID 是否为正整数
-     */
-    private void requirePositiveId(Long id, String emptyMessage) {
-        if (id == null) {
-            throw new IllegalArgumentException(emptyMessage);
-        }
-        if (id <= 0) {
-            throw new IllegalArgumentException(emptyMessage.replace("不能为空", "必须大于0"));
         }
     }
 }

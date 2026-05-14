@@ -1,5 +1,6 @@
 package com.yuy.eduflow.conflict;
 
+import com.yuy.eduflow.common.Assert;
 import java.util.List;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
@@ -48,7 +49,7 @@ public class ConflictCheckResultService {
 		if (!StringUtils.hasText(request.bizType())) {
 			throw new IllegalArgumentException("业务类型不能为空");
 		}
-		requirePositiveId(request.bizId(), "业务ID不能为空");
+		Assert.positiveId(request.bizId(), "业务ID");
 		if (!StringUtils.hasText(request.conflictType())) {
 			throw new IllegalArgumentException("冲突类型不能为空");
 		}
@@ -69,15 +70,6 @@ public class ConflictCheckResultService {
 		result.setRelatedTimeSlotId(request.relatedTimeSlotId());
 		result.setResolved(request.resolved() != null ? request.resolved() : false);
 		return result;
-	}
-
-	private void requirePositiveId(Long id, String emptyMessage) {
-		if (id == null) {
-			throw new IllegalArgumentException(emptyMessage);
-		}
-		if (id <= 0) {
-			throw new IllegalArgumentException(emptyMessage.replace("不能为空", "必须大于0"));
-		}
 	}
 
 	private void validateOptionalId(Long id, String message) {
