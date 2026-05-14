@@ -23,6 +23,7 @@ const generating = ref(false);
 const genStatus = ref(null);
 const genProgress = ref(0);
 let pollTimer = null;
+let generationSource = null;
 const topK = ref(5);
 
 const teachingTasks = ref([]);
@@ -121,51 +122,106 @@ async function viewSchemes(taskId) {
 }
 
 async function generateSchemes(taskId) {
+  stopGenerationListeners();
   generating.value = true;
-  genProgress.value = 0;
-  genStatus.value = { stage: "rag", percent: 0, message: "开始生成..." };
+  genProgress.value = 10;
+  genStatus.value = { stage: "running", status: "RUNNING", message: "开始生成..." };
   currentTaskId.value = taskId;
 
   try {
     await request.post(`/api/allocation-tasks/${taskId}/generate-async?topK=${topK.value}`);
-    startPolling(taskId);
+    startSse(taskId);
   } catch (e) {
     generating.value = false;
-    genStatus.value = { stage: "error", percent: 0, message: e.message };
+    genStatus.value = { stage: "error", status: "FAILED", message: e.message };
     ElMessage.error("启动生成失败");
   }
 }
 
 function stageLabel(stage) {
-  const labels = { rag: '正在构建 RAG...', prompt: '构建 Prompt...', llm: '等待 LLM 响应...', parse: '解析结果...', persist: '持久化方案...', scheme_ready: '方案就绪...', done: '生成完成', error: '生成失败' };
+  const labels = {
+    rag: '检索画像...',
+    prompt: '构建 Prompt...',
+    llm: '等待模型...',
+    parse: '解析结果...',
+    persist: '保存方案...',
+    conflict: '检测冲突...',
+    running: '生成中...',
+    done: '生成完成',
+    error: '生成失败',
+  };
   return labels[stage] || '生成中...';
+}
+
+function applyGenerationStatus(taskId, status) {
+  const isCompleted = status.status === "COMPLETED";
+  const isFailed = status.status === "FAILED";
+  const stage = isCompleted ? "done" : isFailed ? "error" : (status.stage || "running");
+  genProgress.value = Number.isFinite(status.progress) ? status.progress : (isCompleted || isFailed ? 100 : 50);
+  genStatus.value = {
+    ...status,
+    stage,
+    message: isCompleted
+      ? `生成完成，共 ${status.schemeCount || 0} 个方案`
+      : isFailed
+        ? `生成失败: ${status.error || "未知错误"}`
+        : (status.message || "AI 正在生成分课方案..."),
+  };
+
+  if (isCompleted) {
+    stopGenerationListeners();
+    generating.value = false;
+    ElMessage.success(`生成完成，共 ${status.schemeCount || 0} 个方案`);
+    viewSchemes(taskId);
+  } else if (isFailed) {
+    stopGenerationListeners();
+    generating.value = false;
+    ElMessage.error(`生成失败: ${status.error || "未知错误"}`);
+  }
+}
+
+function startSse(taskId) {
+  if (!window.EventSource) {
+    startPolling(taskId);
+    return;
+  }
+  generationSource = new EventSource(`/api/allocation-tasks/${taskId}/generation-stream`);
+  generationSource.addEventListener("status", (event) => {
+    applyGenerationStatus(taskId, JSON.parse(event.data));
+  });
+  generationSource.onerror = () => {
+    if (!generating.value) return;
+    closeGenerationSource();
+    startPolling(taskId);
+  };
 }
 
 function startPolling(taskId) {
   pollTimer = setInterval(async () => {
     try {
       const status = await request.get(`/api/allocation-tasks/${taskId}/generation-status`);
-      genStatus.value = status;
-
-      if (status.status === "COMPLETED") {
-        clearInterval(pollTimer);
-        pollTimer = null;
-        generating.value = false;
-        ElMessage.success(`生成完成，共 ${status.schemeCount} 个方案`);
-        viewSchemes(taskId);
-      } else if (status.status === "FAILED") {
-        clearInterval(pollTimer);
-        pollTimer = null;
-        generating.value = false;
-        ElMessage.error(`生成失败: ${status.error}`);
-      }
+      applyGenerationStatus(taskId, status);
     } catch (e) {
-      clearInterval(pollTimer);
-      pollTimer = null;
+      stopGenerationListeners();
       generating.value = false;
-      genStatus.value = { stage: "error", percent: 0, message: e.message };
+      genStatus.value = { stage: "error", status: "FAILED", message: e.message };
     }
   }, 2000);
+}
+
+function closeGenerationSource() {
+  if (generationSource) {
+    generationSource.close();
+    generationSource = null;
+  }
+}
+
+function stopGenerationListeners() {
+  if (pollTimer) {
+    clearInterval(pollTimer);
+    pollTimer = null;
+  }
+  closeGenerationSource();
 }
 
 async function confirmScheme(schemeId) {
@@ -361,10 +417,7 @@ onMounted(() => {
 });
 
 onUnmounted(() => {
-  if (pollTimer) {
-    clearInterval(pollTimer);
-    pollTimer = null;
-  }
+  stopGenerationListeners();
 });
 </script>
 

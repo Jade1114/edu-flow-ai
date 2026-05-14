@@ -9,6 +9,7 @@ import java.util.LinkedHashMap;
 import com.yuy.eduflow.enums.SchemeStatus;
 import java.util.List;
 import java.util.Map;
+import java.util.function.Consumer;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
@@ -42,21 +43,31 @@ public class AllocationSchemeGenerationService {
 	}
 
 	public AllocationGenerateResult generateSchemes(Long taskId, Integer topK) {
+		return generateSchemes(taskId, topK, ignored -> {});
+	}
+
+	public AllocationGenerateResult generateSchemes(Long taskId, Integer topK, Consumer<GenerationStatus> progressReporter) {
 		log.info("=== SchemeGeneration generateSchemes() start === taskId={}, topK={}", taskId, topK);
 		Assert.positiveId(taskId, "分课任务ID");
-		AllocationParsePreview parsePreview = allocationGenerateParseService.generateParsePreview(taskId, topK);
+		AllocationParsePreview parsePreview = allocationGenerateParseService.generateParsePreview(taskId, topK, progressReporter);
 		log.info("Parsed {} schemes from LLM, rejecting old candidates...",
 			parsePreview.schemes() != null ? parsePreview.schemes().size() : 0);
+		progressReporter.accept(running("persist", "清理旧候选方案，准备入库...", 70));
 		allocationSchemeMapper.rejectCandidatesByTaskId(taskId, SchemeStatus.CANDIDATE.code(), SchemeStatus.REJECTED.code());
 		log.info("Old candidates rejected");
 
+		List<AllocationParsedScheme> parsedSchemes = safeSchemes(parsePreview);
 		List<AllocationScheme> generatedSchemes = new ArrayList<>();
-		for (AllocationParsedScheme parsedScheme : safeSchemes(parsePreview)) {
+		for (int i = 0; i < parsedSchemes.size(); i++) {
+			AllocationParsedScheme parsedScheme = parsedSchemes.get(i);
+			int baseProgress = 75 + Math.round((i * 15f) / Math.max(parsedSchemes.size(), 1));
+			progressReporter.accept(running("persist", "保存候选方案 " + (i + 1) + "/" + parsedSchemes.size() + "...", baseProgress));
 			log.info("Persisting scheme [{}]...", parsedScheme.schemeName());
 			AllocationScheme scheme = persistScheme(taskId, parsedScheme);
 			log.info("Scheme persisted: id={}, name={}", scheme.getId(), scheme.getSchemeName());
 			List<AllocationItem> items = persistItems(scheme.getId(), parsedScheme.items());
 			log.info("Persisted {} items for scheme id={}", items.size(), scheme.getId());
+			progressReporter.accept(running("conflict", "检测方案冲突 " + (i + 1) + "/" + parsedSchemes.size() + "...", Math.min(baseProgress + 5, 95)));
 			List<AllocationConflictViolation> violations = conflictDetector.detect(items);
 			log.info("Conflict detection: {} violations found", violations.size());
 			applyItemConflictState(items, violations);
@@ -70,6 +81,10 @@ public class AllocationSchemeGenerationService {
 
 		log.info("=== SchemeGeneration generateSchemes() end === totalSchemes={}", generatedSchemes.size());
 		return new AllocationGenerateResult(parsePreview.taskId(), generatedSchemes.size(), generatedSchemes);
+	}
+
+	private GenerationStatus running(String stage, String message, Integer progress) {
+		return new GenerationStatus("RUNNING", stage, message, progress, null, 0, null);
 	}
 
 	private List<AllocationParsedScheme> safeSchemes(AllocationParsePreview parsePreview) {

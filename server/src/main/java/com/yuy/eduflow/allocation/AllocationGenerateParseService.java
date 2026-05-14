@@ -10,6 +10,7 @@ import com.yuy.eduflow.timeslot.TimeSlotService;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.function.Consumer;
 import java.util.function.Supplier;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -53,9 +54,13 @@ public class AllocationGenerateParseService {
 	}
 
 	public AllocationParsePreview generateParsePreview(Long taskId, Integer topK) {
+		return generateParsePreview(taskId, topK, ignored -> {});
+	}
+
+	public AllocationParsePreview generateParsePreview(Long taskId, Integer topK, Consumer<GenerationStatus> progressReporter) {
 		log.info("=== ParseService generateParsePreview() start === taskId={}, topK={}", taskId, topK);
 		long t0 = System.currentTimeMillis();
-		AllocationGeneratePreview generatePreview = allocationGeneratePreviewService.generate(taskId, topK);
+		AllocationGeneratePreview generatePreview = allocationGeneratePreviewService.generate(taskId, topK, progressReporter);
 		log.info("[{}ms] LLM + parse done, raw response length={}chars", System.currentTimeMillis() - t0, generatePreview.rawResponse().length());
 		String jsonText = extractJson(generatePreview.rawResponse());
 		log.info("Extracted JSON length={}chars", jsonText.length());
@@ -63,6 +68,7 @@ public class AllocationGenerateParseService {
 		JsonNode schemesNode = requireArray(root, "schemes", "AI 输出顶层必须包含 schemes 数组");
 		log.info("Parsing {} schemes from AI output...", schemesNode.size());
 		List<String> validationMessages = new ArrayList<>();
+		progressReporter.accept(new GenerationStatus("RUNNING", "parse", "校验方案结构和教学时长...", 65, null, 0, null));
 		List<AllocationParsedScheme> schemes = parseSchemes(schemesNode, taskId, validationMessages);
 		log.info("Parsed {} schemes, {} validation messages", schemes.size(), validationMessages.size());
 		for (AllocationParsedScheme s : schemes) {

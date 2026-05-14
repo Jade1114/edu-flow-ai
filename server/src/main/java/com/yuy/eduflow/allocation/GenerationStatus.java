@@ -7,6 +7,9 @@ package com.yuy.eduflow.allocation;
 public class GenerationStatus {
 
 	private String status; // RUNNING | COMPLETED | FAILED | IDLE
+	private String stage;
+	private String message;
+	private Integer progress;
 	private String error;
 	private Integer schemeCount;
 	private Long startedAt;
@@ -15,7 +18,22 @@ public class GenerationStatus {
 	}
 
 	public GenerationStatus(String status, String error, Integer schemeCount, Long startedAt) {
+		this(status, null, null, null, error, schemeCount, startedAt);
+	}
+
+	public GenerationStatus(
+		String status,
+		String stage,
+		String message,
+		Integer progress,
+		String error,
+		Integer schemeCount,
+		Long startedAt
+	) {
 		this.status = status;
+		this.stage = stage;
+		this.message = message;
+		this.progress = progress;
 		this.error = error;
 		this.schemeCount = schemeCount;
 		this.startedAt = startedAt;
@@ -27,6 +45,30 @@ public class GenerationStatus {
 
 	public void setStatus(String status) {
 		this.status = status;
+	}
+
+	public String getStage() {
+		return stage;
+	}
+
+	public void setStage(String stage) {
+		this.stage = stage;
+	}
+
+	public String getMessage() {
+		return message;
+	}
+
+	public void setMessage(String message) {
+		this.message = message;
+	}
+
+	public Integer getProgress() {
+		return progress;
+	}
+
+	public void setProgress(Integer progress) {
+		this.progress = progress;
 	}
 
 	public String getError() {

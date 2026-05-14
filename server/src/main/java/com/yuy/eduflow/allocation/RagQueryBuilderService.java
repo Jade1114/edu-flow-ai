@@ -6,7 +6,6 @@ import java.util.List;
 import java.util.stream.Collectors;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
-import org.springframework.util.StringUtils;
 
 /**
  * RAG 查询构建器。
@@ -31,8 +30,6 @@ public class RagQueryBuilderService {
 
 		StringBuilder query = new StringBuilder();
 		appendLine(query, "任务类型：MVP 分课任务教师画像检索。");
-		appendLine(query, "任务名称：" + task.getName());
-		appendLine(query, "任务说明：" + valueOrDefault(task.getDescription(), "未提供"));
 
 		if (teachingTasks != null && !teachingTasks.isEmpty()) {
 			appendLine(query, "涉及教学任务（共 " + teachingTasks.size() + " 个）：");
@@ -57,10 +54,6 @@ public class RagQueryBuilderService {
 		appendLine(query, "分课优先规则：优先匹配教师可用时间、不可用时间、工作量约束与特殊说明。");
 		appendLine(query, "检索目标说明：从 ACTIVE 教师画像中检索最适合当前分课任务的教师，重点关注可用/不可用时间、工作量要求和特殊约束。");
 		return query.toString().trim();
-	}
-
-	private String valueOrDefault(String value, String defaultValue) {
-		return StringUtils.hasText(value) ? value.trim() : defaultValue;
 	}
 
 	private void appendLine(StringBuilder builder, String value) {

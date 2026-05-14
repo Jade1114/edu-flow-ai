@@ -1,6 +1,6 @@
 package com.yuy.eduflow.adjustment;
 
-import tools.jackson.core.JsonProcessingException;
+import tools.jackson.core.JacksonException;
 import com.yuy.eduflow.assignment.CourseAssignment;
 import com.yuy.eduflow.assignment.CourseAssignmentMapper;
 import com.yuy.eduflow.assignment.CourseAssignmentService;
@@ -79,7 +79,7 @@ public class AdjustmentRequestService {
         try {
             String json = new ObjectMapper().writeValueAsString(Map.of("candidates", validated));
             adjustmentRequestMapper.updateSuggestion(requestId, json, "PENDING");
-        } catch (JsonProcessingException e) {
+        } catch (JacksonException e) {
             throw new ValidationException("候选方案序列化失败");
         }
 
@@ -103,6 +103,17 @@ public class AdjustmentRequestService {
         sb.append("5. 每个候选包含: candidateIndex(int), summary(string), newTimeSlotId(long), newClassroomId(long)\n");
         sb.append("6. 生成 ").append(Math.max(2, Math.min(3, 3))).append(" 个候选方案\n");
         return sb.toString();
+    }
+
+    private List<AdjustmentSuggestionCandidate> parseCandidates(String rawResponse) {
+        return List.of();
+    }
+
+    private List<AdjustmentSuggestionCandidate> detectConflicts(
+        CourseAssignment assignment,
+        List<AdjustmentSuggestionCandidate> candidates
+    ) {
+        return candidates;
     }
 
     private String callLlm(String prompt) {

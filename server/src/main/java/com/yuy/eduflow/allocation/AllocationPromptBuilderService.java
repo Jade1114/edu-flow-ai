@@ -84,9 +84,8 @@ public class AllocationPromptBuilderService {
 		appendLine(prompt, "");
 		appendLine(prompt, "## 分课任务");
 		appendLine(prompt, "taskId: " + task.getId());
-		appendLine(prompt, "taskName: " + task.getName());
-		appendLine(prompt, "description: " + valueOrDefault(task.getDescription(), "未提供"));
 		appendLine(prompt, "priorityRule: 优先匹配教师可用时间、不可用时间、工作量约束与特殊说明。");
+		appendLine(prompt, "additionalRequirements: " + valueOrDefault(task.getDescription(), "无补充要求"));
 		appendLine(prompt, "");
 		appendLine(prompt, "## 教学任务列表（本分课任务包含以下教学任务，必须按照每个教学任务的 totalHours 分配排课片段）");
 		appendLine(prompt, formatTeachingTasks(task));

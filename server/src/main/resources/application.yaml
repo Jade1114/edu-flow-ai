@@ -19,7 +19,9 @@ mybatis:
 
 logging:
   level:
-    com.yuy.eduflow: DEBUG
+    com.yuy.eduflow: INFO
+    org.mybatis: WARN
+    java.sql: WARN
 
 server:
   port: ${SERVER_PORT:8080}
