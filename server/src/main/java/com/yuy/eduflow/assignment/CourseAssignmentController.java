@@ -55,6 +55,16 @@ public class CourseAssignmentController {
 		return ApiResponse.success(courseAssignmentService.update(id, request));
 	}
 
+	@PutMapping("/{id}/move")
+	public ApiResponse<Void> move(
+		@PathVariable Long id,
+		@RequestParam Long timeSlotId,
+		@RequestParam(required = false) Long classroomId
+	) {
+		courseAssignmentService.moveAndRecheck(id, timeSlotId, classroomId);
+		return ApiResponse.success();
+	}
+
 	@DeleteMapping("/{id}")
 	public ApiResponse<Void> delete(@PathVariable Long id) {
 		courseAssignmentService.delete(id);

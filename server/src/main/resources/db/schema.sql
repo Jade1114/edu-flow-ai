@@ -243,3 +243,21 @@ CREATE TABLE IF NOT EXISTS conflict_check_result (
     CONSTRAINT fk_conflict_classroom FOREIGN KEY (related_classroom_id) REFERENCES classroom (id),
     CONSTRAINT fk_conflict_time_slot FOREIGN KEY (related_time_slot_id) REFERENCES time_slot (id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- v4: 调课申请
+CREATE TABLE IF NOT EXISTS adjustment_request (
+    id BIGINT PRIMARY KEY AUTO_INCREMENT,
+    assignment_id BIGINT NOT NULL COMMENT '原正式课表 ID',
+    teacher_id BIGINT NOT NULL COMMENT '申请教师 ID',
+    reason VARCHAR(500) NOT NULL COMMENT '调课原因',
+    preferred_time_text VARCHAR(500) DEFAULT NULL COMMENT '调课倾向（自然语言）',
+    ai_suggestion JSON DEFAULT NULL COMMENT 'AI 候选方案 JSON',
+    status VARCHAR(20) NOT NULL DEFAULT 'PENDING' COMMENT 'PENDING / APPROVED / REJECTED',
+    review_note VARCHAR(500) DEFAULT NULL COMMENT '审核意见',
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    INDEX idx_adjustment_teacher (teacher_id),
+    INDEX idx_adjustment_status (status),
+    CONSTRAINT fk_adjustment_assignment FOREIGN KEY (assignment_id) REFERENCES course_assignment (id),
+    CONSTRAINT fk_adjustment_teacher FOREIGN KEY (teacher_id) REFERENCES teacher (id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

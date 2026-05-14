@@ -2,6 +2,7 @@
 import { ref, computed, onMounted } from 'vue'
 import request from '@/api/request.js'
 import { useAuthStore } from '@/stores/auth.js'
+import { ElMessage } from 'element-plus'
 
 const auth = useAuthStore()
 const assignments = ref([])
@@ -48,6 +49,39 @@ function goToWeek(week) {
   if (week >= 1 && week <= 18) currentWeek.value = week
 }
 
+// === 调课申请 ===
+const adjustDialog = ref(false)
+const adjustItem = ref(null)
+const adjustForm = ref({ reason: '', preferredTimeText: '' })
+const submitting = ref(false)
+
+function openAdjustDialog(item) {
+  adjustItem.value = item
+  adjustForm.value = { reason: '', preferredTimeText: '' }
+  adjustDialog.value = true
+}
+
+async function submitAdjust() {
+  if (!adjustForm.value.reason) {
+    ElMessage.warning('请填写调课原因')
+    return
+  }
+  submitting.value = true
+  try {
+    await request.post('/api/adjustment-requests', {
+      assignmentId: adjustItem.value.id,
+      reason: adjustForm.value.reason,
+      preferredTimeText: adjustForm.value.preferredTimeText || null,
+    })
+    ElMessage.success('调课申请已提交')
+    adjustDialog.value = false
+  } catch (e) {
+    ElMessage.error('提交失败: ' + (e.message || '未知错误'))
+  } finally {
+    submitting.value = false
+  }
+}
+
 onMounted(loadTimetable)
 </script>
 
@@ -88,6 +122,11 @@ onMounted(loadTimetable)
       <el-table-column prop="weekNumber" label="周次" width="70" />
       <el-table-column prop="dayOfWeek" label="星期" width="70" />
       <el-table-column prop="periodIndex" label="节次" width="70" />
+      <el-table-column label="操作" width="100">
+        <template #default="{ row }">
+          <el-button type="warning" size="small" @click="openAdjustDialog(row)">调课</el-button>
+        </template>
+      </el-table-column>
     </el-table>
 
     <!-- 课程表视图 -->
@@ -124,10 +163,12 @@ onMounted(loadTimetable)
                 :class="{ 'slot-hover': itemsAtSlot(day, period).length > 0 }">
                 <div v-if="itemsAtSlot(day, period).length > 0" style="display: flex; flex-direction: column; gap: 3px">
                   <div v-for="item in itemsAtSlot(day, period)" :key="item.id"
-                    style="padding: 3px 5px; border-radius: 4px; font-size: 12px; line-height: 1.4; background: var(--el-color-primary-light-9, #ecf5ff); color: var(--el-color-primary, #409eff)">
+                    style="padding: 3px 5px; border-radius: 4px; font-size: 12px; line-height: 1.4; background: var(--el-color-primary-light-9, #ecf5ff); color: var(--el-color-primary, #409eff); cursor: pointer"
+                    @click="openAdjustDialog(item)">
                     <div style="font-weight: 600">{{ item.courseName }}</div>
                     <div style="color: #666">{{ item.classroomName }} · {{ item.teacherName }}</div>
                     <div style="color: #999; font-size: 11px">{{ item.classGroupName }}</div>
+                    <div style="font-size: 11px; color: #409eff; margin-top: 2px">申请调课</div>
                   </div>
                 </div>
                 <div v-else style="color: #ccc; text-align: center; font-size: 11px; line-height: 40px">空</div>
@@ -137,6 +178,28 @@ onMounted(loadTimetable)
         </table>
       </div>
     </div>
+
+    <!-- 调课申请弹窗 -->
+    <el-dialog v-model="adjustDialog" title="申请调课" width="500px">
+      <p v-if="adjustItem" style="margin-bottom: 12px; color: #666">
+        <strong>{{ adjustItem.courseName }}</strong> ·
+        {{ adjustItem.classroomName }} ·
+        第{{ adjustItem.weekNumber }}周 ·
+        {{ adjustItem.timeSlotLabel }}
+      </p>
+      <el-form :model="adjustForm" label-width="100px">
+        <el-form-item label="调课原因" required>
+          <el-input v-model="adjustForm.reason" type="textarea" :rows="3" placeholder="请说明调课原因" />
+        </el-form-item>
+        <el-form-item label="调课倾向">
+          <el-input v-model="adjustForm.preferredTimeText" type="textarea" :rows="2" placeholder="可选，例如：希望调整到周三或周四上午" />
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="adjustDialog = false">取消</el-button>
+        <el-button type="primary" :loading="submitting" @click="submitAdjust">提交申请</el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>
 

@@ -92,6 +92,32 @@ public class CourseAssignmentService {
 		courseAssignmentMapper.cancel(id, AssignmentStatus.ACTIVE.code());
 	}
 
+	public void moveAndRecheck(Long id, Long timeSlotId, Long classroomId) {
+		CourseAssignment assignment = findById(id);
+
+		// 教师时间冲突检测
+		int teacherConflicts = courseAssignmentMapper.countActiveTeacherTimeConflict(id, assignment.getTeacherId(), timeSlotId);
+		if (teacherConflicts > 0) {
+			throw new com.yuy.eduflow.common.exception.ConflictException("该时间段教师已有其他课程安排");
+		}
+
+		// 班级时间冲突检测
+		if (assignment.getClassGroupId() != null) {
+			int classGroupConflicts = courseAssignmentMapper.countActiveClassGroupTimeConflict(id, assignment.getClassGroupId(), timeSlotId);
+			if (classGroupConflicts > 0) {
+				throw new com.yuy.eduflow.common.exception.ConflictException("该时间段班级已有其他课程安排");
+			}
+		}
+
+		// 教室时间冲突检测
+		int classroomConflicts = courseAssignmentMapper.countActiveClassroomTimeConflict(id, classroomId, timeSlotId);
+		if (classroomConflicts > 0) {
+			throw new com.yuy.eduflow.common.exception.ConflictException("该时间段教室已被占用");
+		}
+
+		courseAssignmentMapper.updateSchedule(id, timeSlotId, classroomId);
+	}
+
 	private CourseAssignment toAssignment(CourseAssignment assignment, CourseAssignmentRequest request) {
 		validateOptionalId(request.sourceSchemeId(), "来源方案ID必须大于0");
 		Assert.positiveId(request.teachingTaskId(), "教学任务ID");
