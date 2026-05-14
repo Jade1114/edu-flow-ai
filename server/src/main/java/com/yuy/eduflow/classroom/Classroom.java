@@ -1,5 +1,6 @@
 package com.yuy.eduflow.classroom;
 
+import com.yuy.eduflow.enums.ActiveStatus;
 import java.time.LocalDateTime;
 import lombok.Data;
 
@@ -10,7 +11,7 @@ public class Classroom {
 	private String building;
 	private Integer capacity;
 	private String classroomType;
-	private String status;
+    private ActiveStatus status;
 	private LocalDateTime createdAt;
 	private LocalDateTime updatedAt;
 }

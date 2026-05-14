@@ -82,7 +82,7 @@ public class TeacherService {
 		teacher.setDepartment(request.department().trim());
 		teacher.setTitle(StringUtils.hasText(request.title()) ? request.title().trim() : null);
 		teacher.setMaxWeeklyHours(request.maxWeeklyHours());
-		teacher.setStatus(StringUtils.hasText(request.status()) ? request.status().trim() : ActiveStatus.ACTIVE.code());
+		teacher.setStatus(StringUtils.hasText(request.status()) ? ActiveStatus.from(request.status().trim()) : ActiveStatus.ACTIVE);
 		return teacher;
 	}
 

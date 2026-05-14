@@ -141,7 +141,7 @@ public class TeachingTaskService {
         task.setNotes(request.notes());
         // 如果请求中未指定状态，则默认设置为 ACTIVE
         task.setStatus(
-                request.status() != null && !request.status().isBlank() ? request.status().trim() : ActiveStatus.ACTIVE.code());
+                request.status() != null && !request.status().isBlank() ? ActiveStatus.from(request.status().trim()) : ActiveStatus.ACTIVE);
         return task;
     }
 

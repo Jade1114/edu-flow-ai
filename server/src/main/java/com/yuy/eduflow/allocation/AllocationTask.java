@@ -1,5 +1,6 @@
 package com.yuy.eduflow.allocation;
 
+import com.yuy.eduflow.enums.TaskStatus;
 import com.yuy.eduflow.teachingtask.TeachingTask;
 import java.time.LocalDateTime;
 import java.util.List;
@@ -12,7 +13,7 @@ public class AllocationTask {
 	private String description;
 	private Integer startWeek;
 	private Integer endWeek;
-	private String status;
+    private TaskStatus status;
 	private String createdBy;
 	private LocalDateTime createdAt;
 	private LocalDateTime updatedAt;

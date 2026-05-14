@@ -5,6 +5,7 @@ import com.yuy.eduflow.classroom.Classroom;
 import com.yuy.eduflow.course.Course;
 import com.yuy.eduflow.teacher.Teacher;
 import java.time.LocalDateTime;
+import com.yuy.eduflow.enums.ActiveStatus;
 import java.util.List;
 import lombok.Data;
 
@@ -17,7 +18,7 @@ public class TeachingTask {
     private Long classroomId;
     private Integer totalHours;
     private String notes;
-    private String status;
+    private ActiveStatus status;
     private LocalDateTime createdAt;
     private LocalDateTime updatedAt;
 

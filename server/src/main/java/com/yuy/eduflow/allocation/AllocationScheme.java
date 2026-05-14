@@ -1,5 +1,6 @@
 package com.yuy.eduflow.allocation;
 
+import com.yuy.eduflow.enums.SchemeStatus;
 import java.time.LocalDateTime;
 import lombok.Data;
 
@@ -13,7 +14,7 @@ public class AllocationScheme {
 	private String satisfiedSummary;
 	private String conflictSummary;
 	private Boolean valid;
-	private String status;
+    private SchemeStatus status;
 	private LocalDateTime createdAt;
 	private LocalDateTime updatedAt;
 }

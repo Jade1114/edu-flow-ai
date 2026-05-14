@@ -140,7 +140,7 @@ public class AllocationSchemeGenerationService {
 		scheme.setSatisfiedSummary(parsedScheme.satisfiedSummary());
 		scheme.setConflictSummary(null);
 		scheme.setValid(true);
-		scheme.setStatus(SchemeStatus.CANDIDATE.code());
+		scheme.setStatus(SchemeStatus.CANDIDATE);
 		allocationSchemeMapper.insert(scheme);
 		return scheme;
 	}

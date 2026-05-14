@@ -1,5 +1,6 @@
 package com.yuy.eduflow.teacher;
 
+import com.yuy.eduflow.enums.ActiveStatus;
 import java.time.LocalDateTime;
 import lombok.Data;
 
@@ -13,7 +14,7 @@ public class Teacher {
 	private String department;
 	private String title;
 	private Integer maxWeeklyHours;
-	private String status;
+    private ActiveStatus status;
 	private LocalDateTime createdAt;
 	private LocalDateTime updatedAt;
 }

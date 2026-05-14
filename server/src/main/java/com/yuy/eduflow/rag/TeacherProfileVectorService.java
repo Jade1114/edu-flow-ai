@@ -85,7 +85,7 @@ public class TeacherProfileVectorService {
 		payload.put("teacherName", teacher.getName());
 		payload.put("department", teacher.getDepartment());
 		payload.put("title", teacher.getTitle());
-		payload.put("status", teacher.getStatus());
+		payload.put("status", teacher.getStatus().code());
         payload.put("availableTimeText", profile.getAvailableTimeText());
 		payload.put("unavailableTimeText", profile.getUnavailableTimeText());
 		payload.put("workloadRequirement", profile.getWorkloadRequirement());

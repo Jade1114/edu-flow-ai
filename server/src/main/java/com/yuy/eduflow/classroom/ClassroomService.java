@@ -59,7 +59,7 @@ public class ClassroomService {
 		classroom.setBuilding(clean(request.building()));
 		classroom.setCapacity(request.capacity());
 		classroom.setClassroomType(clean(request.classroomType()));
-		classroom.setStatus(StringUtils.hasText(request.status()) ? request.status().trim() : ActiveStatus.ACTIVE.code());
+		classroom.setStatus(StringUtils.hasText(request.status()) ? ActiveStatus.from(request.status().trim()) : ActiveStatus.ACTIVE);
 		return classroom;
 	}
 

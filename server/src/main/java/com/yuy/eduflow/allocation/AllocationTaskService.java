@@ -122,7 +122,7 @@ public class AllocationTaskService {
         task.setStartWeek(request.startWeek() != null ? request.startWeek() : 1);
         task.setEndWeek(request.endWeek() != null ? request.endWeek() : 18);
         task.setStatus(
-                request.status() != null && !request.status().isBlank() ? request.status().trim() : TaskStatus.DRAFT.code());
+                request.status() != null && !request.status().isBlank() ? TaskStatus.from(request.status().trim()) : TaskStatus.DRAFT);
         task.setCreatedBy(request.createdBy());
 		return task;
 	}

@@ -1,5 +1,6 @@
 package com.yuy.eduflow.assignment;
 
+import com.yuy.eduflow.enums.AssignmentStatus;
 import java.time.LocalDateTime;
 import lombok.Data;
 
@@ -15,7 +16,7 @@ public class CourseAssignment {
 	private Long teachingTaskId;
 	private Long classroomId;
 	private Long timeSlotId;
-	private String status;
+    private AssignmentStatus status;
 	private LocalDateTime createdAt;
 	private LocalDateTime updatedAt;
 

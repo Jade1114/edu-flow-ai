@@ -101,7 +101,7 @@ public class CourseAssignmentService {
 		assignment.setTeachingTaskId(request.teachingTaskId());
 		assignment.setClassroomId(request.classroomId());
 		assignment.setTimeSlotId(request.timeSlotId());
-		assignment.setStatus(StringUtils.hasText(request.status()) ? request.status().trim() : AssignmentStatus.ACTIVE.code());
+		assignment.setStatus(StringUtils.hasText(request.status()) ? AssignmentStatus.from(request.status().trim()) : AssignmentStatus.ACTIVE);
 		return assignment;
 	}
 

@@ -16,7 +16,7 @@ import org.springframework.transaction.annotation.Transactional;
 public class AllocationSchemeConfirmService {
 	
 	
-	private static final String ACTIVE_STATUS = AssignmentStatus.ACTIVE.code();
+	private static final AssignmentStatus ACTIVE_STATUS = AssignmentStatus.ACTIVE;
 
 	private final AllocationSchemeMapper allocationSchemeMapper;
 	private final AllocationItemMapper allocationItemMapper;
@@ -56,7 +56,7 @@ public class AllocationSchemeConfirmService {
 		}
 
 		// 如果是重新确认，先清空旧的正式课表
-		boolean isReconfirm = SchemeStatus.CONFIRMED.code().equals(scheme.getStatus());
+		boolean isReconfirm = scheme.getStatus() == SchemeStatus.CONFIRMED;
 		if (isReconfirm) {
 			courseAssignmentMapper.deleteBySourceSchemeId(schemeId);
 		}

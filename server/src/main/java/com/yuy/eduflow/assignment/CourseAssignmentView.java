@@ -1,5 +1,6 @@
 package com.yuy.eduflow.assignment;
 
+import com.yuy.eduflow.enums.AssignmentStatus;
 import lombok.Data;
 
 @Data
@@ -20,5 +21,5 @@ public class CourseAssignmentView {
 	private Integer dayOfWeek;
 	private Integer periodIndex;
 	private Long sourceSchemeId;
-	private String status;
+    private AssignmentStatus status;
 }

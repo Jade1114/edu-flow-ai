@@ -66,7 +66,7 @@ public class AllocationSchemeService {
 		scheme.setSatisfiedSummary(clean(request.satisfiedSummary()));
 		scheme.setConflictSummary(clean(request.conflictSummary()));
 		scheme.setValid(request.valid() != null ? request.valid() : true);
-		scheme.setStatus(StringUtils.hasText(request.status()) ? request.status().trim() : SchemeStatus.CANDIDATE.code());
+		scheme.setStatus(StringUtils.hasText(request.status()) ? SchemeStatus.from(request.status().trim()) : SchemeStatus.CANDIDATE);
 		return scheme;
 	}
 

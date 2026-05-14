@@ -39,7 +39,7 @@ public class AuthService {
 		if (!Objects.equals(teacher.getPassword(), request.password().trim())) {
 			throw new ValidationException("密码错误");
 		}
-		if (!ActiveStatus.ACTIVE.code().equals(teacher.getStatus())) {
+		if (teacher.getStatus() != ActiveStatus.ACTIVE) {
 			throw new ValidationException("账号状态非 ACTIVE，禁止登录");
 		}
 
