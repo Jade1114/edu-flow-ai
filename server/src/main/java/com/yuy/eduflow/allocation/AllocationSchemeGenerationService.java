@@ -6,7 +6,6 @@ import com.yuy.eduflow.conflict.ConflictCheckResultMapper;
 import com.yuy.eduflow.teachingtask.TeachingTaskMapper;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
-import java.util.function.Consumer;
 import com.yuy.eduflow.enums.SchemeStatus;
 import java.util.List;
 import java.util.Map;
@@ -70,60 +69,6 @@ public class AllocationSchemeGenerationService {
 		}
 
 		log.info("=== SchemeGeneration generateSchemes() end === totalSchemes={}", generatedSchemes.size());
-		return new AllocationGenerateResult(parsePreview.taskId(), generatedSchemes.size(), generatedSchemes);
-	}
-
-	/**
-	 * SSE 版本的生成方法。在原有逻辑基础上插入进度回调，推送给前端。
-	 */
-	public AllocationGenerateResult generateSchemesWithProgress(Long taskId, Integer topK, Consumer<ProgressEvent> callback) {
-		log.info("=== SchemeGeneration generateSchemesWithProgress() start === taskId={}, topK={}", taskId, topK);
-		Assert.positiveId(taskId, "分课任务ID");
-
-		long t0 = System.currentTimeMillis();
-		AllocationParsePreview parsePreview = allocationGenerateParseService.generateParsePreview(taskId, topK, callback);
-		log.info("[{}ms] ParsePreview done: {} schemes", System.currentTimeMillis() - t0,
-			parsePreview.schemes() != null ? parsePreview.schemes().size() : 0);
-
-		log.info("Parsed {} schemes from LLM, rejecting old candidates...",
-			parsePreview.schemes() != null ? parsePreview.schemes().size() : 0);
-		allocationSchemeMapper.rejectCandidatesByTaskId(taskId, SchemeStatus.CANDIDATE.code(), SchemeStatus.REJECTED.code());
-		log.info("Old candidates rejected");
-
-		List<AllocationParsedScheme> parsedSchemes = safeSchemes(parsePreview);
-		int total = parsedSchemes.size();
-		callback.accept(ProgressEvent.of("parse", 50, "解析完成，共 " + total + " 个方案，开始持久化..."));
-
-		List<AllocationScheme> generatedSchemes = new ArrayList<>();
-		for (int i = 0; i < total; i++) {
-			AllocationParsedScheme parsedScheme = parsedSchemes.get(i);
-			int percent = 50 + (i + 1) * 40 / total;
-			log.info("Persisting scheme [{}]...", parsedScheme.schemeName());
-			callback.accept(ProgressEvent.of("persist", percent, "正在持久化方案 " + (i + 1) + "/" + total));
-
-			AllocationScheme scheme = persistScheme(taskId, parsedScheme);
-			log.info("Scheme persisted: id={}, name={}", scheme.getId(), scheme.getSchemeName());
-			List<AllocationItem> items = persistItems(scheme.getId(), parsedScheme.items());
-
-			log.info("Persisted {} items for scheme id={}", items.size(), scheme.getId());
-			callback.accept(ProgressEvent.of("persist", percent, "方案 " + (i + 1) + "/" + total + " 入库完成，检测冲突..."));
-
-			List<AllocationConflictViolation> violations = conflictDetector.detect(items);
-			log.info("Conflict detection: {} violations found", violations.size());
-			applyItemConflictState(items, violations);
-			persistConflictResults(scheme.getId(), violations);
-			String conflictSummary = conflictDetector.summarize(violations);
-			boolean valid = violations.isEmpty();
-			allocationSchemeMapper.updateConflictState(scheme.getId(), valid, conflictSummary);
-			log.info("Scheme id={}: valid={}, conflictSummary=[{}]", scheme.getId(), valid, conflictSummary);
-			generatedSchemes.add(allocationSchemeMapper.findById(scheme.getId()));
-
-			// 逐方案推送
-			callback.accept(ProgressEvent.schemeReady(i, parsedScheme.schemeName()));
-		}
-
-		log.info("=== SchemeGeneration generateSchemesWithProgress() end === totalSchemes={}", generatedSchemes.size());
-		callback.accept(ProgressEvent.done(generatedSchemes.size()));
 		return new AllocationGenerateResult(parsePreview.taskId(), generatedSchemes.size(), generatedSchemes);
 	}
 

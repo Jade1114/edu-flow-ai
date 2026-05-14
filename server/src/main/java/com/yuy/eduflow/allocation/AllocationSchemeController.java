@@ -78,8 +78,4 @@ public class AllocationSchemeController {
 		return ApiResponse.success(allocationItemService.moveAndRecheck(schemeId, itemId, request));
 	}
 
-	@PostMapping("/{schemeId}/recheck")
-	public ApiResponse<List<AllocationItemView>> recheckConflicts(@PathVariable Long schemeId) {
-		return ApiResponse.success(allocationItemService.recheckScheme(schemeId));
-	}
 }

@@ -23,7 +23,6 @@ const generating = ref(false);
 const genStatus = ref(null);
 const genProgress = ref(0);
 let pollTimer = null;
-let eventSource = null;
 const topK = ref(5);
 
 const teachingTasks = ref([]);
@@ -127,56 +126,14 @@ async function generateSchemes(taskId) {
   genStatus.value = { stage: "rag", percent: 0, message: "开始生成..." };
   currentTaskId.value = taskId;
 
-  if (typeof EventSource !== 'undefined') {
-    startSse(taskId);
-  } else {
-    // 降级：不支持 EventSource 时用旧轮询
-    try {
-      await request.post(`/api/allocation-tasks/${taskId}/generate-async?topK=${topK.value}`);
-      startPolling(taskId);
-    } catch (e) {
-      generating.value = false;
-      genStatus.value = { stage: "error", percent: 0, message: e.message };
-      ElMessage.error("启动生成失败");
-    }
+  try {
+    await request.post(`/api/allocation-tasks/${taskId}/generate-async?topK=${topK.value}`);
+    startPolling(taskId);
+  } catch (e) {
+    generating.value = false;
+    genStatus.value = { stage: "error", percent: 0, message: e.message };
+    ElMessage.error("启动生成失败");
   }
-}
-
-function startSse(taskId) {
-  eventSource = new EventSource(`/api/allocation-tasks/${taskId}/generate-sse?topK=${topK.value}`);
-
-  eventSource.addEventListener('progress', (e) => {
-    try {
-      const data = JSON.parse(e.data);
-      genStatus.value = data;
-      genProgress.value = data.percent || 0;
-
-      if (data.stage === 'done') {
-        eventSource.close();
-        eventSource = null;
-        generating.value = false;
-        genProgress.value = 100;
-        ElMessage.success(data.message || '生成完成');
-        viewSchemes(taskId);
-      } else if (data.stage === 'error') {
-        eventSource.close();
-        eventSource = null;
-        generating.value = false;
-        ElMessage.error(data.message || '生成失败');
-      }
-    } catch (e) {
-      // ignore parse errors from incomplete frames
-    }
-  });
-
-  eventSource.onerror = () => {
-    if (eventSource.readyState === EventSource.CLOSED) {
-      generating.value = false;
-      genStatus.value = { stage: "error", percent: 0, message: "SSE 连接断开" };
-      ElMessage.warning("SSE 连接断开，可尝试再次生成");
-      eventSource = null;
-    }
-  };
 }
 
 function stageLabel(stage) {
@@ -295,9 +252,12 @@ async function saveItemMove() {
     });
     ElMessage.success('修改成功，已重新检测冲突');
     editDialog.value = false;
-    // 刷新 schemeDetail.items + slotDetail.items（保持当前周次和弹窗）
-    const items = await request.get(`/api/allocation-schemes/${schemeDetail.value.id}/items`);
-    schemeDetail.value = { ...schemeDetail.value, items };
+    // 刷新 schemeDetail 完整数据（含 conflictSummary）+ items
+    const [detail, items] = await Promise.all([
+      request.get(`/api/allocation-schemes/${schemeDetail.value.id}`),
+      request.get(`/api/allocation-schemes/${schemeDetail.value.id}/items`),
+    ]);
+    schemeDetail.value = { ...schemeDetail.value, ...detail, items };
     // 同步刷新 slot 详情弹窗
     const dayIndex = ['周一','周二','周三','周四','周五','周六','周日'].indexOf(slotDetail.value.dayOfWeek) + 1;
     if (dayIndex > 0 && slotDetail.value.periodIndex != null) {
@@ -367,9 +327,12 @@ async function onDrop(e, day, period) {
       timeSlotId: targetTimeSlotId,
     });
     ElMessage.success('已移动');
-    // 刷新数据
-    const items = await request.get(`/api/allocation-schemes/${schemeDetail.value.id}/items`);
-    schemeDetail.value = { ...schemeDetail.value, items };
+    // 刷新 scheme 完整数据（含 conflictSummary）+ items
+    const [detail, items] = await Promise.all([
+      request.get(`/api/allocation-schemes/${schemeDetail.value.id}`),
+      request.get(`/api/allocation-schemes/${schemeDetail.value.id}/items`),
+    ]);
+    schemeDetail.value = { ...schemeDetail.value, ...detail, items };
   } catch (e) {
     ElMessage.error('移动失败');
   } finally {
@@ -392,30 +355,6 @@ async function viewSchemeDetail(schemeId) {
   detailVisible.value = true;
 }
 
-const rechecking = ref(false);
-async function recheckConflicts() {
-  rechecking.value = true;
-  try {
-    const items = await request.post(`/api/allocation-schemes/${schemeDetail.value.id}/recheck`);
-    schemeDetail.value = { ...schemeDetail.value, items };
-    // 如果 slot 详情弹窗开着，也同步刷新
-    if (slotDetail.value.visible) {
-      const dayIndex = ['周一','周二','周三','周四','周五','周六','周日'].indexOf(slotDetail.value.dayOfWeek) + 1;
-      if (dayIndex > 0 && slotDetail.value.periodIndex != null) {
-        slotDetail.value = {
-          ...slotDetail.value,
-          items: items.filter(i => i.weekNumber === currentWeek.value
-            && i.dayOfWeek === dayIndex
-            && i.periodIndex === slotDetail.value.periodIndex),
-        };
-      }
-    }
-    ElMessage.success('冲突检测完成');
-  } finally {
-    rechecking.value = false;
-  }
-}
-
 onMounted(() => {
   loadTasks();
   loadTeachingTasks();
@@ -425,10 +364,6 @@ onUnmounted(() => {
   if (pollTimer) {
     clearInterval(pollTimer);
     pollTimer = null;
-  }
-  if (eventSource) {
-    eventSource.close();
-    eventSource = null;
   }
 });
 </script>
@@ -618,9 +553,7 @@ onUnmounted(() => {
             <el-tag v-if="schemeDetail.conflictSummary" type="danger" size="small"
               >冲突: {{ schemeDetail.conflictSummary }}</el-tag
             >
-            <el-button type="warning" size="small" :loading="rechecking" @click="recheckConflicts"
-              >重新检测冲突</el-button
-            >
+            
           </div>
         </div>
 
