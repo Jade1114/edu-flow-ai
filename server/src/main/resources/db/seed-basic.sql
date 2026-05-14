@@ -228,135 +228,169 @@ AND NOT EXISTS (
 
 -- ============================================================
 -- 教学任务-班级关联
+-- 每个 INSERT 使用与教学任务完全相同的匹配条件（课程名+工号+notes）
 -- ============================================================
 
--- TT1: Java程序设计 → 软件1班+软件2班
-INSERT INTO teaching_task_class_group (teaching_task_id, class_group_id)
-SELECT tt.id, cg.id FROM teaching_task tt, class_group cg
-WHERE tt.notes='合班授课，需80座教室' AND cg.name IN ('23级软件工程1班','23级软件工程2班');
+-- TT1: Java程序设计 → 张明 → 软件1班+软件2班
+INSERT IGNORE INTO teaching_task_class_group (teaching_task_id, class_group_id)
+SELECT tt.id, cg.id FROM teaching_task tt
+JOIN course c ON tt.course_id = c.id
+JOIN teacher t ON tt.primary_teacher_id = t.id
+CROSS JOIN class_group cg
+WHERE c.name='Java程序设计' AND t.employee_no='T1001' AND tt.notes='合班授课，需80座教室'
+  AND cg.name IN ('23级软件工程1班','23级软件工程2班');
 
--- TT2: 数据库原理 → 软件1班
-INSERT INTO teaching_task_class_group (teaching_task_id, class_group_id)
-SELECT tt.id, cg.id FROM teaching_task tt, class_group cg
-WHERE tt.id = (SELECT tt2.id FROM teaching_task tt2 JOIN course c2 ON tt2.course_id=c2.id
-               WHERE c2.name='数据库原理' AND tt2.notes IS NULL LIMIT 1)
+-- TT2: 数据库原理 → 李娜 → 软件1班
+INSERT IGNORE INTO teaching_task_class_group (teaching_task_id, class_group_id)
+SELECT tt.id, cg.id FROM teaching_task tt
+JOIN course c ON tt.course_id = c.id
+JOIN teacher t ON tt.primary_teacher_id = t.id
+CROSS JOIN class_group cg
+WHERE c.name='数据库原理' AND t.employee_no='T1002' AND tt.notes IS NULL
   AND cg.name='23级软件工程1班';
 
--- TT3: 数据结构 → 计科1班
-INSERT INTO teaching_task_class_group (teaching_task_id, class_group_id)
-SELECT tt.id, cg.id FROM teaching_task tt, class_group cg
-WHERE tt.id = (SELECT tt2.id FROM teaching_task tt2 JOIN course c2 ON tt2.course_id=c2.id
-               WHERE c2.name='数据结构' AND tt2.notes IS NULL LIMIT 1)
+-- TT3: 数据结构 → 王强 → 计科1班
+INSERT IGNORE INTO teaching_task_class_group (teaching_task_id, class_group_id)
+SELECT tt.id, cg.id FROM teaching_task tt
+JOIN course c ON tt.course_id = c.id
+JOIN teacher t ON tt.primary_teacher_id = t.id
+CROSS JOIN class_group cg
+WHERE c.name='数据结构' AND t.employee_no='T1003' AND tt.notes IS NULL
   AND cg.name='23级计算机科学与技术1班';
 
--- TT4: 计算机网络 → 人工智能1班+人工智能2班
-INSERT INTO teaching_task_class_group (teaching_task_id, class_group_id)
-SELECT tt.id, cg.id FROM teaching_task tt, class_group cg
-WHERE tt.notes='合班授课' AND cg.name IN ('23级人工智能1班','23级人工智能2班');
+-- TT4: 计算机网络 → 赵敏 → 人工智能1班+人工智能2班
+INSERT IGNORE INTO teaching_task_class_group (teaching_task_id, class_group_id)
+SELECT tt.id, cg.id FROM teaching_task tt
+JOIN course c ON tt.course_id = c.id
+JOIN teacher t ON tt.primary_teacher_id = t.id
+CROSS JOIN class_group cg
+WHERE c.name='计算机网络' AND t.employee_no='T1004' AND tt.notes='合班授课'
+  AND cg.name IN ('23级人工智能1班','23级人工智能2班');
 
--- TT5: 操作系统 → 计科2班
-INSERT INTO teaching_task_class_group (teaching_task_id, class_group_id)
-SELECT tt.id, cg.id FROM teaching_task tt, class_group cg
-WHERE tt.id = (SELECT tt2.id FROM teaching_task tt2 JOIN course c2 ON tt2.course_id=c2.id
-               WHERE c2.name='操作系统' AND tt2.primary_teacher_id=(SELECT id FROM teacher WHERE employee_no='T1005') LIMIT 1)
+-- TT5: 操作系统 → 陈涛 → 计科2班
+INSERT IGNORE INTO teaching_task_class_group (teaching_task_id, class_group_id)
+SELECT tt.id, cg.id FROM teaching_task tt
+JOIN course c ON tt.course_id = c.id
+JOIN teacher t ON tt.primary_teacher_id = t.id
+CROSS JOIN class_group cg
+WHERE c.name='操作系统' AND t.employee_no='T1005'
   AND cg.name='23级计算机科学与技术2班';
 
--- TT6: 软件工程导论 → 数据1班
-INSERT INTO teaching_task_class_group (teaching_task_id, class_group_id)
-SELECT tt.id, cg.id FROM teaching_task tt, class_group cg
-WHERE tt.id = (SELECT tt2.id FROM teaching_task tt2 JOIN course c2 ON tt2.course_id=c2.id
-               WHERE c2.name='软件工程导论' LIMIT 1)
+-- TT6: 软件工程导论 → 刘洋 → 数据1班
+INSERT IGNORE INTO teaching_task_class_group (teaching_task_id, class_group_id)
+SELECT tt.id, cg.id FROM teaching_task tt
+JOIN course c ON tt.course_id = c.id
+JOIN teacher t ON tt.primary_teacher_id = t.id
+CROSS JOIN class_group cg
+WHERE c.name='软件工程导论' AND t.employee_no='T1006'
   AND cg.name='23级数据科学与大数据技术1班';
 
--- TT7: Python程序设计 → 软件2班
-INSERT INTO teaching_task_class_group (teaching_task_id, class_group_id)
-SELECT tt.id, cg.id FROM teaching_task tt, class_group cg
-WHERE tt.notes='上机实践课'
-  AND tt.id = (SELECT tt2.id FROM teaching_task tt2 JOIN course c2 ON tt2.course_id=c2.id
-               WHERE c2.name='Python程序设计' LIMIT 1)
+-- TT7: Python程序设计 → 孙丽 → 软件2班
+INSERT IGNORE INTO teaching_task_class_group (teaching_task_id, class_group_id)
+SELECT tt.id, cg.id FROM teaching_task tt
+JOIN course c ON tt.course_id = c.id
+JOIN teacher t ON tt.primary_teacher_id = t.id
+CROSS JOIN class_group cg
+WHERE c.name='Python程序设计' AND t.employee_no='T1007'
   AND cg.name='23级软件工程2班';
 
--- TT8: Web前端开发 → 软件1班
-INSERT INTO teaching_task_class_group (teaching_task_id, class_group_id)
-SELECT tt.id, cg.id FROM teaching_task tt, class_group cg
-WHERE tt.notes='上机实践课'
-  AND tt.id = (SELECT tt2.id FROM teaching_task tt2 JOIN course c2 ON tt2.course_id=c2.id
-               WHERE c2.name='Web前端开发' LIMIT 1)
+-- TT8: Web前端开发 → 吴芳 → 软件1班
+INSERT IGNORE INTO teaching_task_class_group (teaching_task_id, class_group_id)
+SELECT tt.id, cg.id FROM teaching_task tt
+JOIN course c ON tt.course_id = c.id
+JOIN teacher t ON tt.primary_teacher_id = t.id
+CROSS JOIN class_group cg
+WHERE c.name='Web前端开发' AND t.employee_no='T1009'
   AND cg.name='23级软件工程1班';
 
--- TT9: 算法设计与分析 → 计科1班+计科2班
-INSERT INTO teaching_task_class_group (teaching_task_id, class_group_id)
-SELECT tt.id, cg.id FROM teaching_task tt, class_group cg
-WHERE tt.notes='合班授课'
-  AND tt.id = (SELECT tt2.id FROM teaching_task tt2 JOIN course c2 ON tt2.course_id=c2.id
-               WHERE c2.name='算法设计与分析' LIMIT 1)
+-- TT9: 算法设计与分析 → 王强 → 计科1班+计科2班
+INSERT IGNORE INTO teaching_task_class_group (teaching_task_id, class_group_id)
+SELECT tt.id, cg.id FROM teaching_task tt
+JOIN course c ON tt.course_id = c.id
+JOIN teacher t ON tt.primary_teacher_id = t.id
+CROSS JOIN class_group cg
+WHERE c.name='算法设计与分析' AND t.employee_no='T1003'
   AND cg.name IN ('23级计算机科学与技术1班','23级计算机科学与技术2班');
 
--- TT10: 计算机组成原理 → 计科1班
-INSERT INTO teaching_task_class_group (teaching_task_id, class_group_id)
-SELECT tt.id, cg.id FROM teaching_task tt, class_group cg
-WHERE tt.id = (SELECT tt2.id FROM teaching_task tt2 JOIN course c2 ON tt2.course_id=c2.id
-               WHERE c2.name='计算机组成原理' LIMIT 1)
+-- TT10: 计算机组成原理 → 周伟 → 计科1班
+INSERT IGNORE INTO teaching_task_class_group (teaching_task_id, class_group_id)
+SELECT tt.id, cg.id FROM teaching_task tt
+JOIN course c ON tt.course_id = c.id
+JOIN teacher t ON tt.primary_teacher_id = t.id
+CROSS JOIN class_group cg
+WHERE c.name='计算机组成原理' AND t.employee_no='T1008'
   AND cg.name='23级计算机科学与技术1班';
 
--- TT11: 人工智能导论 → 人工智能1班
-INSERT INTO teaching_task_class_group (teaching_task_id, class_group_id)
-SELECT tt.id, cg.id FROM teaching_task tt, class_group cg
-WHERE tt.id = (SELECT tt2.id FROM teaching_task tt2 JOIN course c2 ON tt2.course_id=c2.id
-               WHERE c2.name='人工智能导论' LIMIT 1)
+-- TT11: 人工智能导论 → 郑宇 → 人工智能1班
+INSERT IGNORE INTO teaching_task_class_group (teaching_task_id, class_group_id)
+SELECT tt.id, cg.id FROM teaching_task tt
+JOIN course c ON tt.course_id = c.id
+JOIN teacher t ON tt.primary_teacher_id = t.id
+CROSS JOIN class_group cg
+WHERE c.name='人工智能导论' AND t.employee_no='T1010'
   AND cg.name='23级人工智能1班';
 
--- TT12: 大数据技术基础 → 数据2班
-INSERT INTO teaching_task_class_group (teaching_task_id, class_group_id)
-SELECT tt.id, cg.id FROM teaching_task tt, class_group cg
-WHERE tt.id = (SELECT tt2.id FROM teaching_task tt2 JOIN course c2 ON tt2.course_id=c2.id
-               WHERE c2.name='大数据技术基础' LIMIT 1)
+-- TT12: 大数据技术基础 → 李娜 → 数据2班
+INSERT IGNORE INTO teaching_task_class_group (teaching_task_id, class_group_id)
+SELECT tt.id, cg.id FROM teaching_task tt
+JOIN course c ON tt.course_id = c.id
+JOIN teacher t ON tt.primary_teacher_id = t.id
+CROSS JOIN class_group cg
+WHERE c.name='大数据技术基础' AND t.employee_no='T1002'
   AND cg.name='23级数据科学与大数据技术2班';
 
--- TT13: Linux系统应用 → 计科2班
-INSERT INTO teaching_task_class_group (teaching_task_id, class_group_id)
-SELECT tt.id, cg.id FROM teaching_task tt, class_group cg
-WHERE tt.notes='上机实践课'
-  AND tt.id = (SELECT tt2.id FROM teaching_task tt2 JOIN course c2 ON tt2.course_id=c2.id
-               WHERE c2.name='Linux系统应用' LIMIT 1)
+-- TT13: Linux系统应用 → 陈涛 → 计科2班
+INSERT IGNORE INTO teaching_task_class_group (teaching_task_id, class_group_id)
+SELECT tt.id, cg.id FROM teaching_task tt
+JOIN course c ON tt.course_id = c.id
+JOIN teacher t ON tt.primary_teacher_id = t.id
+CROSS JOIN class_group cg
+WHERE c.name='Linux系统应用' AND t.employee_no='T1005'
   AND cg.name='23级计算机科学与技术2班';
 
--- TT14: 项目管理 → 数据1班
-INSERT INTO teaching_task_class_group (teaching_task_id, class_group_id)
-SELECT tt.id, cg.id FROM teaching_task tt, class_group cg
-WHERE tt.id = (SELECT tt2.id FROM teaching_task tt2 JOIN course c2 ON tt2.course_id=c2.id
-               WHERE c2.name='项目管理' LIMIT 1)
+-- TT14: 项目管理 → 刘洋 → 数据1班
+INSERT IGNORE INTO teaching_task_class_group (teaching_task_id, class_group_id)
+SELECT tt.id, cg.id FROM teaching_task tt
+JOIN course c ON tt.course_id = c.id
+JOIN teacher t ON tt.primary_teacher_id = t.id
+CROSS JOIN class_group cg
+WHERE c.name='项目管理' AND t.employee_no='T1006'
   AND cg.name='23级数据科学与大数据技术1班';
 
--- TT15: 数据库原理 → 数据1班（李娜第二门DB）
-INSERT INTO teaching_task_class_group (teaching_task_id, class_group_id)
-SELECT tt.id, cg.id FROM teaching_task tt, class_group cg
-WHERE tt.notes='数据专业单独开班'
-  AND tt.id = (SELECT tt2.id FROM teaching_task tt2 JOIN course c2 ON tt2.course_id=c2.id
-               WHERE c2.name='数据库原理' AND tt2.notes='数据专业单独开班' LIMIT 1)
+-- TT15: 数据库原理 → 李娜 → 数据1班（李娜第二门DB，用 notes 区分）
+INSERT IGNORE INTO teaching_task_class_group (teaching_task_id, class_group_id)
+SELECT tt.id, cg.id FROM teaching_task tt
+JOIN course c ON tt.course_id = c.id
+JOIN teacher t ON tt.primary_teacher_id = t.id
+CROSS JOIN class_group cg
+WHERE c.name='数据库原理' AND t.employee_no='T1002' AND tt.notes='数据专业单独开班'
   AND cg.name='23级数据科学与大数据技术1班';
 
--- TT16: 数据结构 → 计科2班（王强第二门DS）
-INSERT INTO teaching_task_class_group (teaching_task_id, class_group_id)
-SELECT tt.id, cg.id FROM teaching_task tt, class_group cg
-WHERE tt.notes='计科2班单独开班'
-  AND tt.id = (SELECT tt2.id FROM teaching_task tt2 JOIN course c2 ON tt2.course_id=c2.id
-               WHERE c2.name='数据结构' AND tt2.notes='计科2班单独开班' LIMIT 1)
+-- TT16: 数据结构 → 王强 → 计科2班（王强第二门DS，用 notes 区分）
+INSERT IGNORE INTO teaching_task_class_group (teaching_task_id, class_group_id)
+SELECT tt.id, cg.id FROM teaching_task tt
+JOIN course c ON tt.course_id = c.id
+JOIN teacher t ON tt.primary_teacher_id = t.id
+CROSS JOIN class_group cg
+WHERE c.name='数据结构' AND t.employee_no='T1003' AND tt.notes='计科2班单独开班'
   AND cg.name='23级计算机科学与技术2班';
 
--- TT17: 操作系统 → 人工智能2班（周伟）
-INSERT INTO teaching_task_class_group (teaching_task_id, class_group_id)
-SELECT tt.id, cg.id FROM teaching_task tt, class_group cg
-WHERE tt.id = (SELECT tt2.id FROM teaching_task tt2 JOIN course c2 ON tt2.course_id=c2.id
-               WHERE c2.name='操作系统' AND tt2.primary_teacher_id=(SELECT id FROM teacher WHERE employee_no='T1008') LIMIT 1)
+-- TT17: 操作系统 → 周伟 → 人工智能2班
+INSERT IGNORE INTO teaching_task_class_group (teaching_task_id, class_group_id)
+SELECT tt.id, cg.id FROM teaching_task tt
+JOIN course c ON tt.course_id = c.id
+JOIN teacher t ON tt.primary_teacher_id = t.id
+CROSS JOIN class_group cg
+WHERE c.name='操作系统' AND t.employee_no='T1008'
   AND cg.name='23级人工智能2班';
 
--- TT18: Java程序设计 → 数据2班（张明第二门Java）
-INSERT INTO teaching_task_class_group (teaching_task_id, class_group_id)
-SELECT tt.id, cg.id FROM teaching_task tt, class_group cg
-WHERE tt.notes='数据专业单独开班'
-  AND tt.id = (SELECT tt2.id FROM teaching_task tt2 JOIN course c2 ON tt2.course_id=c2.id
-               WHERE c2.name='Java程序设计' AND tt2.notes='数据专业单独开班' LIMIT 1)
+-- TT18: Java程序设计 → 张明 → 数据2班
+INSERT IGNORE INTO teaching_task_class_group (teaching_task_id, class_group_id)
+SELECT tt.id, cg.id FROM teaching_task tt
+JOIN course c ON tt.course_id = c.id
+JOIN teacher t ON tt.primary_teacher_id = t.id
+CROSS JOIN class_group cg
+WHERE c.name='Java程序设计' AND t.employee_no='T1001' AND tt.notes='数据专业单独开班'
   AND cg.name='23级数据科学与大数据技术2班';
 
 -- ============================================================
