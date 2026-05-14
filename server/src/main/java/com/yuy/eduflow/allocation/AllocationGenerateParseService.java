@@ -10,7 +10,6 @@ import com.yuy.eduflow.timeslot.TimeSlotService;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
-import java.util.function.Consumer;
 import java.util.function.Supplier;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -54,14 +53,9 @@ public class AllocationGenerateParseService {
 	}
 
 	public AllocationParsePreview generateParsePreview(Long taskId, Integer topK) {
-		return generateParsePreview(taskId, topK, null);
-	}
-
-	public AllocationParsePreview generateParsePreview(Long taskId, Integer topK, Consumer<ProgressEvent> callback) {
 		log.info("=== ParseService generateParsePreview() start === taskId={}, topK={}", taskId, topK);
 		long t0 = System.currentTimeMillis();
-		if (callback != null) callback.accept(ProgressEvent.of("rag", 10, "正在检索教师画像..."));
-		AllocationGeneratePreview generatePreview = allocationGeneratePreviewService.generate(taskId, topK, callback);
+		AllocationGeneratePreview generatePreview = allocationGeneratePreviewService.generate(taskId, topK);
 		log.info("[{}ms] LLM + parse done, raw response length={}chars", System.currentTimeMillis() - t0, generatePreview.rawResponse().length());
 		String jsonText = extractJson(generatePreview.rawResponse());
 		log.info("Extracted JSON length={}chars", jsonText.length());
@@ -166,11 +160,17 @@ public class AllocationGenerateParseService {
 		for (int i = 0; i < itemsNode.size(); i++) {
 			JsonNode itemNode = itemsNode.get(i);
 			int itemNumber = i + 1;
-			if (itemNode == null || !itemNode.isObject()) {
-				throw new ValidationException("第 " + schemeNumber + " 个方案第 " + itemNumber + " 个明细必须是对象");
+			if (itemNode == null || !itemNode.isArray() || itemNode.size() < 2) {
+				throw new ValidationException("第 " + schemeNumber + " 个方案第 " + itemNumber + " 个明细必须是 [teachingTaskId, timeSlotId] 数组");
 			}
-			Long teachingTaskId = requireId(itemNode, "teachingTaskId", schemeNumber, itemNumber);
-			Long timeSlotId = requireId(itemNode, "timeSlotId", schemeNumber, itemNumber);
+			Long teachingTaskId = itemNode.get(0).longValue();
+			Long timeSlotId = itemNode.get(1).longValue();
+			if (teachingTaskId == null || teachingTaskId <= 0) {
+				throw new ValidationException("第 " + schemeNumber + " 个方案第 " + itemNumber + " 个明细 teachingTaskId 必须大于0");
+			}
+			if (timeSlotId == null || timeSlotId <= 0) {
+				throw new ValidationException("第 " + schemeNumber + " 个方案第 " + itemNumber + " 个明细 timeSlotId 必须大于0");
+			}
 
 			// 校验教学任务属于当前排课任务
 			TeachingTask teachingTask = taskMap.get(teachingTaskId);

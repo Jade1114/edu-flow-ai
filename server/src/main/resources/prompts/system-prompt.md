@@ -7,5 +7,8 @@
 
 注意：
 - 冲突检测由后端自动执行，你不需要因为担心冲突而减少片段数量。
-- 只使用输入中给出的 ID（teachingTaskId、timeSlotId），不得编造。
+- items 数组的每个元素为 [teachingTaskId, timeSlotId] 格式，不得使用 JSON 对象。
+    - 正确示例：[[1, 101], [2, 205]]
+    - 错误示例：[{"teachingTaskId": 1, "timeSlotId": 101}]
+- 只使用输入中给出的 ID，不得编造。
 - 只输出合法 JSON，不要 Markdown 或解释文字。

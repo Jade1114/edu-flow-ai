@@ -15,14 +15,15 @@
           "satisfiedSummary": { "type": "string" },
           "items": {
             "type": "array",
+            "description": "每个排课片段为 [teachingTaskId, timeSlotId]",
             "items": {
-              "type": "object",
-              "required": ["teachingTaskId", "timeSlotId"],
-              "additionalProperties": false,
-              "properties": {
-                "teachingTaskId": { "type": "integer" },
-                "timeSlotId": { "type": "integer" }
-              }
+              "type": "array",
+              "prefixItems": [
+                { "type": "integer", "description": "teachingTaskId" },
+                { "type": "integer", "description": "timeSlotId" }
+              ],
+              "minItems": 2,
+              "maxItems": 2
             }
           }
         }

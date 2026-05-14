@@ -22,11 +22,9 @@ import org.springframework.web.client.RestClient;
 @Component
 public class OpenAiChatClient {
 	private final ChatModelProperties properties;
-	private final RestClient.Builder restClientBuilder;
 
-	public OpenAiChatClient(ChatModelProperties properties, RestClient.Builder restClientBuilder) {
+	public OpenAiChatClient(ChatModelProperties properties) {
 		this.properties = properties;
-		this.restClientBuilder = restClientBuilder;
 	}
 
 	public String getModelName() {
@@ -55,18 +53,18 @@ public class OpenAiChatClient {
 		));
 		body.put("response_format", Map.of("type", "json_object"));
 		body.put("temperature", 0.3);
-		body.put("max_tokens", 8192);
+		// body.put("max_tokens", 32768);
 
 		var httpClient = HttpClient.newBuilder()
 			.connectTimeout(Duration.ofSeconds(30))
 			.build();
 		var requestFactory = new JdkClientHttpRequestFactory(httpClient);
-		requestFactory.setReadTimeout(Duration.ofSeconds(120));
+		requestFactory.setReadTimeout(Duration.ofSeconds(600));
 
 		long start = System.currentTimeMillis();
 		ChatResponse response;
 		try {
-			response = restClientBuilder
+			response = RestClient.builder()
 				.baseUrl(properties.getBaseUrl())
 				.defaultHeader(HttpHeaders.AUTHORIZATION, "Bearer " + properties.getApiKey())
 				.defaultHeader(HttpHeaders.CONTENT_TYPE, MediaType.APPLICATION_JSON_VALUE)
@@ -76,6 +74,11 @@ public class OpenAiChatClient {
 				.uri("/chat/completions")
 				.body(body)
 				.retrieve()
+				.onStatus(status -> status.isError(), (req, res) -> {
+					String errorBody = new String(res.getBody().readAllBytes(), java.nio.charset.StandardCharsets.UTF_8);
+					log.error("DeepSeek API 返回错误: status={}, body={}, model={}",
+						res.getStatusCode(), errorBody, properties.getModel());
+				})
 				.body(ChatResponse.class);
 		} catch (Exception e) {
 			log.error("LLM API 调用异常: {}，模型={}，endpoint={}/chat/completions",
@@ -88,6 +91,7 @@ public class OpenAiChatClient {
 			throw new IllegalStateException("LLM 未返回候选结果");
 		}
 		String content = response.choices().getFirst().message().content();
+		log.debug("LLM raw content: [{}]", content);
 		if (!StringUtils.hasText(content)) {
 			throw new IllegalStateException("LLM 未返回文本内容");
 		}

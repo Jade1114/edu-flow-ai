@@ -34,7 +34,7 @@ app:
     openai:
       api-key: ${OPENAI_CHAT_API_KEY:}
       base-url: ${OPENAI_CHAT_BASE_URL:}
-      model: ${OPENAI_CHAT_MODEL:}
+      model: ${OPENAI_CHAT_MODEL:deepseek-v4-pro}
   vector-store:
     provider: qdrant
     qdrant:
