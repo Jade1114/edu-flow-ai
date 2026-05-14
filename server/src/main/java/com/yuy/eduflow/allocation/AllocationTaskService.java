@@ -1,5 +1,7 @@
 package com.yuy.eduflow.allocation;
 
+import com.yuy.eduflow.common.exception.ResourceNotFoundException;
+import com.yuy.eduflow.common.exception.ValidationException;
 import com.yuy.eduflow.course.Course;
 import com.yuy.eduflow.enums.TaskStatus;
 import com.yuy.eduflow.teacher.Teacher;
@@ -30,7 +32,7 @@ public class AllocationTaskService {
 	public AllocationTask findById(Long id) {
 		AllocationTask task = allocationTaskMapper.findById(id);
 		if (task == null) {
-			throw new IllegalArgumentException("分课任务不存在");
+			throw new ResourceNotFoundException("分课任务不存在");
 		}
 		task.setTeachingTasks(loadTeachingTasks(id));
 		return task;
@@ -127,16 +129,16 @@ public class AllocationTaskService {
 
     private void validateRequest(AllocationTaskRequest request) {
         if (request.name() == null || request.name().isBlank()) {
-            throw new IllegalArgumentException("任务名称不能为空");
+            throw new ValidationException("任务名称不能为空");
         }
         if (request.startWeek() != null && (request.startWeek() < 1 || request.startWeek() > 18)) {
-            throw new IllegalArgumentException("起始周次必须在1到18之间");
+            throw new ValidationException("起始周次必须在1到18之间");
         }
         if (request.endWeek() != null && (request.endWeek() < 1 || request.endWeek() > 18)) {
-            throw new IllegalArgumentException("结束周次必须在1到18之间");
+            throw new ValidationException("结束周次必须在1到18之间");
         }
         if (request.startWeek() != null && request.endWeek() != null && request.startWeek() > request.endWeek()) {
-            throw new IllegalArgumentException("起始周次不能大于结束周次");
+            throw new ValidationException("起始周次不能大于结束周次");
         }
-	}
+    }
 }

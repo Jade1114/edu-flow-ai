@@ -1,6 +1,8 @@
 package com.yuy.eduflow.conflict;
 
 import com.yuy.eduflow.common.Assert;
+import com.yuy.eduflow.common.exception.ResourceNotFoundException;
+import com.yuy.eduflow.common.exception.ValidationException;
 import java.util.List;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
@@ -21,7 +23,7 @@ public class ConflictCheckResultService {
 	public ConflictCheckResult findById(Long id) {
 		ConflictCheckResult result = conflictCheckResultMapper.findById(id);
 		if (result == null) {
-			throw new IllegalArgumentException("冲突检测结果不存在");
+			throw new ResourceNotFoundException("冲突检测结果不存在");
 		}
 		return result;
 	}
@@ -47,14 +49,14 @@ public class ConflictCheckResultService {
 
 	private ConflictCheckResult toConflictCheckResult(ConflictCheckResult result, ConflictCheckResultRequest request) {
 		if (!StringUtils.hasText(request.bizType())) {
-			throw new IllegalArgumentException("业务类型不能为空");
+			throw new ValidationException("业务类型不能为空");
 		}
 		Assert.positiveId(request.bizId(), "业务ID");
 		if (!StringUtils.hasText(request.conflictType())) {
-			throw new IllegalArgumentException("冲突类型不能为空");
+			throw new ValidationException("冲突类型不能为空");
 		}
 		if (!StringUtils.hasText(request.message())) {
-			throw new IllegalArgumentException("冲突说明不能为空");
+			throw new ValidationException("冲突说明不能为空");
 		}
 		validateOptionalId(request.relatedTeacherId(), "相关教师ID必须大于0");
 		validateOptionalId(request.relatedClassGroupId(), "相关班级ID必须大于0");
@@ -74,7 +76,7 @@ public class ConflictCheckResultService {
 
 	private void validateOptionalId(Long id, String message) {
 		if (id != null && id <= 0) {
-			throw new IllegalArgumentException(message);
+			throw new ValidationException(message);
 		}
 	}
 }

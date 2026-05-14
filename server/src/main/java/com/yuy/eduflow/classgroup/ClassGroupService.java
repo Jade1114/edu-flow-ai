@@ -1,5 +1,7 @@
 package com.yuy.eduflow.classgroup;
 
+import com.yuy.eduflow.common.exception.ResourceNotFoundException;
+import com.yuy.eduflow.common.exception.ValidationException;
 import java.util.List;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
@@ -19,7 +21,7 @@ public class ClassGroupService {
 	public ClassGroup findById(Long id) {
 		ClassGroup classGroup = classGroupMapper.findById(id);
 		if (classGroup == null) {
-			throw new IllegalArgumentException("班级不存在");
+			throw new ResourceNotFoundException("班级不存在");
 		}
 		return classGroup;
 	}
@@ -45,10 +47,10 @@ public class ClassGroupService {
 
 	private ClassGroup toClassGroup(ClassGroup classGroup, ClassGroupRequest request) {
 		if (!StringUtils.hasText(request.name())) {
-			throw new IllegalArgumentException("班级名称不能为空");
+			throw new ValidationException("班级名称不能为空");
 		}
 		if (request.studentCount() != null && request.studentCount() < 0) {
-			throw new IllegalArgumentException("班级人数不能小于0");
+			throw new ValidationException("班级人数不能小于0");
 		}
 		classGroup.setName(request.name().trim());
 		classGroup.setMajor(clean(request.major()));

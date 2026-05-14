@@ -1,6 +1,8 @@
 package com.yuy.eduflow.allocation;
 
 import com.yuy.eduflow.common.Assert;
+import com.yuy.eduflow.common.exception.ResourceNotFoundException;
+import com.yuy.eduflow.common.exception.ValidationException;
 import com.yuy.eduflow.enums.SchemeStatus;
 import java.util.List;
 import org.springframework.stereotype.Service;
@@ -18,7 +20,7 @@ public class AllocationSchemeService {
 
 	public List<AllocationScheme> findAll(Long taskId, String status) {
 		if (taskId != null && taskId <= 0) {
-			throw new IllegalArgumentException("分课任务ID必须大于0");
+			throw new ValidationException("分课任务ID必须大于0");
 		}
 		return allocationSchemeMapper.findAll(taskId, status);
 	}
@@ -26,7 +28,7 @@ public class AllocationSchemeService {
 	public AllocationScheme findById(Long id) {
 		AllocationScheme scheme = allocationSchemeMapper.findById(id);
 		if (scheme == null) {
-			throw new IllegalArgumentException("分课方案不存在");
+			throw new ResourceNotFoundException("分课方案不存在");
 		}
 		return scheme;
 	}
@@ -52,10 +54,10 @@ public class AllocationSchemeService {
 	private AllocationScheme toScheme(AllocationScheme scheme, AllocationSchemeRequest request) {
 		Assert.positiveId(request.taskId(), "分课任务ID");
 		if (!StringUtils.hasText(request.schemeName())) {
-			throw new IllegalArgumentException("分课方案名称不能为空");
+			throw new ValidationException("分课方案名称不能为空");
 		}
 		if (request.score() != null && (request.score() < 0 || request.score() > 100)) {
-			throw new IllegalArgumentException("分课方案评分必须在0到100之间");
+			throw new ValidationException("分课方案评分必须在0到100之间");
 		}
 		scheme.setTaskId(request.taskId());
 		scheme.setSchemeName(request.schemeName().trim());

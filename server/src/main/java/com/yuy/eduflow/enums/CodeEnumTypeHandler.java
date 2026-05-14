@@ -1,5 +1,6 @@
 package com.yuy.eduflow.enums;
 
+import com.yuy.eduflow.common.exception.ValidationException;
 import java.sql.CallableStatement;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
@@ -48,6 +49,6 @@ public abstract class CodeEnumTypeHandler<E extends Enum<E> & CodeEnum> extends 
 				return e;
 			}
 		}
-		throw new IllegalArgumentException("未知状态码 '" + trimmed + "'，期望类型: " + type.getSimpleName());
+		throw new ValidationException("未知状态码 '" + trimmed + "'，期望类型: " + type.getSimpleName());
 	}
 }

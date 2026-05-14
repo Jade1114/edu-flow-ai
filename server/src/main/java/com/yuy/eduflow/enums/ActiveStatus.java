@@ -1,5 +1,7 @@
 package com.yuy.eduflow.enums;
 
+import com.yuy.eduflow.common.exception.ValidationException;
+
 /**
  * 基础实体活跃状态。
  * 适用于：教师、课程、教室、教学任务、教师画像等基础实体。
@@ -33,6 +35,6 @@ public enum ActiveStatus implements CodeEnum {
 				return status;
 			}
 		}
-		throw new IllegalArgumentException("未知活跃状态: " + code);
+		throw new ValidationException("未知活跃状态: " + code);
 	}
 }

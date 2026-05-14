@@ -1,6 +1,9 @@
 package com.yuy.eduflow.allocation;
 
 import com.yuy.eduflow.classroom.ClassroomService;
+import com.yuy.eduflow.common.exception.BusinessException;
+import com.yuy.eduflow.common.exception.ResourceNotFoundException;
+import com.yuy.eduflow.common.exception.ValidationException;
 import com.yuy.eduflow.teachingtask.TeachingTask;
 import com.yuy.eduflow.teachingtask.TeachingTaskMapper;
 import com.yuy.eduflow.timeslot.TimeSlotService;
@@ -87,7 +90,7 @@ public class AllocationGenerateParseService {
 
 	private String extractJson(String rawResponse) {
 		if (!StringUtils.hasText(rawResponse)) {
-			throw new IllegalArgumentException("AI 原始响应为空，无法解析 JSON");
+			throw new ValidationException("AI 原始响应为空，无法解析 JSON");
 		}
 		String content = rawResponse.trim();
 		Matcher matcher = CODE_FENCE_PATTERN.matcher(content);
@@ -99,7 +102,7 @@ public class AllocationGenerateParseService {
 		if (start >= 0 && end > start) {
 			return content.substring(start, end + 1).trim();
 		}
-		throw new IllegalArgumentException("AI 原始响应中未找到 JSON 对象");
+		throw new ValidationException("AI 原始响应中未找到 JSON 对象");
 	}
 
 	private JsonNode readRoot(String jsonText) {
@@ -109,11 +112,11 @@ public class AllocationGenerateParseService {
 				.with(tools.jackson.core.json.JsonReadFeature.ALLOW_JAVA_COMMENTS)
 				.readTree(jsonText);
 			if (root == null || !root.isObject()) {
-				throw new IllegalArgumentException("AI 输出 JSON 顶层必须是对象");
+				throw new ValidationException("AI 输出 JSON 顶层必须是对象");
 			}
 			return root;
 		} catch (JacksonException exception) {
-			throw new IllegalArgumentException("AI 输出 JSON 解析失败：" + exception.getOriginalMessage());
+			throw new ValidationException("AI 输出 JSON 解析失败：" + exception.getOriginalMessage());
 		}
 	}
 
@@ -121,7 +124,7 @@ public class AllocationGenerateParseService {
 		// 预加载该任务包含的所有教学任务
 		AllocationTask task = allocationTaskMapper.findById(taskId);
 		if (task == null) {
-			throw new IllegalArgumentException("排课任务不存在");
+			throw new ResourceNotFoundException("排课任务不存在");
 		}
 		var taskResults = allocationTaskMapper.findTeachingTasks(taskId);
 		Map<Long, TeachingTask> taskMap = taskResults.stream()
@@ -142,7 +145,7 @@ public class AllocationGenerateParseService {
 			JsonNode schemeNode = schemesNode.get(i);
 			int schemeNumber = i + 1;
 			if (schemeNode == null || !schemeNode.isObject()) {
-				throw new IllegalArgumentException("第 " + schemeNumber + " 个方案必须是对象");
+				throw new ValidationException("第 " + schemeNumber + " 个方案必须是对象");
 			}
 			String schemeName = requireText(schemeNode, "schemeName", "第 " + schemeNumber + " 个方案 schemeName 不能为空");
 			JsonNode itemsNode = requireArray(schemeNode, "items", "第 " + schemeNumber + " 个方案 items 必须是数组");
@@ -164,7 +167,7 @@ public class AllocationGenerateParseService {
 			JsonNode itemNode = itemsNode.get(i);
 			int itemNumber = i + 1;
 			if (itemNode == null || !itemNode.isObject()) {
-				throw new IllegalArgumentException("第 " + schemeNumber + " 个方案第 " + itemNumber + " 个明细必须是对象");
+				throw new ValidationException("第 " + schemeNumber + " 个方案第 " + itemNumber + " 个明细必须是对象");
 			}
 			Long teachingTaskId = requireId(itemNode, "teachingTaskId", schemeNumber, itemNumber);
 			Long timeSlotId = requireId(itemNode, "timeSlotId", schemeNumber, itemNumber);
@@ -172,7 +175,7 @@ public class AllocationGenerateParseService {
 			// 校验教学任务属于当前排课任务
 			TeachingTask teachingTask = taskMap.get(teachingTaskId);
 			if (teachingTask == null) {
-				throw new IllegalArgumentException("第 " + schemeNumber + " 个方案第 " + itemNumber + " 个明细 teachingTaskId="
+				throw new ValidationException("第 " + schemeNumber + " 个方案第 " + itemNumber + " 个明细 teachingTaskId="
 					+ teachingTaskId + " 不属于当前排课任务");
 			}
 
@@ -183,11 +186,11 @@ public class AllocationGenerateParseService {
 			// 校验 timeSlot 在 startWeek-endWeek 范围内
 			var timeSlot = timeSlotService.findById(timeSlotId);
 			if (task.getStartWeek() != null && timeSlot.getWeekNumber() < task.getStartWeek()) {
-				throw new IllegalArgumentException("第 " + schemeNumber + " 个方案第 " + itemNumber + " 个明细 timeSlotId="
+				throw new ValidationException("第 " + schemeNumber + " 个方案第 " + itemNumber + " 个明细 timeSlotId="
 					+ timeSlotId + " 所在周次 " + timeSlot.getWeekNumber() + " 小于任务起始周次 " + task.getStartWeek());
 			}
 			if (task.getEndWeek() != null && timeSlot.getWeekNumber() > task.getEndWeek()) {
-				throw new IllegalArgumentException("第 " + schemeNumber + " 个方案第 " + itemNumber + " 个明细 timeSlotId="
+				throw new ValidationException("第 " + schemeNumber + " 个方案第 " + itemNumber + " 个明细 timeSlotId="
 					+ timeSlotId + " 所在周次 " + timeSlot.getWeekNumber() + " 大于任务结束周次 " + task.getEndWeek());
 			}
 
@@ -202,7 +205,7 @@ public class AllocationGenerateParseService {
 			int expectedCount = tt.getTotalHours() / 2;
 			int actualCount = itemCountByTaskId.getOrDefault(taskId, 0);
 			if (actualCount != expectedCount) {
-				throw new IllegalArgumentException("教学任务ID " + taskId + " 需要 " + expectedCount
+				throw new ValidationException("教学任务ID " + taskId + " 需要 " + expectedCount
 					+ " 个排课片段，实际只有 " + actualCount + " 个");
 			}
 		}
@@ -213,7 +216,7 @@ public class AllocationGenerateParseService {
 	private JsonNode requireArray(JsonNode parent, String fieldName, String message) {
 		JsonNode node = parent.get(fieldName);
 		if (node == null || node.isNull() || !node.isArray()) {
-			throw new IllegalArgumentException(message);
+			throw new ValidationException(message);
 		}
 		return node;
 	}
@@ -221,14 +224,14 @@ public class AllocationGenerateParseService {
 	private String requireText(JsonNode parent, String fieldName, String message) {
 		JsonNode node = parent.get(fieldName);
 		if (node == null || node.isNull()) {
-			throw new IllegalArgumentException(message);
+			throw new ValidationException(message);
 		}
 		if (!node.isTextual()) {
-			throw new IllegalArgumentException(message.replace("不能为空", "必须是字符串"));
+			throw new ValidationException(message.replace("不能为空", "必须是字符串"));
 		}
 		String value = node.asText().trim();
 		if (!StringUtils.hasText(value)) {
-			throw new IllegalArgumentException(message);
+			throw new ValidationException(message);
 		}
 		return value;
 	}
@@ -243,14 +246,14 @@ public class AllocationGenerateParseService {
 	private Long requireId(JsonNode parent, String fieldName, int schemeNumber, int itemNumber) {
 		JsonNode node = parent.get(fieldName);
 		if (node == null || node.isNull()) {
-			throw new IllegalArgumentException("第 " + schemeNumber + " 个方案第 " + itemNumber + " 个明细 " + fieldName + " 不能为空");
+			throw new ValidationException("第 " + schemeNumber + " 个方案第 " + itemNumber + " 个明细 " + fieldName + " 不能为空");
 		}
 		Long value = parseLong(node);
 		if (value == null) {
-			throw new IllegalArgumentException("第 " + schemeNumber + " 个方案第 " + itemNumber + " 个明细 " + fieldName + " 必须是整数");
+			throw new ValidationException("第 " + schemeNumber + " 个方案第 " + itemNumber + " 个明细 " + fieldName + " 必须是整数");
 		}
 		if (value <= 0) {
-			throw new IllegalArgumentException("第 " + schemeNumber + " 个方案第 " + itemNumber + " 个明细 " + fieldName + " 必须大于0");
+			throw new ValidationException("第 " + schemeNumber + " 个方案第 " + itemNumber + " 个明细 " + fieldName + " 必须大于0");
 		}
 		return value;
 	}
@@ -278,8 +281,8 @@ public class AllocationGenerateParseService {
 	) {
 		try {
 			lookup.get();
-		} catch (IllegalArgumentException exception) {
-			throw new IllegalArgumentException(
+		} catch (BusinessException exception) {
+			throw new ValidationException(
 				"第 " + schemeNumber + " 个方案第 " + itemNumber + " 个明细 " + fieldName + " 不存在：" + id
 			);
 		}

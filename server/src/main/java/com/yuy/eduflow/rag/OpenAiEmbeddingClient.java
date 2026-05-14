@@ -1,5 +1,6 @@
 package com.yuy.eduflow.rag;
 
+import com.yuy.eduflow.common.exception.ValidationException;
 import java.util.List;
 import java.util.Map;
 import org.springframework.http.HttpHeaders;
@@ -20,10 +21,10 @@ public class OpenAiEmbeddingClient {
 
 	public List<Double> embed(String input) {
 		if (!StringUtils.hasText(input)) {
-			throw new IllegalArgumentException("向量化文本不能为空");
+			throw new ValidationException("向量化文本不能为空");
 		}
 		if (!StringUtils.hasText(properties.getApiKey())) {
-			throw new IllegalArgumentException("OPENAI_API_KEY 未配置");
+			throw new IllegalStateException("OPENAI_API_KEY 未配置");
 		}
 		Map<String, Object> response = restClientBuilder
 			.baseUrl(properties.getBaseUrl())

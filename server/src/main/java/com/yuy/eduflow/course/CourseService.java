@@ -1,5 +1,7 @@
 package com.yuy.eduflow.course;
 
+import com.yuy.eduflow.common.exception.ResourceNotFoundException;
+import com.yuy.eduflow.common.exception.ValidationException;
 import java.util.List;
 import org.springframework.stereotype.Service;
 import com.yuy.eduflow.enums.ActiveStatus;
@@ -22,7 +24,7 @@ public class CourseService {
 	public Course findById(Long id) {
 		Course course = courseMapper.findById(id);
 		if (course == null) {
-			throw new IllegalArgumentException("课程不存在");
+			throw new ResourceNotFoundException("课程不存在");
 		}
 		return course;
 	}
@@ -47,10 +49,10 @@ public class CourseService {
 
 	private Course toCourse(Course course, CourseRequest request) {
 		if (!StringUtils.hasText(request.name())) {
-			throw new IllegalArgumentException("课程名称不能为空");
+			throw new ValidationException("课程名称不能为空");
 		}
 		if (request.requiredHours() != null && request.requiredHours() <= 0) {
-			throw new IllegalArgumentException("课程课时必须大于0");
+			throw new ValidationException("课程课时必须大于0");
 		}
 		course.setName(request.name().trim());
 		course.setCourseType(clean(request.courseType()));

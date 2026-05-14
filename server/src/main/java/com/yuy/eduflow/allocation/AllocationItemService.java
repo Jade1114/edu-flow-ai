@@ -2,6 +2,8 @@ package com.yuy.eduflow.allocation;
 
 import com.yuy.eduflow.classroom.ClassroomService;
 import com.yuy.eduflow.common.Assert;
+import com.yuy.eduflow.common.exception.ResourceNotFoundException;
+import com.yuy.eduflow.common.exception.ValidationException;
 import com.yuy.eduflow.timeslot.TimeSlotService;
 import java.util.ArrayList;
 import java.util.List;
@@ -40,7 +42,7 @@ public class AllocationItemService {
 		timeSlotService.findById(request.timeSlotId());
 		AllocationItem item = findById(itemId);
 		if (!item.getSchemeId().equals(schemeId)) {
-			throw new IllegalArgumentException("该明细不属于此方案");
+			throw new ValidationException("该明细不属于此方案");
 		}
 
 		item.setClassroomId(request.classroomId());
@@ -103,7 +105,7 @@ public class AllocationItemService {
 	public AllocationItem findById(Long id) {
 		AllocationItem item = allocationItemMapper.findById(id);
 		if (item == null) {
-			throw new IllegalArgumentException("分课明细不存在");
+			throw new ResourceNotFoundException("分课明细不存在");
 		}
 		return item;
 	}
@@ -142,7 +144,7 @@ public class AllocationItemService {
 
 	private void validateOptionalId(Long id, String message) {
 		if (id != null && id <= 0) {
-			throw new IllegalArgumentException(message);
+			throw new ValidationException(message);
 		}
 	}
 

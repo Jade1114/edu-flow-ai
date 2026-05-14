@@ -1,5 +1,7 @@
 package com.yuy.eduflow.enums;
 
+import com.yuy.eduflow.common.exception.ValidationException;
+
 /**
  * 分课方案状态。
  * 适用于：allocation_scheme（分课候选方案）。
@@ -34,6 +36,6 @@ public enum SchemeStatus implements CodeEnum {
 				return status;
 			}
 		}
-		throw new IllegalArgumentException("未知分课方案状态: " + code);
+		throw new ValidationException("未知分课方案状态: " + code);
 	}
 }

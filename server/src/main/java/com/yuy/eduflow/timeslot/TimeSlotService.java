@@ -1,5 +1,7 @@
 package com.yuy.eduflow.timeslot;
 
+import com.yuy.eduflow.common.exception.ResourceNotFoundException;
+import com.yuy.eduflow.common.exception.ValidationException;
 import java.util.List;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
@@ -19,7 +21,7 @@ public class TimeSlotService {
 	public TimeSlot findById(Long id) {
 		TimeSlot timeSlot = timeSlotMapper.findById(id);
 		if (timeSlot == null) {
-			throw new IllegalArgumentException("时间段不存在");
+			throw new ResourceNotFoundException("时间段不存在");
 		}
 		return timeSlot;
 	}
@@ -45,31 +47,31 @@ public class TimeSlotService {
 
 	private TimeSlot toTimeSlot(TimeSlot timeSlot, TimeSlotRequest request) {
 		if (request.weekNumber() == null) {
-			throw new IllegalArgumentException("周次不能为空");
+			throw new ValidationException("周次不能为空");
 		}
 		if (request.weekNumber() < 1) {
-			throw new IllegalArgumentException("周次必须大于0");
+			throw new ValidationException("周次必须大于0");
 		}
 		if (request.weekNumber() > 18) {
-			throw new IllegalArgumentException("周次必须在1到18之间");
+			throw new ValidationException("周次必须在1到18之间");
 		}
 		if (request.dayOfWeek() == null) {
-			throw new IllegalArgumentException("星期不能为空");
+			throw new ValidationException("星期不能为空");
 		}
 		if (request.dayOfWeek() < 1 || request.dayOfWeek() > 7) {
-			throw new IllegalArgumentException("星期必须在1到7之间");
+			throw new ValidationException("星期必须在1到7之间");
 		}
 		if (request.periodIndex() == null) {
-			throw new IllegalArgumentException("节次不能为空");
+			throw new ValidationException("节次不能为空");
 		}
 		if (request.periodIndex() < 1) {
-			throw new IllegalArgumentException("节次必须大于0");
+			throw new ValidationException("节次必须大于0");
 		}
 		if (request.periodIndex() > 6) {
-			throw new IllegalArgumentException("节次必须在1到6之间");
+			throw new ValidationException("节次必须在1到6之间");
 		}
 		if (!StringUtils.hasText(request.label())) {
-			throw new IllegalArgumentException("时间段标签不能为空");
+			throw new ValidationException("时间段标签不能为空");
 		}
 		timeSlot.setWeekNumber(request.weekNumber());
 		timeSlot.setDayOfWeek(request.dayOfWeek());

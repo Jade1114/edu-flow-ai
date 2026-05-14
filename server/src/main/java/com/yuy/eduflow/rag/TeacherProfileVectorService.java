@@ -1,5 +1,7 @@
 package com.yuy.eduflow.rag;
 
+import com.yuy.eduflow.common.exception.ResourceNotFoundException;
+import com.yuy.eduflow.common.exception.ValidationException;
 import com.yuy.eduflow.teacher.Teacher;
 import com.yuy.eduflow.teacher.TeacherProfile;
 import com.yuy.eduflow.teacher.TeacherProfileMapper;
@@ -39,11 +41,11 @@ public class TeacherProfileVectorService {
 		log.info("re-fetched profile from DB: {}", profile);
 		if (profile == null) {
 			log.error("profile not found in DB after save!");
-			throw new IllegalArgumentException("教师个人情况不存在");
+			throw new ResourceNotFoundException("教师个人情况不存在");
 		}
 		if (!StringUtils.hasText(profile.getVectorText())) {
 			log.error("vectorText is empty for profile id={}", profile.getId());
-			throw new IllegalArgumentException("教师画像文本不能为空");
+			throw new ValidationException("教师画像文本不能为空");
 		}
 		log.info("embedding vectorText=[{}]...", profile.getVectorText());
 		List<Double> vector = embeddingClient.embed(profile.getVectorText());
@@ -59,11 +61,11 @@ public class TeacherProfileVectorService {
 
 	public List<VectorSearchResult> search(String query, Integer topK, String status) {
 		if (!StringUtils.hasText(query)) {
-			throw new IllegalArgumentException("检索内容不能为空");
+			throw new ValidationException("检索内容不能为空");
 		}
 		int limit = topK == null ? 5 : topK;
 		if (limit <= 0 || limit > 20) {
-			throw new IllegalArgumentException("topK 必须在 1 到 20 之间");
+			throw new ValidationException("topK 必须在 1 到 20 之间");
 		}
 		String filterStatus = StringUtils.hasText(status) ? status.trim() : ActiveStatus.ACTIVE.code();
 		long t0 = System.currentTimeMillis();

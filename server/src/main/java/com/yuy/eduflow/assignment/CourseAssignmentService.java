@@ -1,6 +1,8 @@
 package com.yuy.eduflow.assignment;
 
 import com.yuy.eduflow.common.Assert;
+import com.yuy.eduflow.common.exception.ResourceNotFoundException;
+import com.yuy.eduflow.common.exception.ValidationException;
 import java.util.List;
 import org.springframework.stereotype.Service;
 import com.yuy.eduflow.enums.AssignmentStatus;
@@ -66,7 +68,7 @@ public class CourseAssignmentService {
 	public CourseAssignment findById(Long id) {
 		CourseAssignment assignment = courseAssignmentMapper.findById(id);
 		if (assignment == null) {
-			throw new IllegalArgumentException("课程安排不存在");
+			throw new ResourceNotFoundException("课程安排不存在");
 		}
 		return assignment;
 	}
@@ -105,19 +107,19 @@ public class CourseAssignmentService {
 
 	private void validateOptionalId(Long id, String message) {
 		if (id != null && id <= 0) {
-			throw new IllegalArgumentException(message);
+			throw new ValidationException(message);
 		}
 	}
 
 	private void validateOptionalWeekNumber(Integer weekNumber) {
 		if (weekNumber != null && (weekNumber < 1 || weekNumber > 18)) {
-			throw new IllegalArgumentException("周次必须在1到18之间");
+			throw new ValidationException("周次必须在1到18之间");
 		}
 	}
 
 	private void validateOptionalDayOfWeek(Integer dayOfWeek) {
 		if (dayOfWeek != null && (dayOfWeek < 1 || dayOfWeek > 7)) {
-			throw new IllegalArgumentException("星期必须在1到7之间");
+			throw new ValidationException("星期必须在1到7之间");
 		}
 	}
 

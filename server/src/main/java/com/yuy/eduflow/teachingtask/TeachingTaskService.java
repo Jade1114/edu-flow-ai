@@ -5,6 +5,8 @@ import com.yuy.eduflow.classgroup.ClassGroupService;
 import com.yuy.eduflow.classroom.Classroom;
 import com.yuy.eduflow.classroom.ClassroomService;
 import com.yuy.eduflow.common.Assert;
+import com.yuy.eduflow.common.exception.ResourceNotFoundException;
+import com.yuy.eduflow.common.exception.ValidationException;
 import com.yuy.eduflow.course.CourseService;
 import com.yuy.eduflow.enums.ActiveStatus;
 import com.yuy.eduflow.teacher.TeacherService;
@@ -55,12 +57,12 @@ public class TeachingTaskService {
     /**
      * 根据ID获取教学任务详情（包含关联的班级和教室信息）
      * 
-     * @throws IllegalArgumentException 当任务不存在时抛出
+     * @throws ResourceNotFoundException 当任务不存在时抛出
      */
     public TeachingTask findById(Long id) {
         TeachingTask task = teachingTaskMapper.findWithDetails(id);
         if (task == null) {
-            throw new IllegalArgumentException("教学任务不存在");
+            throw new ResourceNotFoundException("教学任务不存在");
         }
         return task;
     }
@@ -154,18 +156,18 @@ public class TeachingTaskService {
 
         // 课时校验：MVP 阶段要求必须是 2 的倍数（时间块排课需求）
         if (request.totalHours() == null || request.totalHours() <= 0) {
-            throw new IllegalArgumentException("总课时必须大于0");
+            throw new ValidationException("总课时必须大于0");
         }
         if (request.totalHours() % 2 != 0) {
-            throw new IllegalArgumentException("总课时必须是2的倍数（MVP 固定使用2课时时间块）");
+            throw new ValidationException("总课时必须是2的倍数（MVP 固定使用2课时时间块）");
         }
 
         // 班级校验：MVP 阶段限制最多 2 个班级合班上课
         if (request.classGroupIds() == null || request.classGroupIds().isEmpty()) {
-            throw new IllegalArgumentException("班级不能为空，至少需要关联1个班级");
+            throw new ValidationException("班级不能为空，至少需要关联1个班级");
         }
         if (request.classGroupIds().size() > 2) {
-            throw new IllegalArgumentException("MVP 中每个教学任务最多关联2个班级");
+            throw new ValidationException("MVP 中每个教学任务最多关联2个班级");
         }
 
         // 级联校验：通过各模块 Service 检查 ID 是否在数据库中真实存在
@@ -182,7 +184,7 @@ public class TeachingTaskService {
             }
         }
         if (classroom.getCapacity() != null && totalStudents > classroom.getCapacity()) {
-            throw new IllegalArgumentException(
+            throw new ValidationException(
                 "教室容量不足：教室「" + classroom.getName() + "」最多容纳 " + classroom.getCapacity() + " 人，"
                 + "但所选班级合计 " + totalStudents + " 人"
             );
@@ -191,7 +193,7 @@ public class TeachingTaskService {
         // 协作教师校验
         if (request.assistantTeacherId() != null && request.assistantTeacherId() > 0) {
             if (request.assistantTeacherId().equals(request.primaryTeacherId())) {
-                throw new IllegalArgumentException("协作教师不能与主讲教师相同");
+                throw new ValidationException("协作教师不能与主讲教师相同");
             }
             teacherService.findById(request.assistantTeacherId());
         }

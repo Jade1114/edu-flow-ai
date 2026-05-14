@@ -1,5 +1,7 @@
 package com.yuy.eduflow.enums;
 
+import com.yuy.eduflow.common.exception.ValidationException;
+
 /**
  * 分课任务状态。
  * 适用于：allocation_task（分课任务）。
@@ -35,6 +37,6 @@ public enum TaskStatus implements CodeEnum {
 				return status;
 			}
 		}
-		throw new IllegalArgumentException("未知分课任务状态: " + code);
+		throw new ValidationException("未知分课任务状态: " + code);
 	}
 }

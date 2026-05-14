@@ -1,5 +1,8 @@
 package com.yuy.eduflow.teacher;
 
+import com.yuy.eduflow.common.exception.ConflictException;
+import com.yuy.eduflow.common.exception.ResourceNotFoundException;
+import com.yuy.eduflow.common.exception.ValidationException;
 import java.util.List;
 import java.util.Objects;
 import org.springframework.stereotype.Service;
@@ -24,7 +27,7 @@ public class TeacherService {
 	public Teacher findById(Long id) {
 		Teacher teacher = teacherMapper.findById(id);
 		if (teacher == null) {
-			throw new IllegalArgumentException("教师不存在");
+			throw new ResourceNotFoundException("教师不存在");
 		}
 		return teacher;
 	}
@@ -50,29 +53,29 @@ public class TeacherService {
 
 	private Teacher toTeacher(Teacher teacher, TeacherRequest request, boolean requirePassword) {
 		if (request == null) {
-			throw new IllegalArgumentException("请求不能为空");
+			throw new ValidationException("请求不能为空");
 		}
 		if (!StringUtils.hasText(request.employeeNo())) {
-			throw new IllegalArgumentException("工号不能为空");
+			throw new ValidationException("工号不能为空");
 		}
 		if (requirePassword && !StringUtils.hasText(request.password())) {
-			throw new IllegalArgumentException("密码不能为空");
+			throw new ValidationException("密码不能为空");
 		}
 		if (!StringUtils.hasText(request.name())) {
-			throw new IllegalArgumentException("教师姓名不能为空");
+			throw new ValidationException("教师姓名不能为空");
 		}
 		if (!StringUtils.hasText(request.department())) {
-			throw new IllegalArgumentException("所属部门不能为空");
+			throw new ValidationException("所属部门不能为空");
 		}
 		if (request.maxWeeklyHours() != null && request.maxWeeklyHours() <= 0) {
-			throw new IllegalArgumentException("每周最大课时必须大于0");
+			throw new ValidationException("每周最大课时必须大于0");
 		}
 		teacher.setEmployeeNo(request.employeeNo().trim());
 		if (StringUtils.hasText(request.password())) {
 			teacher.setPassword(request.password().trim());
 		}
 		if (!StringUtils.hasText(teacher.getPassword())) {
-			throw new IllegalArgumentException("密码不能为空");
+			throw new ValidationException("密码不能为空");
 		}
 		teacher.setRole(StringUtils.hasText(request.role()) ? request.role().trim() : defaultRole(teacher.getRole()));
 		teacher.setName(request.name().trim());
@@ -86,7 +89,7 @@ public class TeacherService {
 	private void ensureEmployeeNoAvailable(String employeeNo, Long currentTeacherId) {
 		Teacher existing = teacherMapper.findByEmployeeNo(employeeNo);
 		if (existing != null && !Objects.equals(existing.getId(), currentTeacherId)) {
-			throw new IllegalArgumentException("工号已存在");
+			throw new ConflictException("工号已存在");
 		}
 	}
 

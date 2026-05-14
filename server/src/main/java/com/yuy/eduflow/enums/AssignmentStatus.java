@@ -1,5 +1,7 @@
 package com.yuy.eduflow.enums;
 
+import com.yuy.eduflow.common.exception.ValidationException;
+
 /**
  * 课表安排状态。
  * 适用于：course_assignment（正式课表记录）。
@@ -33,6 +35,6 @@ public enum AssignmentStatus implements CodeEnum {
 				return status;
 			}
 		}
-		throw new IllegalArgumentException("未知课表安排状态: " + code);
+		throw new ValidationException("未知课表安排状态: " + code);
 	}
 }

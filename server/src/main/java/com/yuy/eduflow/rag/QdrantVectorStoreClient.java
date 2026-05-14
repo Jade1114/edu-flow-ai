@@ -1,5 +1,6 @@
 package com.yuy.eduflow.rag;
 
+import com.yuy.eduflow.common.exception.ValidationException;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -77,10 +78,10 @@ public class QdrantVectorStoreClient {
 
 	private void validateVector(List<Double> vector) {
 		if (vector == null || vector.isEmpty()) {
-			throw new IllegalArgumentException("向量不能为空");
+			throw new ValidationException("向量不能为空");
 		}
 		if (properties.getVectorSize() != null && vector.size() != properties.getVectorSize()) {
-			throw new IllegalArgumentException("向量维度必须为 " + properties.getVectorSize());
+			throw new ValidationException("向量维度必须为 " + properties.getVectorSize());
 		}
 	}
 

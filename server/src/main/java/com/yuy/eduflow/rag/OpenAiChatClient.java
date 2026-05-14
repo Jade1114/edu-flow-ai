@@ -1,5 +1,6 @@
 package com.yuy.eduflow.rag;
 
+import com.yuy.eduflow.common.exception.ValidationException;
 import java.net.http.HttpClient;
 import java.time.Duration;
 import java.util.LinkedHashMap;
@@ -35,10 +36,10 @@ public class OpenAiChatClient {
 	public String generate(String systemPrompt, String userPrompt) {
 		validateConfiguration();
 		if (!StringUtils.hasText(systemPrompt)) {
-			throw new IllegalArgumentException("系统提示词不能为空");
+			throw new ValidationException("系统提示词不能为空");
 		}
 		if (!StringUtils.hasText(userPrompt)) {
-			throw new IllegalArgumentException("用户提示词不能为空");
+			throw new ValidationException("用户提示词不能为空");
 		}
 
 		log.info("LLM request: model={}, max_tokens={}, sysPrompt={}chars, userPrompt={}chars",
@@ -97,13 +98,13 @@ public class OpenAiChatClient {
 
 	private void validateConfiguration() {
 		if (!StringUtils.hasText(properties.getApiKey())) {
-			throw new IllegalArgumentException("OPENAI_CHAT_API_KEY 未配置");
+			throw new IllegalStateException("OPENAI_CHAT_API_KEY 未配置");
 		}
 		if (!StringUtils.hasText(properties.getBaseUrl())) {
-			throw new IllegalArgumentException("OPENAI_CHAT_BASE_URL 未配置");
+			throw new IllegalStateException("OPENAI_CHAT_BASE_URL 未配置");
 		}
 		if (!StringUtils.hasText(properties.getModel())) {
-			throw new IllegalArgumentException("OPENAI_CHAT_MODEL 未配置");
+			throw new IllegalStateException("OPENAI_CHAT_MODEL 未配置");
 		}
 	}
 
