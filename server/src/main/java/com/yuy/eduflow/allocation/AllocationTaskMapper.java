@@ -12,20 +12,6 @@ import org.apache.ibatis.annotations.Update;
 @Mapper
 public interface AllocationTaskMapper {
 
-	@Select("""
-		<script>
-		SELECT id, name, description, start_week, end_week, status, created_by, created_at, updated_at
-		FROM allocation_task
-		WHERE 1 = 1
-		<if test='keyword != null and keyword != ""'>
-		  AND name LIKE CONCAT('%', #{keyword}, '%')
-		</if>
-		<if test='status != null and status != ""'>
-		  AND status = #{status}
-		</if>
-		ORDER BY id DESC
-		</script>
-		""")
 	List<AllocationTask> findAll(@Param("keyword") String keyword, @Param("status") String status);
 
 	@Select("""
@@ -81,20 +67,5 @@ public interface AllocationTaskMapper {
 		""")
 	int deleteTeachingTasks(Long allocationTaskId);
 
-	@Select("""
-		SELECT tt.id, tt.course_id, tt.primary_teacher_id, tt.assistant_teacher_id,
-		       tt.total_hours, tt.classroom_id, tt.notes, tt.status,
-		       tt.created_at, tt.updated_at,
-		       c.id AS course_id2, c.name AS course_name,
-		       pt.id AS pt_id, pt.name AS primary_teacher_name,
-		       at.id AS at_id, at.name AS assistant_teacher_name
-		FROM teaching_task tt
-		LEFT JOIN course c ON tt.course_id = c.id
-		LEFT JOIN teacher pt ON tt.primary_teacher_id = pt.id
-		LEFT JOIN teacher at ON tt.assistant_teacher_id = at.id
-		JOIN allocation_task_teaching_task att ON tt.id = att.teaching_task_id
-		WHERE att.allocation_task_id = #{allocationTaskId}
-		ORDER BY tt.id
-		""")
 	List<AllocationTaskTeachingTaskResult> findTeachingTasks(Long allocationTaskId);
 }

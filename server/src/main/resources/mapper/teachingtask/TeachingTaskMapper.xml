@@ -1,0 +1,81 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.yuy.eduflow.teachingtask.TeachingTaskMapper">
+
+    <resultMap id="teachingTaskResultMap" type="com.yuy.eduflow.teachingtask.TeachingTask">
+        <id property="id" column="id"/>
+        <result property="courseId" column="course_id"/>
+        <result property="primaryTeacherId" column="primary_teacher_id"/>
+        <result property="assistantTeacherId" column="assistant_teacher_id"/>
+        <result property="classroomId" column="classroom_id"/>
+        <result property="totalHours" column="total_hours"/>
+        <result property="notes" column="notes"/>
+        <result property="status" column="status"/>
+        <!-- course -->
+        <result property="course.id" column="course_id2"/>
+        <result property="course.name" column="course_name"/>
+        <!-- primaryTeacher -->
+        <result property="primaryTeacher.id" column="pt_id"/>
+        <result property="primaryTeacher.name" column="pt_name"/>
+        <result property="primaryTeacher.employeeNo" column="pt_employee_no"/>
+        <result property="primaryTeacher.department" column="pt_dept"/>
+        <!-- assistantTeacher -->
+        <result property="assistantTeacher.id" column="at_id"/>
+        <result property="assistantTeacher.name" column="at_name"/>
+        <!-- classroom -->
+        <result property="classroom.id" column="cr_id"/>
+        <result property="classroom.name" column="cr_name"/>
+        <result property="classroom.building" column="cr_building"/>
+        <result property="classroom.capacity" column="cr_capacity"/>
+        <result property="classroom.classroomType" column="cr_classroom_type"/>
+    </resultMap>
+
+    <!-- Extended resultMap that includes classGroups collection -->
+    <resultMap id="teachingTaskDetailMap" extends="teachingTaskResultMap" type="com.yuy.eduflow.teachingtask.TeachingTask">
+        <collection property="classGroups" column="id" ofType="com.yuy.eduflow.classgroup.ClassGroup"
+                    select="findClassGroups"/>
+    </resultMap>
+
+    <!-- Reusable SQL fragment for the 5-table LEFT JOIN -->
+    <sql id="teachingTaskJoin">
+        SELECT t.id, t.course_id, t.primary_teacher_id, t.assistant_teacher_id,
+               t.classroom_id,
+               t.total_hours, t.notes, t.status,
+               t.created_at, t.updated_at,
+               c.id AS course_id2, c.name AS course_name,
+               pt.id AS pt_id, pt.name AS pt_name, pt.employee_no AS pt_employee_no, pt.department AS pt_dept,
+               at.id AS at_id, at.name AS at_name,
+               cr.id AS cr_id, cr.name AS cr_name, cr.building AS cr_building, cr.capacity AS cr_capacity, cr.classroom_type AS cr_classroom_type
+        FROM teaching_task t
+        LEFT JOIN course c ON t.course_id = c.id
+        LEFT JOIN teacher pt ON t.primary_teacher_id = pt.id
+        LEFT JOIN teacher at ON t.assistant_teacher_id = at.id
+        LEFT JOIN classroom cr ON t.classroom_id = cr.id
+    </sql>
+
+    <select id="findAll" resultMap="teachingTaskDetailMap">
+        <include refid="teachingTaskJoin"/>
+        WHERE 1 = 1
+        <if test='status != null and status != ""'>
+            AND t.status = #{status}
+        </if>
+        <if test='courseId != null'>
+            AND t.course_id = #{courseId}
+        </if>
+        <if test='teacherId != null'>
+            AND (t.primary_teacher_id = #{teacherId} OR t.assistant_teacher_id = #{teacherId})
+        </if>
+        ORDER BY t.id DESC
+    </select>
+
+    <select id="findById" resultMap="teachingTaskResultMap">
+        <include refid="teachingTaskJoin"/>
+        WHERE t.id = #{id}
+    </select>
+
+    <select id="findWithDetails" resultMap="teachingTaskDetailMap">
+        <include refid="teachingTaskJoin"/>
+        WHERE t.id = #{id}
+    </select>
+
+</mapper>
