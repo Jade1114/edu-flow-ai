@@ -8,6 +8,7 @@ import {
   Calendar,
   Edit,
   SwitchButton,
+  Cpu,
 } from '@element-plus/icons-vue'
 
 const route = useRoute()
@@ -18,6 +19,7 @@ const menus = [
   { path: '/admin/dashboard', label: '首页', icon: DataLine },
   { path: '/admin/basic-data', label: '基础数据', icon: Collection },
   { path: '/admin/allocation', label: '分课任务', icon: MagicStick },
+  { path: '/admin/ai-schedule-compare', label: 'AI对比', icon: Cpu },
   { path: '/admin/timetable', label: '课表查询', icon: Calendar },
   { path: '/admin/adjustment', label: '调课处理', icon: Edit },
 ]
