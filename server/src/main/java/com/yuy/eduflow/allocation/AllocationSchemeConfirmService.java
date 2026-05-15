@@ -22,17 +22,20 @@ public class AllocationSchemeConfirmService {
 	private final AllocationItemMapper allocationItemMapper;
 	private final AllocationTaskMapper allocationTaskMapper;
 	private final CourseAssignmentMapper courseAssignmentMapper;
+	private final AllocationSchemeFeedbackMapper feedbackMapper;
 
 	public AllocationSchemeConfirmService(
 		AllocationSchemeMapper allocationSchemeMapper,
 		AllocationItemMapper allocationItemMapper,
 		AllocationTaskMapper allocationTaskMapper,
-		CourseAssignmentMapper courseAssignmentMapper
+		CourseAssignmentMapper courseAssignmentMapper,
+		AllocationSchemeFeedbackMapper feedbackMapper
 	) {
 		this.allocationSchemeMapper = allocationSchemeMapper;
 		this.allocationItemMapper = allocationItemMapper;
 		this.allocationTaskMapper = allocationTaskMapper;
 		this.courseAssignmentMapper = courseAssignmentMapper;
+		this.feedbackMapper = feedbackMapper;
 	}
 
 	@Transactional
@@ -78,6 +81,16 @@ public class AllocationSchemeConfirmService {
 		if (allocationTaskMapper.updateStatus(scheme.getTaskId(), SchemeStatus.CONFIRMED.code()) != 1) {
 			throw new ConflictException("分课任务状态更新失败");
 		}
+
+		// 记录确认反馈
+		AllocationSchemeFeedback feedback = new AllocationSchemeFeedback();
+		feedback.setSchemeId(schemeId);
+		feedback.setTaskId(scheme.getTaskId());
+		feedback.setFeedbackType("CONFIRMED");
+		feedback.setComment(null);
+		feedback.setAdjustmentCount(0);
+		feedback.setCreatedBy(null);
+		feedbackMapper.insert(feedback);
 
 		return new AllocationConfirmResult(
 			scheme.getId(),

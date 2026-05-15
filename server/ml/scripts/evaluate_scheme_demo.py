@@ -261,6 +261,43 @@ def write_ranked_summary(rows: list[dict[str, Any]], output_path: Path) -> None:
         writer.writerows(rows)
 
 
+def evaluate_scheme_to_dict(rows: list[dict[str, Any]], scheme_file: Path) -> dict[str, Any]:
+    metrics = evaluate_scheme(rows)
+    distribution = build_distribution(rows)
+    metrics_dict = asdict(metrics)
+    return {
+        "scheme_file": scheme_file.name,
+        **{key: round(value, 6) if isinstance(value, float) else value for key, value in metrics_dict.items()},
+        "weekday_distribution": {str(day): count for day, count in distribution.weekday_distribution.items()},
+        "period_distribution": {str(period): count for period, count in distribution.period_distribution.items()},
+        "top_rooms": distribution.top_rooms,
+    }
+
+
+def write_evaluation_json(evaluation: dict[str, Any], output_path: Path) -> None:
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    output_path.write_text(json.dumps(evaluation, ensure_ascii=False, indent=2), encoding="utf-8")
+
+
+def evaluate_single_csv_to_json(scheme_path: Path) -> Path:
+    rows = load_scheme(scheme_path)
+    evaluation = evaluate_scheme_to_dict(rows, scheme_path)
+    json_path = scheme_path.with_suffix(".json")
+    write_evaluation_json(evaluation, json_path)
+    print(f"Evaluation JSON → {json_path}")
+    return json_path
+
+
+def evaluate_directory_to_json(scheme_dir: Path) -> list[Path]:
+    scheme_files = sorted(path for path in scheme_dir.glob("scheme_*.csv") if path.is_file())
+    if not scheme_files:
+        raise FileNotFoundError(f"No scheme_*.csv files found in {scheme_dir}")
+    json_paths: list[Path] = []
+    for scheme_file in scheme_files:
+        json_paths.append(evaluate_single_csv_to_json(scheme_file))
+    return json_paths
+
+
 def evaluate_scheme_directory(scheme_dir: Path, output_path: Path) -> list[dict[str, Any]]:
     if not scheme_dir.exists():
         raise FileNotFoundError(f"Scheme directory not found: {scheme_dir}. Run generate_scheme_demo.py first.")
@@ -300,11 +337,21 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--scheme-dir", type=Path, default=None, help="Directory containing scheme_*.csv files.")
     parser.add_argument("--output", type=Path, default=None, help="Output path for ranked summary CSV in directory mode.")
     parser.add_argument("--top", type=int, default=10, help="Number of ranked schemes to print in directory mode.")
+    parser.add_argument("--json", action="store_true", help="Output evaluation JSON files next to each scheme CSV.")
     return parser.parse_args()
 
 
 def main() -> None:
     args = parse_args()
+    if args.json:
+        if args.scheme_dir is not None:
+            json_paths = evaluate_directory_to_json(args.scheme_dir)
+            print(f"Generated {len(json_paths)} evaluation JSON files in {args.scheme_dir}")
+            return
+        json_path = evaluate_single_csv_to_json(args.scheme)
+        print(f"Generated evaluation JSON → {json_path}")
+        return
+
     if args.scheme_dir is not None:
         output_path = args.output or (args.scheme_dir / "ranked_summary.csv")
         summary_rows = evaluate_scheme_directory(args.scheme_dir, output_path)

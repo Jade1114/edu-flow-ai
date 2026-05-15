@@ -21,6 +21,7 @@ import java.util.function.Consumer;
 import java.util.stream.Collectors;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
+import tools.jackson.databind.ObjectMapper;
 
 @Slf4j
 @Service
@@ -32,9 +33,11 @@ public class AllocationMlSchemeService {
 	private static final DateTimeFormatter RUN_ID_FORMATTER = DateTimeFormatter.ofPattern("yyyyMMddHHmmssSSS");
 
 	private final AllocationTaskMapper allocationTaskMapper;
+	private final ObjectMapper objectMapper;
 
-	public AllocationMlSchemeService(AllocationTaskMapper allocationTaskMapper) {
+	public AllocationMlSchemeService(AllocationTaskMapper allocationTaskMapper, ObjectMapper objectMapper) {
 		this.allocationTaskMapper = allocationTaskMapper;
+		this.objectMapper = objectMapper;
 	}
 
 	public AllocationParsePreview generateParsePreview(Long taskId, Integer topK) {
@@ -61,7 +64,9 @@ public class AllocationMlSchemeService {
 		try {
 			Files.createDirectories(outputDir);
 			runModelScript(mlDir, outputDir, task, teachingTaskIds, normalizedVariantCount(topK), progressReporter);
-			progressReporter.accept(running("parse", "解析模型生成的 CSV 方案...", 65));
+			progressReporter.accept(running("eval", "自训练模型评估方案质量...", 62));
+			runEvaluator(mlDir, outputDir);
+			progressReporter.accept(running("parse", "解析评估后的 CSV 方案...", 68));
 			List<AllocationParsedScheme> schemes = parseGeneratedSchemes(outputDir);
 			return new AllocationParsePreview(
 				taskId,
@@ -155,6 +160,59 @@ public class AllocationMlSchemeService {
 		return "python3";
 	}
 
+	private void runEvaluator(Path mlDir, Path outputDir) {
+		List<String> command = new ArrayList<>();
+		command.add(resolvePythonExecutable(mlDir));
+		command.add("scripts/evaluate_scheme_demo.py");
+		command.add("--scheme-dir");
+		command.add(outputDir.toString());
+		command.add("--json");
+
+		ProcessBuilder builder = new ProcessBuilder(command);
+		builder.directory(mlDir.toFile());
+		builder.redirectErrorStream(true);
+		log.info("Running ML scheme evaluator: {}", String.join(" ", command));
+
+		try {
+			Process process = builder.start();
+			String output;
+			try (BufferedReader reader = process.inputReader(StandardCharsets.UTF_8)) {
+				output = reader.lines().collect(Collectors.joining("\n"));
+			}
+			int exitCode = process.waitFor();
+			log.info("ML scheme evaluator exited with code={}, output={}", exitCode, output);
+			if (exitCode != 0) {
+				log.warn("Scheme evaluator exited non-zero but continuing: {}", output);
+			}
+		} catch (IOException exception) {
+			log.warn("Scheme evaluator failed: {}", exception.getMessage());
+		} catch (InterruptedException exception) {
+			Thread.currentThread().interrupt();
+			log.warn("Scheme evaluator interrupted");
+		}
+	}
+
+	private record EvaluationData(Double schemeScore, String evaluationSummary) {}
+
+	private EvaluationData loadEvaluation(Path outputDir, String schemeFileName) {
+		String jsonFileName = schemeFileName.replace(".csv", ".json");
+		Path jsonPath = outputDir.resolve(jsonFileName);
+		if (!Files.exists(jsonPath)) {
+			return null;
+		}
+		try {
+			String rawJson = Files.readString(jsonPath, StandardCharsets.UTF_8);
+			@SuppressWarnings("unchecked")
+			Map<String, Object> evalMap = objectMapper.readValue(rawJson, Map.class);
+			Object schemeScoreObj = evalMap.get("scheme_score");
+			Double schemeScore = schemeScoreObj instanceof Number ? ((Number) schemeScoreObj).doubleValue() : null;
+			return new EvaluationData(schemeScore, rawJson);
+		} catch (IOException e) {
+			log.warn("Failed to parse evaluation JSON {}: {}", jsonPath, e.getMessage());
+			return null;
+		}
+	}
+
 	private int normalizedVariantCount(Integer topK) {
 		if (topK == null || topK <= 0) {
 			return DEFAULT_VARIANT_COUNT;
@@ -176,11 +234,16 @@ public class AllocationMlSchemeService {
 				Path schemeFile = schemeFiles.get(i);
 				List<AllocationParsedItem> items = parseSchemeItems(schemeFile);
 				String summary = summarizeScheme(schemeFile, items);
+				EvaluationData evaluation = loadEvaluation(outputDir, schemeFile.getFileName().toString());
 				schemes.add(new AllocationParsedScheme(
 					"自训练模型方案 " + String.format("%03d", i + 1),
 					summary,
 					"由 LightGBM 候选评分、规则预筛和方案状态惩罚共同生成",
-					items
+					items,
+					evaluation != null ? evaluation.schemeScore() : null,
+					evaluation != null ? evaluation.evaluationSummary() : null,
+					null, // policy - will be set when policy profiles are implemented
+					"v1"
 				));
 			}
 			return schemes;

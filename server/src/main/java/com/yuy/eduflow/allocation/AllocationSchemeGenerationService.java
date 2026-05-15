@@ -96,7 +96,12 @@ public class AllocationSchemeGenerationService {
 		scheme.setTaskId(taskId);
 		scheme.setSchemeName(parsedScheme.schemeName());
 		scheme.setSummary(parsedScheme.summary());
-		scheme.setScore(null);
+		scheme.setScore(parsedScheme.schemeScore() != null ? (int) Math.round(parsedScheme.schemeScore()) : null);
+		scheme.setSchemeScore(parsedScheme.schemeScore());
+		scheme.setEvaluationSummary(parsedScheme.evaluationSummary());
+		scheme.setPolicy(parsedScheme.policy());
+		scheme.setPolicyParams(null);
+		scheme.setModelVersion(parsedScheme.modelVersion());
 		scheme.setSatisfiedSummary(parsedScheme.satisfiedSummary());
 		scheme.setConflictSummary(null);
 		scheme.setValid(true);

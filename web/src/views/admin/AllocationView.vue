@@ -141,6 +141,7 @@ async function generateSchemes(taskId) {
 function stageLabel(stage) {
   const labels = {
     ml: '调用自训练模型...',
+    eval: '评估方案质量...',
     rag: '检索画像...',
     prompt: '构建 Prompt...',
     llm: '等待模型...',
@@ -544,10 +545,24 @@ onUnmounted(() => {
     </el-dialog>
 
     <!-- Schemes Dialog -->
-    <el-dialog v-model="schemeVisible" title="候选方案" width="800px">
+    <el-dialog v-model="schemeVisible" title="候选方案" width="900px">
       <el-table :data="schemes" border size="small">
         <el-table-column prop="id" label="ID" width="60" />
         <el-table-column prop="schemeName" label="方案名称" />
+        <el-table-column prop="schemeScore" label="评分" width="70">
+          <template #default="{ row }">
+            <span v-if="row.schemeScore != null" style="font-weight: 700; color: #67c23a">
+              {{ row.schemeScore.toFixed(1) }}
+            </span>
+            <span v-else>-</span>
+          </template>
+        </el-table-column>
+        <el-table-column prop="policy" label="策略" width="100">
+          <template #default="{ row }">
+            <el-tag v-if="row.policy" size="small" type="info">{{ row.policy }}</el-tag>
+            <span v-else>-</span>
+          </template>
+        </el-table-column>
         <el-table-column prop="valid" label="有效" width="70">
           <template #default="{ row }">
             <el-tag :type="row.valid ? 'success' : 'danger'" size="small">{{

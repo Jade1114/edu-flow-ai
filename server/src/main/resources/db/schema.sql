@@ -165,12 +165,18 @@ CREATE TABLE IF NOT EXISTS allocation_task_teaching_task (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- v2: 候选方案（不变）
+-- v5: 方案评估字段 + 反馈表
 CREATE TABLE IF NOT EXISTS allocation_scheme (
     id BIGINT PRIMARY KEY AUTO_INCREMENT,
     task_id BIGINT NOT NULL,
     scheme_name VARCHAR(100) NOT NULL,
     summary TEXT NULL,
     score INT NULL,
+    scheme_score DOUBLE NULL COMMENT '评估器综合分 0-100',
+    evaluation_summary TEXT NULL COMMENT '评估结果 JSON',
+    policy VARCHAR(32) NULL COMMENT '生成策略 BALANCED/TEACHER_FRIENDLY/...',
+    policy_params TEXT NULL COMMENT '策略参数 JSON',
+    model_version VARCHAR(16) NULL COMMENT '模型版本 v1/v2',
     satisfied_summary TEXT NULL,
     conflict_summary TEXT NULL,
     valid BOOLEAN NOT NULL DEFAULT TRUE,
@@ -180,6 +186,42 @@ CREATE TABLE IF NOT EXISTS allocation_scheme (
     INDEX idx_allocation_scheme_task (task_id),
     INDEX idx_allocation_scheme_status (status),
     CONSTRAINT fk_allocation_scheme_task FOREIGN KEY (task_id) REFERENCES allocation_task (id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- v5: 方案反馈（教务选择/调整/确认行为记录）
+CREATE TABLE IF NOT EXISTS allocation_scheme_feedback (
+    id BIGINT PRIMARY KEY AUTO_INCREMENT,
+    scheme_id BIGINT NOT NULL,
+    task_id BIGINT NOT NULL,
+    feedback_type VARCHAR(30) NOT NULL COMMENT 'SELECTED/ADJUSTED/CONFIRMED',
+    score INT NULL COMMENT '教务评分（可选）',
+    comment TEXT NULL COMMENT '教务评价',
+    adjustment_count INT NOT NULL DEFAULT 0 COMMENT '调整次数',
+    created_by VARCHAR(100) NULL,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    INDEX idx_scheme_feedback_scheme (scheme_id),
+    INDEX idx_scheme_feedback_task (task_id),
+    INDEX idx_scheme_feedback_type (feedback_type),
+    CONSTRAINT fk_scheme_feedback_scheme FOREIGN KEY (scheme_id) REFERENCES allocation_scheme (id),
+    CONSTRAINT fk_scheme_feedback_task FOREIGN KEY (task_id) REFERENCES allocation_task (id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- v5: 人工调整日志（记录每次拖拽/编辑的前后状态）
+CREATE TABLE IF NOT EXISTS allocation_item_adjustment_log (
+    id BIGINT PRIMARY KEY AUTO_INCREMENT,
+    scheme_id BIGINT NOT NULL,
+    item_id BIGINT NOT NULL,
+    teaching_task_id BIGINT NOT NULL,
+    from_time_slot_id BIGINT NULL,
+    to_time_slot_id BIGINT NULL,
+    from_classroom_id BIGINT NULL,
+    to_classroom_id BIGINT NULL,
+    reason VARCHAR(500) NULL,
+    created_by VARCHAR(100) NULL,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    INDEX idx_item_adj_scheme (scheme_id),
+    INDEX idx_item_adj_item (item_id),
+    CONSTRAINT fk_item_adj_scheme FOREIGN KEY (scheme_id) REFERENCES allocation_scheme (id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- v2: 排课片段（改为 teaching_task_id 替代 course/classGroup/teacher）

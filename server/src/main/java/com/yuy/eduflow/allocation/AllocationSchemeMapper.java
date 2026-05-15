@@ -13,8 +13,9 @@ public interface AllocationSchemeMapper {
 
 	@Select("""
 		<script>
-		SELECT id, task_id, scheme_name, summary, score, satisfied_summary,
-		       conflict_summary, valid, status, created_at, updated_at
+		SELECT id, task_id, scheme_name, summary, score, scheme_score,
+		       evaluation_summary, policy, policy_params, model_version,
+		       satisfied_summary, conflict_summary, valid, status, created_at, updated_at
 		FROM allocation_scheme
 		WHERE 1 = 1
 		<if test='taskId != null'>
@@ -29,8 +30,9 @@ public interface AllocationSchemeMapper {
 	List<AllocationScheme> findAll(@Param("taskId") Long taskId, @Param("status") String status);
 
 	@Select("""
-		SELECT id, task_id, scheme_name, summary, score, satisfied_summary,
-		       conflict_summary, valid, status, created_at, updated_at
+		SELECT id, task_id, scheme_name, summary, score, scheme_score,
+		       evaluation_summary, policy, policy_params, model_version,
+		       satisfied_summary, conflict_summary, valid, status, created_at, updated_at
 		FROM allocation_scheme
 		WHERE id = #{id}
 		""")
@@ -38,12 +40,14 @@ public interface AllocationSchemeMapper {
 
 	@Insert("""
 		INSERT INTO allocation_scheme (
-		    task_id, scheme_name, summary, score, satisfied_summary,
-		    conflict_summary, valid, status
+		    task_id, scheme_name, summary, score, scheme_score,
+		    evaluation_summary, policy, policy_params, model_version,
+		    satisfied_summary, conflict_summary, valid, status
 		)
 		VALUES (
-		    #{taskId}, #{schemeName}, #{summary}, #{score}, #{satisfiedSummary},
-		    #{conflictSummary}, #{valid}, #{status}
+		    #{taskId}, #{schemeName}, #{summary}, #{score}, #{schemeScore},
+		    #{evaluationSummary}, #{policy}, #{policyParams}, #{modelVersion},
+		    #{satisfiedSummary}, #{conflictSummary}, #{valid}, #{status}
 		)
 		""")
 	@Options(useGeneratedKeys = true, keyProperty = "id")
