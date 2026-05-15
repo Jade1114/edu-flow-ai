@@ -18,15 +18,18 @@ public class AllocationSchemeController {
 	private final AllocationSchemeService allocationSchemeService;
 	private final AllocationItemService allocationItemService;
 	private final AllocationSchemeConfirmService allocationSchemeConfirmService;
+	private final AllocationItemAdjustmentLogMapper adjustmentLogMapper;
 
 	public AllocationSchemeController(
 		AllocationSchemeService allocationSchemeService,
 		AllocationItemService allocationItemService,
-		AllocationSchemeConfirmService allocationSchemeConfirmService
+		AllocationSchemeConfirmService allocationSchemeConfirmService,
+		AllocationItemAdjustmentLogMapper adjustmentLogMapper
 	) {
 		this.allocationSchemeService = allocationSchemeService;
 		this.allocationItemService = allocationItemService;
 		this.allocationSchemeConfirmService = allocationSchemeConfirmService;
+		this.adjustmentLogMapper = adjustmentLogMapper;
 	}
 
 	@GetMapping
@@ -66,6 +69,24 @@ public class AllocationSchemeController {
 	@DeleteMapping("/{id}")
 	public ApiResponse<Void> delete(@PathVariable Long id) {
 		allocationSchemeService.delete(id);
+		return ApiResponse.success();
+	}
+
+	@PostMapping("/{schemeId}/adjustment-log")
+	public ApiResponse<Void> recordAdjustment(
+		@PathVariable Long schemeId,
+		@RequestBody AdjustmentLogRequest request
+	) {
+		AllocationItemAdjustmentLog log = new AllocationItemAdjustmentLog();
+		log.setSchemeId(schemeId);
+		log.setItemId(request.itemId());
+		log.setTeachingTaskId(request.teachingTaskId());
+		log.setFromTimeSlotId(request.fromTimeSlotId());
+		log.setToTimeSlotId(request.toTimeSlotId());
+		log.setFromClassroomId(request.fromClassroomId());
+		log.setToClassroomId(request.toClassroomId());
+		log.setReason(request.reason());
+		adjustmentLogMapper.insert(log);
 		return ApiResponse.success();
 	}
 

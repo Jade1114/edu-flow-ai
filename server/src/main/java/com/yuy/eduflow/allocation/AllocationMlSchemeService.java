@@ -68,7 +68,8 @@ public class AllocationMlSchemeService {
 			progressReporter.accept(running("eval", "自训练模型评估方案质量...", 62));
 			runEvaluator(mlDir, outputDir);
 			progressReporter.accept(running("parse", "解析评估后的 CSV 方案...", 68));
-			List<AllocationParsedScheme> schemes = parseGeneratedSchemes(outputDir);
+			String resolvedPolicy = policyOrDefault(policy);
+			List<AllocationParsedScheme> schemes = parseGeneratedSchemes(outputDir, resolvedPolicy);
 			return new AllocationParsePreview(
 				taskId,
 				task.getName(),
@@ -227,7 +228,7 @@ public class AllocationMlSchemeService {
 		return Math.min(Math.max(topK, 1), 5);
 	}
 
-	private List<AllocationParsedScheme> parseGeneratedSchemes(Path outputDir) throws IOException {
+	private List<AllocationParsedScheme> parseGeneratedSchemes(Path outputDir, String policy) throws IOException {
 		try (var stream = Files.list(outputDir)) {
 			List<Path> schemeFiles = stream
 				.filter(path -> path.getFileName().toString().matches("scheme_\\d+\\.csv"))

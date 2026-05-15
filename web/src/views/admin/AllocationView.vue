@@ -303,7 +303,10 @@ async function loadTimeSlots() {
   timeSlots.value = await request.get('/api/time-slots');
 }
 
+const oldItem = ref(null);
+
 function openEditDialog(item) {
+  oldItem.value = { ...item };
   editingItem.value = { ...item };
   editDialog.value = true;
   loadClassrooms();
@@ -326,6 +329,17 @@ async function saveItemMove() {
       classroomId: item.classroomId,
       timeSlotId: item.timeSlotId,
     });
+    // Log adjustment
+    const adjPayload2 = {
+      itemId: item.id,
+      teachingTaskId: item.teachingTaskId,
+      fromTimeSlotId: oldItem.timeSlotId,
+      toTimeSlotId: item.timeSlotId,
+      fromClassroomId: oldItem.classroomId,
+      toClassroomId: item.classroomId,
+      reason: '手动编辑',
+    };
+    request.post(`/api/allocation-schemes/${schemeDetail.value.id}/adjustment-log`, adjPayload2).catch(() => {});
     ElMessage.success('修改成功，已重新检测冲突');
     editDialog.value = false;
     // 刷新 schemeDetail 完整数据（含 conflictSummary）+ items

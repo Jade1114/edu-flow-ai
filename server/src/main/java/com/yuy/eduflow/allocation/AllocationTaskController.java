@@ -100,9 +100,10 @@ public class AllocationTaskController {
 	@PostMapping("/{id}/schemes")
 	public ApiResponse<AllocationGenerateResult> generateSchemes(
 		@PathVariable Long id,
-		@RequestParam(required = false) Integer topK
+		@RequestParam(required = false) Integer topK,
+		@RequestParam(required = false) String policy
 	) {
-		return ApiResponse.success(allocationSchemeGenerationService.generateSchemes(id, topK));
+		return ApiResponse.success(allocationSchemeGenerationService.generateSchemes(id, topK, policy));
 	}
 
 	@PostMapping("/{id}/generate-async")
