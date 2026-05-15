@@ -109,6 +109,12 @@ python scripts/train_lightgbm.py
 
 Loads the trained model and runs a local prediction demo against sample candidate rows.
 
+Example:
+
+```bash
+python scripts/predict_demo.py --limit 12
+```
+
 ## First Model Boundary
 
 The first model is a scoring model:
