@@ -39,7 +39,8 @@ server/ml/
     ├── generate_training_samples.py
     ├── train_lightgbm.py
     ├── predict_demo.py
-    └── evaluate_model.py
+    ├── evaluate_model.py
+    └── generate_scheme_demo.py
 ```
 
 ## Setup
@@ -124,6 +125,22 @@ Example:
 
 ```bash
 python scripts/evaluate_model.py --top 10
+```
+
+### `scripts/generate_scheme_demo.py`
+
+Generates a complete model-driven scheduling scheme demo without writing business tables.
+
+Example:
+
+```bash
+python scripts/generate_scheme_demo.py
+```
+
+Output:
+
+```text
+data/generated_scheme_demo.csv
 ```
 
 ## First Model Boundary

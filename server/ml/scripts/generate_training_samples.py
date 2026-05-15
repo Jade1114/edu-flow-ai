@@ -242,7 +242,7 @@ def parse_id_tuple(raw_ids: str | None) -> tuple[int, ...]:
 
 
 def effective_required_room_type(task: dict[str, Any]) -> str:
-    return task.get("required_room_type") or task.get("bound_classroom_type") or "普通教室"
+    return task.get("required_room_type") or ""
 
 
 def periods_needed(task: dict[str, Any]) -> int:
