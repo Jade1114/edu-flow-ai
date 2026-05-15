@@ -92,11 +92,17 @@ python scripts/generate_training_samples.py --max-rows 500
 
 Trains the first LightGBM scoring model from `training_samples.csv`.
 
-Planned output:
+Output:
 
 ```text
 models/schedule_ranker_v1.txt
 data/feature_schema.json
+```
+
+Example:
+
+```bash
+python scripts/train_lightgbm.py
 ```
 
 ### `scripts/predict_demo.py`
