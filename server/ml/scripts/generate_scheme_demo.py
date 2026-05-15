@@ -13,6 +13,7 @@ import argparse
 import csv
 import json
 import random
+from collections import Counter
 from pathlib import Path
 from typing import Any
 
@@ -70,6 +71,13 @@ SUMMARY_COLUMNS = [
     "avg_rule_score",
 ]
 
+WEEKDAY_LOAD_PENALTY = 0.004
+ROOM_DAY_LOAD_PENALTY = 0.012
+ROOM_WEEK_LOAD_PENALTY = 0.003
+TASK_DAY_LOAD_PENALTY = 0.018
+RANDOM_JITTER = 0.002
+DEFAULT_CANDIDATE_POOL_SIZE = 500
+
 
 def load_schema(schema_path: Path) -> dict[str, Any]:
     if not schema_path.exists():
@@ -85,6 +93,14 @@ def build_candidate_rows(
     selected_assignments: list[PseudoAssignment],
 ) -> list[dict[str, Any]]:
     indexes = build_occupied_indexes(selected_assignments)
+    scheme_day_load = Counter((assignment.week_number, assignment.day_of_week) for assignment in selected_assignments)
+    room_day_load = Counter(
+        (assignment.classroom_id, assignment.week_number, assignment.day_of_week) for assignment in selected_assignments
+    )
+    room_week_load = Counter((assignment.classroom_id, assignment.week_number) for assignment in selected_assignments)
+    task_day_load = Counter(
+        (assignment.task_id, assignment.week_number, assignment.day_of_week) for assignment in selected_assignments
+    )
     task_id = int(task["teaching_task_id"])
     teacher_id = int(task["teacher_id"])
     class_group_ids = parse_id_tuple(task.get("class_group_ids"))
@@ -175,6 +191,10 @@ def build_candidate_rows(
                     "class_day_load": class_day_load,
                     "teacher_week_load": teacher_week_load,
                     "class_week_load": class_week_load,
+                    "scheme_day_load": scheme_day_load[(week_number, day_of_week)],
+                    "room_day_load": room_day_load[(room_id, week_number, day_of_week)],
+                    "room_week_load": room_week_load[(room_id, week_number)],
+                    "task_day_load": task_day_load[(task_id, week_number, day_of_week)],
                     "is_capacity_enough": int(capacity_enough),
                     "is_room_type_match": int(type_match),
                     "has_teacher_conflict": int(teacher_conflict),
@@ -211,11 +231,50 @@ def build_features(rows: list[dict[str, Any]], schema: dict[str, Any]) -> pd.Dat
     return features
 
 
+def shortlist_candidates(candidates: list[dict[str, Any]], pool_size: int, rng: random.Random) -> list[dict[str, Any]]:
+    if pool_size <= 0 or len(candidates) <= pool_size:
+        return candidates
+    legal_candidates = [candidate for candidate in candidates if int(candidate["has_hard_conflict"]) == 0]
+    pool = legal_candidates if legal_candidates else candidates
+    return sorted(
+        pool,
+        key=lambda row: (
+            -int(row["has_hard_conflict"]),
+            row["rule_score"],
+            -row["scheme_day_load"],
+            -row["room_day_load"],
+            -row["room_week_load"],
+            -row["task_day_load"],
+            rng.random(),
+        ),
+        reverse=True,
+    )[:pool_size]
+
+
+def apply_selection_scores(candidates: list[dict[str, Any]], rng: random.Random) -> None:
+    for candidate in candidates:
+        distribution_penalty = (
+            candidate["scheme_day_load"] * WEEKDAY_LOAD_PENALTY
+            + candidate["room_day_load"] * ROOM_DAY_LOAD_PENALTY
+            + candidate["room_week_load"] * ROOM_WEEK_LOAD_PENALTY
+            + candidate["task_day_load"] * TASK_DAY_LOAD_PENALTY
+        )
+        candidate["distribution_penalty"] = round(distribution_penalty, 6)
+        candidate["selection_score"] = max(
+            0.0,
+            float(candidate["predicted_score"])
+            + float(candidate["rule_score"]) * 0.02
+            - distribution_penalty
+            + rng.random() * RANDOM_JITTER,
+        )
+
+
 def rank_candidates(
     *,
     booster: lgb.Booster,
     schema: dict[str, Any],
     candidates: list[dict[str, Any]],
+    rng: random.Random,
 ) -> list[dict[str, Any]]:
     if not candidates:
         return []
@@ -223,12 +282,14 @@ def rank_candidates(
     predictions = np.clip(booster.predict(features), 0.0, 1.0)
     for candidate, predicted_score in zip(candidates, predictions):
         candidate["predicted_score"] = float(predicted_score)
+    apply_selection_scores(candidates, rng)
 
     return sorted(
         candidates,
         key=lambda row: (
-            row["predicted_score"],
+            row["selection_score"],
             -row["has_hard_conflict"],
+            row["predicted_score"],
             row["rule_score"],
             -row["week_number"],
             -row["day_of_week"],
@@ -246,8 +307,10 @@ def choose_candidate(
     strategy: str,
     top_k: int,
     rng: random.Random,
+    candidate_pool_size: int,
 ) -> dict[str, Any] | None:
-    ranked = rank_candidates(booster=booster, schema=schema, candidates=candidates)
+    candidates = shortlist_candidates(candidates, candidate_pool_size, rng)
+    ranked = rank_candidates(booster=booster, schema=schema, candidates=candidates, rng=rng)
     if not ranked:
         return None
     if strategy == "greedy":
@@ -270,6 +333,7 @@ def generate_scheme(
     strategy: str,
     top_k: int,
     rng: random.Random,
+    candidate_pool_size: int,
 ) -> tuple[list[dict[str, Any]], list[PseudoAssignment]]:
     scheme_rows: list[dict[str, Any]] = []
     selected_assignments: list[PseudoAssignment] = []
@@ -296,6 +360,7 @@ def generate_scheme(
                 strategy=strategy,
                 top_k=top_k,
                 rng=rng,
+                candidate_pool_size=candidate_pool_size,
             )
             if best is None:
                 continue
@@ -386,6 +451,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--strategy", choices=["greedy", "top-k-random"], default="greedy", help="Candidate selection strategy.")
     parser.add_argument("--top-k", type=int, default=5, help="Top-K candidate pool size for top-k-random strategy.")
     parser.add_argument("--random-seed", type=int, default=42, help="Base random seed for variant generation.")
+    parser.add_argument(
+        "--candidate-pool-size",
+        type=int,
+        default=DEFAULT_CANDIDATE_POOL_SIZE,
+        help="Rule-filtered candidate pool size scored by the model per fragment. Use 0 for full scoring.",
+    )
     return parser.parse_args()
 
 
@@ -413,6 +484,7 @@ def main() -> None:
             strategy=args.strategy,
             top_k=args.top_k,
             rng=random.Random(args.random_seed),
+            candidate_pool_size=args.candidate_pool_size,
         )
         write_scheme(rows, args.output)
         print_summary(rows, tasks, args.max_tasks)
@@ -434,6 +506,7 @@ def main() -> None:
             strategy=args.strategy,
             top_k=args.top_k,
             rng=rng,
+            candidate_pool_size=args.candidate_pool_size,
         )
         write_scheme(rows, output_path)
         summary = summarize_scheme(rows, tasks, args.max_tasks)
