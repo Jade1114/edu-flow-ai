@@ -1,0 +1,105 @@
+# Edu-Flow-AI ML Pipeline
+
+This directory contains the first LightGBM-based scheduling model pipeline for Edu-Flow-AI.
+
+The model does not directly write the official timetable. It scores candidate scheduling decisions, while the backend orchestrates the decision flow, updates temporary schedule state, runs hard-constraint checks, and persists the final scheme after educational administration confirmation.
+
+## Current Goal
+
+Build the first offline training loop:
+
+```text
+Database / seed data
+→ candidate scheduling samples
+→ training_samples.csv
+→ LightGBM training
+→ schedule_ranker_v1.txt
+→ local prediction demo
+```
+
+A single training sample represents:
+
+```text
+TeachingTask + candidate TimeSlot + candidate Classroom + current schedule state → score
+```
+
+## Directory Layout
+
+```text
+server/ml/
+├── README.md
+├── requirements.txt
+├── data/
+│   ├── .gitkeep
+│   └── training_samples.csv        # generated, ignored by git later if needed
+├── models/
+│   ├── .gitkeep
+│   └── schedule_ranker_v1.txt      # generated model artifact
+└── scripts/
+    ├── generate_training_samples.py
+    ├── train_lightgbm.py
+    └── predict_demo.py
+```
+
+## Planned Scripts
+
+### `scripts/generate_training_samples.py`
+
+Generates candidate scheduling samples from current project data.
+
+Planned input tables/entities:
+
+- `teaching_task`
+- `course`
+- `teacher`
+- `teacher_profile`
+- `class_group`
+- `classroom`
+- `time_slot`
+- `allocation_item` / `course_assignment` for current schedule state
+
+Planned output:
+
+```text
+data/training_samples.csv
+```
+
+### `scripts/train_lightgbm.py`
+
+Trains the first LightGBM scoring model from `training_samples.csv`.
+
+Planned output:
+
+```text
+models/schedule_ranker_v1.txt
+data/feature_schema.json
+```
+
+### `scripts/predict_demo.py`
+
+Loads the trained model and runs a local prediction demo against sample candidate rows.
+
+## First Model Boundary
+
+The first model is a scoring model:
+
+```text
+candidate scheduling decision → score
+```
+
+It is responsible for choosing better candidate decisions during scheduling.
+
+The backend remains responsible for:
+
+- candidate construction
+- model invocation
+- temporary schedule state updates
+- hard-constraint conflict checks
+- scheme persistence
+- final confirmation workflow
+
+## Related Cabinet Notes
+
+- `AI智能排课-LightGBM训练样本字段表.md`
+- `AI智能排课-模型全权承担方案与说服逻辑.md`
+- `AI智能排课-自训练模型学习方式与LightGBM定位.md`
