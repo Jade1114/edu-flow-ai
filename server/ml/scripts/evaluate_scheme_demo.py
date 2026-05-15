@@ -1,7 +1,8 @@
-"""Evaluate a generated scheduling scheme demo.
+"""Evaluate generated scheduling scheme demos.
 
-Input:
+Inputs:
     ../data/generated_scheme_demo.csv
+    or ../data/generated_schemes/*.csv
 
 The script evaluates scheme-level quality, not single-fragment prediction quality.
 """
@@ -10,15 +11,44 @@ from __future__ import annotations
 
 import argparse
 import csv
+import json
 import statistics
-from collections import Counter, defaultdict
-from dataclasses import dataclass
+from collections import Counter
+from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any
 
 
 ROOT_DIR = Path(__file__).resolve().parents[1]
 SCHEME_PATH = ROOT_DIR / "data" / "generated_scheme_demo.csv"
+SCHEME_DIR = ROOT_DIR / "data" / "generated_schemes"
+RANKED_SUMMARY_PATH = SCHEME_DIR / "ranked_summary.csv"
+
+RANKED_SUMMARY_COLUMNS = [
+    "rank",
+    "scheme_file",
+    "scheme_score",
+    "fragment_count",
+    "task_count",
+    "hard_conflict_count",
+    "early_period_count",
+    "late_period_count",
+    "avg_predicted_score",
+    "avg_rule_score",
+    "avg_capacity_ratio",
+    "teacher_day_load_max",
+    "class_day_load_max",
+    "room_day_load_max",
+    "teacher_day_load_std",
+    "class_day_load_std",
+    "room_day_load_std",
+    "teacher_week_load_max",
+    "class_week_load_max",
+    "room_week_load_max",
+    "weekday_distribution",
+    "period_distribution",
+    "top_rooms",
+]
 
 
 @dataclass(frozen=True)
@@ -41,6 +71,13 @@ class SchemeMetrics:
     class_week_load_max: int
     room_week_load_max: int
     scheme_score: float
+
+
+@dataclass(frozen=True)
+class SchemeDistribution:
+    weekday_distribution: dict[int, int]
+    period_distribution: dict[int, int]
+    top_rooms: dict[str, int]
 
 
 def load_scheme(path: Path) -> list[dict[str, Any]]:
@@ -71,6 +108,17 @@ def stdev_or_zero(values: list[int]) -> float:
     if len(values) <= 1:
         return 0.0
     return float(statistics.pstdev(values))
+
+
+def build_distribution(rows: list[dict[str, Any]]) -> SchemeDistribution:
+    by_day = Counter(as_int(row, "day_of_week") for row in rows)
+    by_period = Counter(as_int(row, "period_index") for row in rows)
+    by_room = Counter(row["classroom_id"] for row in rows)
+    return SchemeDistribution(
+        weekday_distribution=dict(sorted(by_day.items())),
+        period_distribution=dict(sorted(by_period.items())),
+        top_rooms=dict(by_room.most_common(8)),
+    )
 
 
 def evaluate_scheme(rows: list[dict[str, Any]]) -> SchemeMetrics:
@@ -186,29 +234,89 @@ def print_metrics(metrics: SchemeMetrics) -> None:
     print(f"Scheme score           : {metrics.scheme_score:.2f}/100")
 
 
-def print_distribution(rows: list[dict[str, Any]]) -> None:
-    by_day = Counter(as_int(row, "day_of_week") for row in rows)
-    by_period = Counter(as_int(row, "period_index") for row in rows)
-    by_room = Counter(row["classroom_id"] for row in rows)
-
+def print_distribution(distribution: SchemeDistribution) -> None:
     print("\n## Distribution")
-    print("Fragments by weekday:", dict(sorted(by_day.items())))
-    print("Fragments by period :", dict(sorted(by_period.items())))
-    print("Top rooms           :", dict(by_room.most_common(8)))
+    print("Fragments by weekday:", distribution.weekday_distribution)
+    print("Fragments by period :", distribution.period_distribution)
+    print("Top rooms           :", distribution.top_rooms)
+
+
+def scheme_summary_row(rank: int, scheme_file: Path, metrics: SchemeMetrics, distribution: SchemeDistribution) -> dict[str, Any]:
+    metrics_dict = asdict(metrics)
+    return {
+        "rank": rank,
+        "scheme_file": scheme_file.name,
+        **{key: round(value, 6) if isinstance(value, float) else value for key, value in metrics_dict.items()},
+        "weekday_distribution": json.dumps(distribution.weekday_distribution, ensure_ascii=False),
+        "period_distribution": json.dumps(distribution.period_distribution, ensure_ascii=False),
+        "top_rooms": json.dumps(distribution.top_rooms, ensure_ascii=False),
+    }
+
+
+def write_ranked_summary(rows: list[dict[str, Any]], output_path: Path) -> None:
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    with output_path.open("w", encoding="utf-8", newline="") as file:
+        writer = csv.DictWriter(file, fieldnames=RANKED_SUMMARY_COLUMNS)
+        writer.writeheader()
+        writer.writerows(rows)
+
+
+def evaluate_scheme_directory(scheme_dir: Path, output_path: Path) -> list[dict[str, Any]]:
+    if not scheme_dir.exists():
+        raise FileNotFoundError(f"Scheme directory not found: {scheme_dir}. Run generate_scheme_demo.py first.")
+    scheme_files = sorted(path for path in scheme_dir.glob("scheme_*.csv") if path.is_file())
+    if not scheme_files:
+        raise FileNotFoundError(f"No scheme_*.csv files found in {scheme_dir}")
+
+    evaluated: list[tuple[Path, SchemeMetrics, SchemeDistribution]] = []
+    for scheme_file in scheme_files:
+        rows = load_scheme(scheme_file)
+        evaluated.append((scheme_file, evaluate_scheme(rows), build_distribution(rows)))
+
+    evaluated.sort(key=lambda item: item[1].scheme_score, reverse=True)
+    summary_rows = [
+        scheme_summary_row(rank, scheme_file, metrics, distribution)
+        for rank, (scheme_file, metrics, distribution) in enumerate(evaluated, start=1)
+    ]
+    write_ranked_summary(summary_rows, output_path)
+    return summary_rows
+
+
+def print_ranked_summary(summary_rows: list[dict[str, Any]], top: int) -> None:
+    print("## Ranked Scheme Summary")
+    for row in summary_rows[:top]:
+        print(
+            f"#{row['rank']} {row['scheme_file']} "
+            f"score={row['scheme_score']:.2f} "
+            f"conflicts={row['hard_conflict_count']} "
+            f"early={row['early_period_count']} late={row['late_period_count']} "
+            f"room_std={row['room_day_load_std']:.4f}"
+        )
 
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Evaluate a generated scheduling scheme demo.")
+    parser = argparse.ArgumentParser(description="Evaluate generated scheduling scheme demos.")
     parser.add_argument("--scheme", type=Path, default=SCHEME_PATH, help="Generated scheme CSV path.")
+    parser.add_argument("--scheme-dir", type=Path, default=None, help="Directory containing scheme_*.csv files.")
+    parser.add_argument("--output", type=Path, default=None, help="Output path for ranked summary CSV in directory mode.")
+    parser.add_argument("--top", type=int, default=10, help="Number of ranked schemes to print in directory mode.")
     return parser.parse_args()
 
 
 def main() -> None:
     args = parse_args()
+    if args.scheme_dir is not None:
+        output_path = args.output or (args.scheme_dir / "ranked_summary.csv")
+        summary_rows = evaluate_scheme_directory(args.scheme_dir, output_path)
+        print_ranked_summary(summary_rows, args.top)
+        print(f"\nRanked summary -> {output_path}")
+        return
+
     rows = load_scheme(args.scheme)
     metrics = evaluate_scheme(rows)
+    distribution = build_distribution(rows)
     print_metrics(metrics)
-    print_distribution(rows)
+    print_distribution(distribution)
 
 
 if __name__ == "__main__":
