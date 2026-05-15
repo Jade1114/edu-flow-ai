@@ -78,6 +78,61 @@ TASK_DAY_LOAD_PENALTY = 0.018
 RANDOM_JITTER = 0.002
 DEFAULT_CANDIDATE_POOL_SIZE = 500
 
+POLICY_PROFILES = {
+    "BALANCED": {
+        "weekday_load_penalty": 0.004,
+        "room_day_load_penalty": 0.012,
+        "room_week_load_penalty": 0.003,
+        "task_day_load_penalty": 0.018,
+        "early_period_penalty": 0.01,
+        "late_period_penalty": 0.01,
+        "compact_bonus_weight": 0.0,
+        "random_jitter": 0.002,
+    },
+    "TEACHER_FRIENDLY": {
+        "weekday_load_penalty": 0.006,
+        "room_day_load_penalty": 0.004,
+        "room_week_load_penalty": 0.001,
+        "task_day_load_penalty": 0.025,
+        "early_period_penalty": 0.04,
+        "late_period_penalty": 0.03,
+        "compact_bonus_weight": 0.0,
+        "random_jitter": 0.001,
+    },
+    "CLASS_BALANCED": {
+        "weekday_load_penalty": 0.012,
+        "room_day_load_penalty": 0.004,
+        "room_week_load_penalty": 0.001,
+        "task_day_load_penalty": 0.008,
+        "early_period_penalty": 0.01,
+        "late_period_penalty": 0.01,
+        "compact_bonus_weight": 0.0,
+        "random_jitter": 0.002,
+    },
+    "ROOM_EFFICIENT": {
+        "weekday_load_penalty": 0.002,
+        "room_day_load_penalty": 0.025,
+        "room_week_load_penalty": 0.010,
+        "task_day_load_penalty": 0.005,
+        "early_period_penalty": 0.005,
+        "late_period_penalty": 0.005,
+        "compact_bonus_weight": 0.0,
+        "random_jitter": 0.003,
+    },
+    "COMPACT": {
+        "weekday_load_penalty": 0.002,
+        "room_day_load_penalty": 0.008,
+        "room_week_load_penalty": 0.002,
+        "task_day_load_penalty": 0.010,
+        "early_period_penalty": 0.005,
+        "late_period_penalty": 0.005,
+        "compact_bonus_weight": 0.015,
+        "random_jitter": 0.002,
+    },
+}
+
+DEFAULT_POLICY = "BALANCED"
+
 
 def load_schema(schema_path: Path) -> dict[str, Any]:
     if not schema_path.exists():
@@ -231,7 +286,13 @@ def build_features(rows: list[dict[str, Any]], schema: dict[str, Any]) -> pd.Dat
     return features
 
 
-def shortlist_candidates(candidates: list[dict[str, Any]], pool_size: int, rng: random.Random) -> list[dict[str, Any]]:
+def load_policy(policy_name: str) -> dict[str, float]:
+    if policy_name not in POLICY_PROFILES:
+        raise ValueError(f"Unknown policy: {policy_name}. Available: {sorted(POLICY_PROFILES.keys())}")
+    return dict(POLICY_PROFILES[policy_name])
+
+
+def shortlist_candidates(candidates: list[dict[str, Any]], pool_size: int, rng: random.Random, policy: dict[str, float]) -> list[dict[str, Any]]:
     if pool_size <= 0 or len(candidates) <= pool_size:
         return candidates
     legal_candidates = [candidate for candidate in candidates if int(candidate["has_hard_conflict"]) == 0]
@@ -251,21 +312,26 @@ def shortlist_candidates(candidates: list[dict[str, Any]], pool_size: int, rng: 
     )[:pool_size]
 
 
-def apply_selection_scores(candidates: list[dict[str, Any]], rng: random.Random) -> None:
+def apply_selection_scores(candidates: list[dict[str, Any]], rng: random.Random, policy: dict[str, float]) -> None:
     for candidate in candidates:
         distribution_penalty = (
-            candidate["scheme_day_load"] * WEEKDAY_LOAD_PENALTY
-            + candidate["room_day_load"] * ROOM_DAY_LOAD_PENALTY
-            + candidate["room_week_load"] * ROOM_WEEK_LOAD_PENALTY
-            + candidate["task_day_load"] * TASK_DAY_LOAD_PENALTY
+            candidate["scheme_day_load"] * policy["weekday_load_penalty"]
+            + candidate["room_day_load"] * policy["room_day_load_penalty"]
+            + candidate["room_week_load"] * policy["room_week_load_penalty"]
+            + candidate["task_day_load"] * policy["task_day_load_penalty"]
         )
-        candidate["distribution_penalty"] = round(distribution_penalty, 6)
+        early_penalty = (1 if int(candidate.get("is_early_period", 0)) else 0) * policy["early_period_penalty"]
+        late_penalty = (1 if int(candidate.get("is_late_period", 0)) else 0) * policy["late_period_penalty"]
+        compact_bonus = candidate.get("scheme_day_load", 0) * policy["compact_bonus_weight"]
+
+        candidate["distribution_penalty"] = round(distribution_penalty + early_penalty + late_penalty, 6)
         candidate["selection_score"] = max(
             0.0,
             float(candidate["predicted_score"])
             + float(candidate["rule_score"]) * 0.02
-            - distribution_penalty
-            + rng.random() * RANDOM_JITTER,
+            - candidate["distribution_penalty"]
+            + compact_bonus
+            + rng.random() * policy["random_jitter"],
         )
 
 
@@ -275,6 +341,7 @@ def rank_candidates(
     schema: dict[str, Any],
     candidates: list[dict[str, Any]],
     rng: random.Random,
+    policy: dict[str, float],
 ) -> list[dict[str, Any]]:
     if not candidates:
         return []
@@ -282,7 +349,7 @@ def rank_candidates(
     predictions = np.clip(booster.predict(features), 0.0, 1.0)
     for candidate, predicted_score in zip(candidates, predictions):
         candidate["predicted_score"] = float(predicted_score)
-    apply_selection_scores(candidates, rng)
+    apply_selection_scores(candidates, rng, policy)
 
     return sorted(
         candidates,
@@ -308,9 +375,10 @@ def choose_candidate(
     top_k: int,
     rng: random.Random,
     candidate_pool_size: int,
+    policy: dict[str, float],
 ) -> dict[str, Any] | None:
-    candidates = shortlist_candidates(candidates, candidate_pool_size, rng)
-    ranked = rank_candidates(booster=booster, schema=schema, candidates=candidates, rng=rng)
+    candidates = shortlist_candidates(candidates, candidate_pool_size, rng, policy)
+    ranked = rank_candidates(booster=booster, schema=schema, candidates=candidates, rng=rng, policy=policy)
     if not ranked:
         return None
     if strategy == "greedy":
@@ -363,6 +431,7 @@ def generate_scheme(
     top_k: int,
     rng: random.Random,
     candidate_pool_size: int,
+    policy: dict[str, float],
 ) -> tuple[list[dict[str, Any]], list[PseudoAssignment]]:
     scheme_rows: list[dict[str, Any]] = []
     selected_assignments: list[PseudoAssignment] = []
@@ -390,6 +459,7 @@ def generate_scheme(
                 top_k=top_k,
                 rng=rng,
                 candidate_pool_size=candidate_pool_size,
+                policy=policy,
             )
             if best is None:
                 continue
@@ -480,6 +550,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--strategy", choices=["greedy", "top-k-random"], default="greedy", help="Candidate selection strategy.")
     parser.add_argument("--top-k", type=int, default=5, help="Top-K candidate pool size for top-k-random strategy.")
     parser.add_argument("--random-seed", type=int, default=42, help="Base random seed for variant generation.")
+    parser.add_argument("--policy", default=DEFAULT_POLICY, choices=list(POLICY_PROFILES.keys()), help="Generation policy profile.")
     parser.add_argument("--teaching-task-ids", default=None, help="Comma-separated teaching task IDs to schedule.")
     parser.add_argument("--start-week", type=int, default=None, help="Optional minimum week number.")
     parser.add_argument("--end-week", type=int, default=None, help="Optional maximum week number.")
@@ -512,6 +583,8 @@ def main() -> None:
     if not time_slots:
         raise ValueError("No time slots available for scheme generation.")
 
+    policy = load_policy(args.policy)
+
     if args.variant_count <= 1:
         rows, _ = generate_scheme(
             tasks=tasks,
@@ -524,6 +597,7 @@ def main() -> None:
             top_k=args.top_k,
             rng=random.Random(args.random_seed),
             candidate_pool_size=args.candidate_pool_size,
+            policy=policy,
         )
         write_scheme(rows, args.output)
         print_summary(rows, tasks, args.max_tasks)
@@ -546,6 +620,7 @@ def main() -> None:
             top_k=args.top_k,
             rng=rng,
             candidate_pool_size=args.candidate_pool_size,
+            policy=policy,
         )
         write_scheme(rows, output_path)
         summary = summarize_scheme(rows, tasks, args.max_tasks)

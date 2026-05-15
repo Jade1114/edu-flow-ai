@@ -30,6 +30,7 @@ public class AllocationMlSchemeService {
 	private static final int DEFAULT_VARIANT_COUNT = 3;
 	private static final int DEFAULT_TOP_K = 8;
 	private static final int DEFAULT_CANDIDATE_POOL_SIZE = 500;
+	private static final String DEFAULT_POLICY = "BALANCED";
 	private static final DateTimeFormatter RUN_ID_FORMATTER = DateTimeFormatter.ofPattern("yyyyMMddHHmmssSSS");
 
 	private final AllocationTaskMapper allocationTaskMapper;
@@ -99,6 +100,8 @@ public class AllocationMlSchemeService {
 		command.add(String.valueOf(DEFAULT_TOP_K));
 		command.add("--candidate-pool-size");
 		command.add(String.valueOf(DEFAULT_CANDIDATE_POOL_SIZE));
+		command.add("--policy");
+		command.add(policyOrDefault(null));
 		command.add("--teaching-task-ids");
 		command.add(String.join(",", teachingTaskIds));
 		command.add("--output-dir");
@@ -213,6 +216,10 @@ public class AllocationMlSchemeService {
 		}
 	}
 
+	private String policyOrDefault(String policy) {
+		return policy != null && !policy.isBlank() ? policy : DEFAULT_POLICY;
+	}
+
 	private int normalizedVariantCount(Integer topK) {
 		if (topK == null || topK <= 0) {
 			return DEFAULT_VARIANT_COUNT;
@@ -242,7 +249,7 @@ public class AllocationMlSchemeService {
 					items,
 					evaluation != null ? evaluation.schemeScore() : null,
 					evaluation != null ? evaluation.evaluationSummary() : null,
-					null, // policy - will be set when policy profiles are implemented
+					policyOrDefault(null),
 					"v1"
 				));
 			}
