@@ -38,7 +38,8 @@ server/ml/
 └── scripts/
     ├── generate_training_samples.py
     ├── train_lightgbm.py
-    └── predict_demo.py
+    ├── predict_demo.py
+    └── evaluate_model.py
 ```
 
 ## Setup
@@ -113,6 +114,16 @@ Example:
 
 ```bash
 python scripts/predict_demo.py --limit 12
+```
+
+### `scripts/evaluate_model.py`
+
+Evaluates the trained model with aggregate metrics and grouped distribution checks.
+
+Example:
+
+```bash
+python scripts/evaluate_model.py --top 10
 ```
 
 ## First Model Boundary
