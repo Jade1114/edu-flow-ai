@@ -1,7 +1,9 @@
 package com.yuy.eduflow.common;
 
 import com.yuy.eduflow.common.exception.BusinessException;
+import jakarta.servlet.http.HttpServletResponse;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
 import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.MissingServletRequestParameterException;
@@ -15,7 +17,8 @@ public class GlobalExceptionHandler {
 
     // --- 自定义业务异常：从 BusinessException 中读取 httpStatus ---
     @ExceptionHandler(BusinessException.class)
-    public ApiResponse<Void> handleBusinessException(BusinessException exception) {
+    public ApiResponse<Void> handleBusinessException(BusinessException exception, HttpServletResponse response) {
+        prepareJsonResponse(response);
         return ApiResponse.error(exception.getHttpStatus(), exception.getMessage());
     }
 
@@ -68,8 +71,13 @@ public class GlobalExceptionHandler {
     // --- 兜底：所有未捕获异常 ---
     @ExceptionHandler(Exception.class)
     @ResponseStatus(HttpStatus.INTERNAL_SERVER_ERROR)
-    public ApiResponse<Void> handleException(Exception exception) {
+    public ApiResponse<Void> handleException(Exception exception, HttpServletResponse response) {
+        prepareJsonResponse(response);
         // 不把内部异常信息暴露给前端
         return ApiResponse.error(500, "服务器内部错误");
+    }
+
+    private void prepareJsonResponse(HttpServletResponse response) {
+        response.setContentType(MediaType.APPLICATION_JSON_VALUE);
     }
 }

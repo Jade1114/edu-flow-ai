@@ -121,7 +121,20 @@ public class AllocationTaskController {
 
 	@GetMapping(value = "/{id}/generation-stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
 	public SseEmitter streamGenerationStatus(@PathVariable Long id) {
-		return generationTracker.subscribe(id);
+		SseEmitter emitter = new SseEmitter(5 * 60 * 1000L);
+		try {
+			return generationTracker.subscribe(id);
+		} catch (Exception exception) {
+			try {
+				emitter.send(SseEmitter.event().name("status").data(
+					new GenerationStatus("FAILED", "error", "进度流连接失败", 100, exception.getMessage(), 0, null)
+				));
+			} catch (Exception ignored) {
+				// ignore secondary SSE send failures
+			}
+			emitter.complete();
+			return emitter;
+		}
 	}
 
 	@PostMapping
