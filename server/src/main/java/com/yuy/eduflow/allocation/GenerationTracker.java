@@ -37,7 +37,7 @@ public class GenerationTracker {
 	 */
 	public void startGeneration(Long taskId, Integer topK) {
 		long startedAt = System.currentTimeMillis();
-		updateStatus(taskId, running("rag", "开始生成，准备检索教师画像...", 5, startedAt));
+		updateStatus(taskId, running("ml", "开始生成，准备调用自训练排课模型...", 5, startedAt));
 		log.info("Generation started for taskId={}, topK={}", taskId, topK);
 
 		executor.submit(() -> {

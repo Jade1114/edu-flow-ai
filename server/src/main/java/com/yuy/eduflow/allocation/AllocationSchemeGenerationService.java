@@ -19,7 +19,7 @@ public class AllocationSchemeGenerationService {
 	
 	private static final String CONFLICT_BIZ_TYPE = "ALLOCATION_ITEM";
 
-	private final AllocationGenerateParseService allocationGenerateParseService;
+	private final AllocationMlSchemeService allocationMlSchemeService;
 	private final AllocationSchemeMapper allocationSchemeMapper;
 	private final AllocationItemMapper allocationItemMapper;
 	private final ConflictCheckResultMapper conflictCheckResultMapper;
@@ -27,14 +27,14 @@ public class AllocationSchemeGenerationService {
 	private final TeachingTaskMapper teachingTaskMapper;
 
 	public AllocationSchemeGenerationService(
-		AllocationGenerateParseService allocationGenerateParseService,
+		AllocationMlSchemeService allocationMlSchemeService,
 		AllocationSchemeMapper allocationSchemeMapper,
 		AllocationItemMapper allocationItemMapper,
 		ConflictCheckResultMapper conflictCheckResultMapper,
 		AllocationSchemeConflictDetector conflictDetector,
 		TeachingTaskMapper teachingTaskMapper
 	) {
-		this.allocationGenerateParseService = allocationGenerateParseService;
+		this.allocationMlSchemeService = allocationMlSchemeService;
 		this.allocationSchemeMapper = allocationSchemeMapper;
 		this.allocationItemMapper = allocationItemMapper;
 		this.conflictCheckResultMapper = conflictCheckResultMapper;
@@ -49,8 +49,8 @@ public class AllocationSchemeGenerationService {
 	public AllocationGenerateResult generateSchemes(Long taskId, Integer topK, Consumer<GenerationStatus> progressReporter) {
 		log.info("=== SchemeGeneration generateSchemes() start === taskId={}, topK={}", taskId, topK);
 		Assert.positiveId(taskId, "分课任务ID");
-		AllocationParsePreview parsePreview = allocationGenerateParseService.generateParsePreview(taskId, topK, progressReporter);
-		log.info("Parsed {} schemes from LLM, rejecting old candidates...",
+		AllocationParsePreview parsePreview = allocationMlSchemeService.generateParsePreview(taskId, topK, progressReporter);
+		log.info("Parsed {} schemes from self-trained model, rejecting old candidates...",
 			parsePreview.schemes() != null ? parsePreview.schemes().size() : 0);
 		progressReporter.accept(running("persist", "清理旧候选方案，准备入库...", 70));
 		allocationSchemeMapper.rejectCandidatesByTaskId(taskId, SchemeStatus.CANDIDATE.code(), SchemeStatus.REJECTED.code());
@@ -114,9 +114,8 @@ public class AllocationSchemeGenerationService {
 			AllocationItem item = new AllocationItem();
 			item.setSchemeId(schemeId);
 			item.setTeachingTaskId(parsedItem.teachingTaskId());
-			// 教室由教学任务绑定的固定教室决定，AI 输出已不包含 classroomId
 			var tt = teachingTaskMapper.findById(parsedItem.teachingTaskId());
-			item.setClassroomId(tt != null ? tt.getClassroomId() : null);
+			item.setClassroomId(parsedItem.classroomId() != null ? parsedItem.classroomId() : (tt != null ? tt.getClassroomId() : null));
 			item.setTimeSlotId(parsedItem.timeSlotId());
 			item.setValid(true);
 			item.setConflictMessage(null);

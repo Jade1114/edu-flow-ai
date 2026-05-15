@@ -140,6 +140,7 @@ async function generateSchemes(taskId) {
 
 function stageLabel(stage) {
   const labels = {
+    ml: '调用自训练模型...',
     rag: '检索画像...',
     prompt: '构建 Prompt...',
     llm: '等待模型...',
@@ -165,7 +166,7 @@ function applyGenerationStatus(taskId, status) {
       ? `生成完成，共 ${status.schemeCount || 0} 个方案`
       : isFailed
         ? `生成失败: ${status.error || "未知错误"}`
-        : (status.message || "AI 正在生成分课方案..."),
+        : (status.message || "自训练模型正在生成分课方案..."),
   };
 
   if (isCompleted) {

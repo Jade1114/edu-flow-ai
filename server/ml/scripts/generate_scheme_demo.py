@@ -322,6 +322,35 @@ def choose_candidate(
     raise ValueError(f"Unsupported selection strategy: {strategy}")
 
 
+def filter_tasks(tasks: list[dict[str, Any]], teaching_task_ids: set[int] | None) -> list[dict[str, Any]]:
+    if not teaching_task_ids:
+        return tasks
+    ordered_tasks = [task for task in tasks if int(task["teaching_task_id"]) in teaching_task_ids]
+    missing_ids = teaching_task_ids - {int(task["teaching_task_id"]) for task in ordered_tasks}
+    if missing_ids:
+        raise ValueError(f"Teaching tasks not found or inactive: {sorted(missing_ids)}")
+    return ordered_tasks
+
+
+def filter_time_slots(
+    time_slots: list[dict[str, Any]],
+    start_week: int | None,
+    end_week: int | None,
+) -> list[dict[str, Any]]:
+    return [
+        slot
+        for slot in time_slots
+        if (start_week is None or int(slot["week_number"]) >= start_week)
+        and (end_week is None or int(slot["week_number"]) <= end_week)
+    ]
+
+
+def parse_teaching_task_ids(raw_value: str | None) -> set[int] | None:
+    if not raw_value:
+        return None
+    return {int(value.strip()) for value in raw_value.split(",") if value.strip()}
+
+
 def generate_scheme(
     *,
     tasks: list[dict[str, Any]],
@@ -451,6 +480,9 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--strategy", choices=["greedy", "top-k-random"], default="greedy", help="Candidate selection strategy.")
     parser.add_argument("--top-k", type=int, default=5, help="Top-K candidate pool size for top-k-random strategy.")
     parser.add_argument("--random-seed", type=int, default=42, help="Base random seed for variant generation.")
+    parser.add_argument("--teaching-task-ids", default=None, help="Comma-separated teaching task IDs to schedule.")
+    parser.add_argument("--start-week", type=int, default=None, help="Optional minimum week number.")
+    parser.add_argument("--end-week", type=int, default=None, help="Optional maximum week number.")
     parser.add_argument(
         "--candidate-pool-size",
         type=int,
@@ -472,6 +504,13 @@ def main() -> None:
         tasks = fetch_tasks(connection)
         classrooms = fetch_classrooms(connection)
         time_slots = fetch_time_slots(connection)
+
+    tasks = filter_tasks(tasks, parse_teaching_task_ids(args.teaching_task_ids))
+    time_slots = filter_time_slots(time_slots, args.start_week, args.end_week)
+    if not tasks:
+        raise ValueError("No teaching tasks available for scheme generation.")
+    if not time_slots:
+        raise ValueError("No time slots available for scheme generation.")
 
     if args.variant_count <= 1:
         rows, _ = generate_scheme(
