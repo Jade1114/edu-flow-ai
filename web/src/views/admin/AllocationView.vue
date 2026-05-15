@@ -25,6 +25,15 @@ const genProgress = ref(0);
 let pollTimer = null;
 let generationSource = null;
 const topK = ref(5);
+const policy = ref('BALANCED');
+
+const policyOptions = [
+  { value: 'BALANCED', label: '综合平衡' },
+  { value: 'TEACHER_FRIENDLY', label: '教师友好' },
+  { value: 'CLASS_BALANCED', label: '班级均衡' },
+  { value: 'ROOM_EFFICIENT', label: '教室利用' },
+  { value: 'COMPACT', label: '紧凑排课' },
+];
 
 const teachingTasks = ref([]);
 
@@ -129,7 +138,7 @@ async function generateSchemes(taskId) {
   currentTaskId.value = taskId;
 
   try {
-    await request.post(`/api/allocation-tasks/${taskId}/generate-async?topK=${topK.value}`);
+    await request.post(`/api/allocation-tasks/${taskId}/generate-async?topK=${topK.value}&policy=${policy.value}`);
     startSse(taskId);
   } catch (e) {
     generating.value = false;
@@ -428,6 +437,10 @@ onUnmounted(() => {
     <h2>分课任务管理</h2>
     <div style="margin: 16px 0; display: flex; gap: 12px; align-items: center">
       <el-button type="primary" @click="openTaskDialog()">新建任务</el-button>
+      <span style="color: #909399; font-size: 13px">策略：</span>
+      <el-select v-model="policy" size="small" style="width: 110px">
+        <el-option v-for="p in policyOptions" :key="p.value" :label="p.label" :value="p.value" />
+      </el-select>
       <span style="color: #909399; font-size: 13px">TopK：</span>
       <div v-if="generating" style="flex: 1; max-width: 300px">
         <el-progress

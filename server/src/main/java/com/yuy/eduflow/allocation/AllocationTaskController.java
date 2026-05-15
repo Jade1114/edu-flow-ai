@@ -108,9 +108,10 @@ public class AllocationTaskController {
 	@PostMapping("/{id}/generate-async")
 	public ApiResponse<GenerationStatus> generateAsync(
 		@PathVariable Long id,
-		@RequestParam(required = false) Integer topK
+		@RequestParam(required = false) Integer topK,
+		@RequestParam(required = false) String policy
 	) {
-		generationTracker.startGeneration(id, topK);
+		generationTracker.startGeneration(id, topK, policy);
 		return ApiResponse.success(generationTracker.getStatus(id));
 	}
 

@@ -41,11 +41,11 @@ public class AllocationMlSchemeService {
 		this.objectMapper = objectMapper;
 	}
 
-	public AllocationParsePreview generateParsePreview(Long taskId, Integer topK) {
-		return generateParsePreview(taskId, topK, ignored -> {});
+	public AllocationParsePreview generateParsePreview(Long taskId, Integer topK, String policy) {
+		return generateParsePreview(taskId, topK, policy, ignored -> {});
 	}
 
-	public AllocationParsePreview generateParsePreview(Long taskId, Integer topK, Consumer<GenerationStatus> progressReporter) {
+	public AllocationParsePreview generateParsePreview(Long taskId, Integer topK, String policy, Consumer<GenerationStatus> progressReporter) {
 		AllocationTask task = allocationTaskMapper.findById(taskId);
 		if (task == null) {
 			throw new ResourceNotFoundException("排课任务不存在");
@@ -249,7 +249,7 @@ public class AllocationMlSchemeService {
 					items,
 					evaluation != null ? evaluation.schemeScore() : null,
 					evaluation != null ? evaluation.evaluationSummary() : null,
-					policyOrDefault(null),
+					policyOrDefault(policy),
 					"v1"
 				));
 			}

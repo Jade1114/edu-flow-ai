@@ -42,14 +42,14 @@ public class AllocationSchemeGenerationService {
 		this.teachingTaskMapper = teachingTaskMapper;
 	}
 
-	public AllocationGenerateResult generateSchemes(Long taskId, Integer topK) {
-		return generateSchemes(taskId, topK, ignored -> {});
+	public AllocationGenerateResult generateSchemes(Long taskId, Integer topK, String policy) {
+		return generateSchemes(taskId, topK, policy, ignored -> {});
 	}
 
-	public AllocationGenerateResult generateSchemes(Long taskId, Integer topK, Consumer<GenerationStatus> progressReporter) {
+	public AllocationGenerateResult generateSchemes(Long taskId, Integer topK, String policy, Consumer<GenerationStatus> progressReporter) {
 		log.info("=== SchemeGeneration generateSchemes() start === taskId={}, topK={}", taskId, topK);
 		Assert.positiveId(taskId, "分课任务ID");
-		AllocationParsePreview parsePreview = allocationMlSchemeService.generateParsePreview(taskId, topK, progressReporter);
+		AllocationParsePreview parsePreview = allocationMlSchemeService.generateParsePreview(taskId, topK, policy, progressReporter);
 		log.info("Parsed {} schemes from self-trained model, rejecting old candidates...",
 			parsePreview.schemes() != null ? parsePreview.schemes().size() : 0);
 		progressReporter.accept(running("persist", "清理旧候选方案，准备入库...", 70));
