@@ -250,6 +250,15 @@ async function confirmScheme(schemeId) {
 
 const detailVisible = ref(false);
 const schemeDetail = ref(null);
+
+const schemeScores = computed(() => {
+  if (!schemeDetail.value?.evaluationSummary) return null;
+  try {
+    return JSON.parse(schemeDetail.value.evaluationSummary);
+  } catch {
+    return null;
+  }
+});
 const currentWeek = ref(1);
 const dayNames = ["周一", "周二", "周三", "周四", "周五", "周六", "周日"];
 
@@ -855,6 +864,26 @@ onUnmounted(() => {
 }
 [draggable="true"]:active {
   opacity: 0.5;
+}
+.dim-card {
+  padding: 8px 14px;
+  border-radius: 10px;
+  text-align: center;
+  min-width: 80px;
+}
+.dim-label {
+  display: block;
+  font-size: 12px;
+  color: #909399;
+  margin-bottom: 2px;
+}
+.dim-value {
+  font-size: 18px;
+  font-weight: 700;
+  color: #303133;
+}
+.main-score {
+  color: #409eff;
 }
 .timetable td,
 .timetable th {

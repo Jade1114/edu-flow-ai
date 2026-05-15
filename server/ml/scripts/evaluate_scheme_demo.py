@@ -261,13 +261,53 @@ def write_ranked_summary(rows: list[dict[str, Any]], output_path: Path) -> None:
         writer.writerows(rows)
 
 
+
+def compute_dimensional_scores(metrics: SchemeMetrics, distribution: SchemeDistribution) -> dict[str, float]:
+    used_days = sum(1 for count in distribution.weekday_distribution.values() if count > 0)
+    used_rooms = len(distribution.top_rooms)
+
+    teacher_score = max(0.0, min(100.0,
+        100.0
+        - metrics.teacher_day_load_std * 30
+        - metrics.teacher_week_load_max * 2.5
+        - metrics.early_period_count * 0.8
+        - metrics.late_period_count * 1.2
+    ))
+
+    class_balance_score = max(0.0, min(100.0,
+        100.0
+        - metrics.class_day_load_std * 30
+        - metrics.class_week_load_max * 2.5
+    ))
+
+    room_util_score = max(0.0, min(100.0,
+        100.0
+        - metrics.room_day_load_std * 25
+        - max(0.0, (metrics.fragment_count / max(used_rooms, 1) - 20) * 0.5)
+    ))
+
+    compact_score = max(0.0, min(100.0,
+        (7 - used_days) * 14.28
+        + min(1.0, metrics.fragment_count / max(used_days, 1) / 80) * 20
+    ))
+
+    return {
+        "teacher_score": round(teacher_score, 2),
+        "class_balance_score": round(class_balance_score, 2),
+        "room_util_score": round(room_util_score, 2),
+        "compact_score": round(compact_score, 2),
+    }
+
+
 def evaluate_scheme_to_dict(rows: list[dict[str, Any]], scheme_file: Path) -> dict[str, Any]:
     metrics = evaluate_scheme(rows)
     distribution = build_distribution(rows)
+    dimensions = compute_dimensional_scores(metrics, distribution)
     metrics_dict = asdict(metrics)
     return {
         "scheme_file": scheme_file.name,
         **{key: round(value, 6) if isinstance(value, float) else value for key, value in metrics_dict.items()},
+        **dimensions,
         "weekday_distribution": {str(day): count for day, count in distribution.weekday_distribution.items()},
         "period_distribution": {str(period): count for period, count in distribution.period_distribution.items()},
         "top_rooms": distribution.top_rooms,
