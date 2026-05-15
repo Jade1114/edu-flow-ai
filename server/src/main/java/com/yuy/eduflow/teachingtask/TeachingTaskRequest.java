@@ -8,6 +8,7 @@ public record TeachingTaskRequest(
         Long assistantTeacherId,
         Long classroomId,
         Integer totalHours,
+        String requiredRoomType,
         String notes,
         String status,
         List<Long> classGroupIds) {

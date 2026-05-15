@@ -138,6 +138,7 @@ public class TeachingTaskService {
         task.setAssistantTeacherId(request.assistantTeacherId());
         task.setClassroomId(request.classroomId());
         task.setTotalHours(request.totalHours());
+        task.setRequiredRoomType(request.requiredRoomType());
         task.setNotes(request.notes());
         // 如果请求中未指定状态，则默认设置为 ACTIVE
         task.setStatus(
