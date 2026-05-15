@@ -1,4 +1,4 @@
-"""Generate a model-driven scheduling scheme demo.
+"""Generate model-driven scheduling scheme demos.
 
 This script uses the trained LightGBM scoring model as the decision maker:
 
@@ -12,6 +12,7 @@ from __future__ import annotations
 import argparse
 import csv
 import json
+import random
 from pathlib import Path
 from typing import Any
 
@@ -40,6 +41,8 @@ ROOT_DIR = Path(__file__).resolve().parents[1]
 MODEL_PATH = ROOT_DIR / "models" / "schedule_ranker_v1.txt"
 FEATURE_SCHEMA_PATH = ROOT_DIR / "data" / "feature_schema.json"
 OUTPUT_PATH = ROOT_DIR / "data" / "generated_scheme_demo.csv"
+OUTPUT_DIR = ROOT_DIR / "data" / "generated_schemes"
+SUMMARY_PATH = OUTPUT_DIR / "summary.csv"
 
 OUTPUT_COLUMNS = [
     "sequence",
@@ -54,6 +57,17 @@ OUTPUT_COLUMNS = [
     "rule_score",
     "has_hard_conflict",
     "reject_reason",
+]
+
+SUMMARY_COLUMNS = [
+    "scheme_no",
+    "output_path",
+    "tasks",
+    "expected_fragments",
+    "generated_fragments",
+    "hard_conflict_fragments",
+    "avg_predicted_score",
+    "avg_rule_score",
 ]
 
 
@@ -197,20 +211,21 @@ def build_features(rows: list[dict[str, Any]], schema: dict[str, Any]) -> pd.Dat
     return features
 
 
-def choose_best_candidate(
+def rank_candidates(
     *,
     booster: lgb.Booster,
     schema: dict[str, Any],
     candidates: list[dict[str, Any]],
-) -> dict[str, Any] | None:
+) -> list[dict[str, Any]]:
     if not candidates:
-        return None
+        return []
     features = build_features(candidates, schema)
     predictions = np.clip(booster.predict(features), 0.0, 1.0)
     for candidate, predicted_score in zip(candidates, predictions):
         candidate["predicted_score"] = float(predicted_score)
 
-    candidates.sort(
+    return sorted(
+        candidates,
         key=lambda row: (
             row["predicted_score"],
             -row["has_hard_conflict"],
@@ -221,7 +236,27 @@ def choose_best_candidate(
         ),
         reverse=True,
     )
-    return candidates[0]
+
+
+def choose_candidate(
+    *,
+    booster: lgb.Booster,
+    schema: dict[str, Any],
+    candidates: list[dict[str, Any]],
+    strategy: str,
+    top_k: int,
+    rng: random.Random,
+) -> dict[str, Any] | None:
+    ranked = rank_candidates(booster=booster, schema=schema, candidates=candidates)
+    if not ranked:
+        return None
+    if strategy == "greedy":
+        return ranked[0]
+    if strategy == "top-k-random":
+        legal_ranked = [candidate for candidate in ranked if int(candidate["has_hard_conflict"]) == 0]
+        pool = legal_ranked if legal_ranked else ranked
+        return rng.choice(pool[: max(1, min(top_k, len(pool)))])
+    raise ValueError(f"Unsupported selection strategy: {strategy}")
 
 
 def generate_scheme(
@@ -232,6 +267,9 @@ def generate_scheme(
     booster: lgb.Booster,
     schema: dict[str, Any],
     max_tasks: int | None,
+    strategy: str,
+    top_k: int,
+    rng: random.Random,
 ) -> tuple[list[dict[str, Any]], list[PseudoAssignment]]:
     scheme_rows: list[dict[str, Any]] = []
     selected_assignments: list[PseudoAssignment] = []
@@ -251,7 +289,14 @@ def generate_scheme(
                 time_slots=time_slots,
                 selected_assignments=selected_assignments,
             )
-            best = choose_best_candidate(booster=booster, schema=schema, candidates=candidates)
+            best = choose_candidate(
+                booster=booster,
+                schema=schema,
+                candidates=candidates,
+                strategy=strategy,
+                top_k=top_k,
+                rng=rng,
+            )
             if best is None:
                 continue
 
@@ -294,36 +339,53 @@ def write_scheme(rows: list[dict[str, Any]], output_path: Path) -> None:
         writer.writerows(rows)
 
 
-def print_summary(rows: list[dict[str, Any]], tasks: list[dict[str, Any]], max_tasks: int | None) -> None:
+def summarize_scheme(rows: list[dict[str, Any]], tasks: list[dict[str, Any]], max_tasks: int | None) -> dict[str, Any]:
     scoped_tasks = tasks[:max_tasks] if max_tasks is not None else tasks
     expected_fragments = sum(periods_needed(task) for task in scoped_tasks)
     actual_fragments = len(rows)
     conflict_rows = [row for row in rows if int(row["has_hard_conflict"]) == 1]
     avg_predicted_score = sum(float(row["predicted_score"]) for row in rows) / actual_fragments if rows else 0.0
     avg_rule_score = sum(float(row["rule_score"]) for row in rows) / actual_fragments if rows else 0.0
+    return {
+        "tasks": len(scoped_tasks),
+        "expected_fragments": expected_fragments,
+        "generated_fragments": actual_fragments,
+        "hard_conflict_fragments": len(conflict_rows),
+        "avg_predicted_score": round(avg_predicted_score, 6),
+        "avg_rule_score": round(avg_rule_score, 6),
+    }
 
+
+def print_summary(rows: list[dict[str, Any]], tasks: list[dict[str, Any]], max_tasks: int | None) -> None:
+    summary = summarize_scheme(rows, tasks, max_tasks)
     print("Generated model-driven scheduling demo")
-    print(f"Tasks: {len(scoped_tasks)}")
-    print(f"Expected fragments: {expected_fragments}")
-    print(f"Generated fragments: {actual_fragments}")
-    print(f"Hard-conflict fragments: {len(conflict_rows)}")
-    print(f"Average predicted score: {avg_predicted_score:.4f}")
-    print(f"Average rule score: {avg_rule_score:.4f}")
-    if conflict_rows:
-        print("Top conflict examples:")
-        for row in conflict_rows[:5]:
-            print(
-                f"- task={row['teaching_task_id']} slot={row['time_slot_id']} "
-                f"room={row['classroom_id']} reason={row['reject_reason']}"
-            )
+    print(f"Tasks: {summary['tasks']}")
+    print(f"Expected fragments: {summary['expected_fragments']}")
+    print(f"Generated fragments: {summary['generated_fragments']}")
+    print(f"Hard-conflict fragments: {summary['hard_conflict_fragments']}")
+    print(f"Average predicted score: {summary['avg_predicted_score']:.4f}")
+    print(f"Average rule score: {summary['avg_rule_score']:.4f}")
+
+
+def write_summary(rows: list[dict[str, Any]], output_path: Path) -> None:
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    with output_path.open("w", encoding="utf-8", newline="") as file:
+        writer = csv.DictWriter(file, fieldnames=SUMMARY_COLUMNS)
+        writer.writeheader()
+        writer.writerows(rows)
 
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Generate a model-driven scheduling scheme demo.")
+    parser = argparse.ArgumentParser(description="Generate model-driven scheduling scheme demos.")
     parser.add_argument("--model", type=Path, default=MODEL_PATH, help="Trained LightGBM model path.")
     parser.add_argument("--schema", type=Path, default=FEATURE_SCHEMA_PATH, help="Feature schema JSON path.")
-    parser.add_argument("--output", type=Path, default=OUTPUT_PATH, help="Generated scheme CSV output path.")
+    parser.add_argument("--output", type=Path, default=OUTPUT_PATH, help="Single generated scheme CSV output path.")
+    parser.add_argument("--output-dir", type=Path, default=OUTPUT_DIR, help="Directory for multi-scheme outputs.")
     parser.add_argument("--max-tasks", type=int, default=None, help="Optional maximum number of teaching tasks to schedule.")
+    parser.add_argument("--variant-count", type=int, default=1, help="Number of scheme variants to generate.")
+    parser.add_argument("--strategy", choices=["greedy", "top-k-random"], default="greedy", help="Candidate selection strategy.")
+    parser.add_argument("--top-k", type=int, default=5, help="Top-K candidate pool size for top-k-random strategy.")
+    parser.add_argument("--random-seed", type=int, default=42, help="Base random seed for variant generation.")
     return parser.parse_args()
 
 
@@ -340,17 +402,46 @@ def main() -> None:
         classrooms = fetch_classrooms(connection)
         time_slots = fetch_time_slots(connection)
 
-    rows, _ = generate_scheme(
-        tasks=tasks,
-        classrooms=classrooms,
-        time_slots=time_slots,
-        booster=booster,
-        schema=schema,
-        max_tasks=args.max_tasks,
-    )
-    write_scheme(rows, args.output)
-    print_summary(rows, tasks, args.max_tasks)
-    print(f"Output -> {args.output}")
+    if args.variant_count <= 1:
+        rows, _ = generate_scheme(
+            tasks=tasks,
+            classrooms=classrooms,
+            time_slots=time_slots,
+            booster=booster,
+            schema=schema,
+            max_tasks=args.max_tasks,
+            strategy=args.strategy,
+            top_k=args.top_k,
+            rng=random.Random(args.random_seed),
+        )
+        write_scheme(rows, args.output)
+        print_summary(rows, tasks, args.max_tasks)
+        print(f"Output -> {args.output}")
+        return
+
+    summary_rows: list[dict[str, Any]] = []
+    args.output_dir.mkdir(parents=True, exist_ok=True)
+    for scheme_no in range(1, args.variant_count + 1):
+        output_path = args.output_dir / f"scheme_{scheme_no:03d}.csv"
+        rng = random.Random(args.random_seed + scheme_no)
+        rows, _ = generate_scheme(
+            tasks=tasks,
+            classrooms=classrooms,
+            time_slots=time_slots,
+            booster=booster,
+            schema=schema,
+            max_tasks=args.max_tasks,
+            strategy=args.strategy,
+            top_k=args.top_k,
+            rng=rng,
+        )
+        write_scheme(rows, output_path)
+        summary = summarize_scheme(rows, tasks, args.max_tasks)
+        summary_rows.append({"scheme_no": scheme_no, "output_path": str(output_path), **summary})
+
+    write_summary(summary_rows, SUMMARY_PATH)
+    print(f"Generated {len(summary_rows)} scheme variants -> {args.output_dir}")
+    print(f"Summary -> {SUMMARY_PATH}")
 
 
 if __name__ == "__main__":
