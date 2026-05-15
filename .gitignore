@@ -8,3 +8,8 @@
 .claude
 
 server/target/
+server/ml/.venv/
+server/ml/data/*.csv
+server/ml/data/*.json
+server/ml/models/*.txt
+server/ml/models/*.pkl

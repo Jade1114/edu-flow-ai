@@ -41,13 +41,31 @@ server/ml/
     └── predict_demo.py
 ```
 
-## Planned Scripts
+## Setup
+
+From `server/ml`:
+
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
+```
+
+The scripts read database settings from the same project environment variables used by Spring Boot:
+
+- `DB_URL`
+- `DB_USERNAME`
+- `DB_PASSWORD`
+
+If these are not set, the generator falls back to the local defaults in `application.yaml`.
+
+## Scripts
 
 ### `scripts/generate_training_samples.py`
 
 Generates candidate scheduling samples from current project data.
 
-Planned input tables/entities:
+Input tables/entities:
 
 - `teaching_task`
 - `course`
@@ -58,10 +76,16 @@ Planned input tables/entities:
 - `time_slot`
 - `allocation_item` / `course_assignment` for current schedule state
 
-Planned output:
+Output:
 
 ```text
 data/training_samples.csv
+```
+
+Example:
+
+```bash
+python scripts/generate_training_samples.py --max-rows 500
 ```
 
 ### `scripts/train_lightgbm.py`
