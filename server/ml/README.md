@@ -40,7 +40,8 @@ server/ml/
     ├── train_lightgbm.py
     ├── predict_demo.py
     ├── evaluate_model.py
-    └── generate_scheme_demo.py
+    ├── generate_scheme_demo.py
+    └── evaluate_scheme_demo.py
 ```
 
 ## Setup
@@ -141,6 +142,16 @@ Output:
 
 ```text
 data/generated_scheme_demo.csv
+```
+
+### `scripts/evaluate_scheme_demo.py`
+
+Evaluates a generated scheme with scheme-level quality metrics.
+
+Example:
+
+```bash
+python scripts/evaluate_scheme_demo.py
 ```
 
 ## First Model Boundary
