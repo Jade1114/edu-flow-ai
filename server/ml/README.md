@@ -30,10 +30,8 @@ server/ml/
 ├── README.md
 ├── requirements.txt
 ├── data/
-│   ├── .gitkeep
 │   └── training_samples.csv        # generated, ignored by git later if needed
 ├── models/
-│   ├── .gitkeep
 │   └── schedule_ranker_v1.txt      # generated model artifact
 └── scripts/
     ├── generate_training_samples.py
