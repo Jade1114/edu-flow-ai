@@ -3,9 +3,12 @@ package com.yuy.eduflow.allocation;
 import com.yuy.eduflow.common.ApiResponse;
 import com.yuy.eduflow.common.exception.BusinessException;
 import com.yuy.eduflow.rag.OpenAiChatClient;
+import java.io.InputStream;
+import java.nio.charset.StandardCharsets;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.core.io.ClassPathResource;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -32,41 +35,14 @@ public class PolicyTranslateController {
 		@SuppressWarnings("unchecked")
 		Map<String, Object> teacherProfiles = (Map<String, Object>) request.get("teacherProfiles");
 
-		String systemPrompt = """
-			You are a scheduling policy parameter translator for an educational course scheduling system.
-			Your job: convert natural language scheduling preferences into structured policy parameters.
-			
-			Available policy profiles and their weight keys:
-			- weekday_load_penalty (0.002-0.012): penalty for uneven weekday distribution
-			- room_day_load_penalty (0.004-0.025): penalty for uneven room usage per day
-			- room_week_load_penalty (0.001-0.010): penalty for uneven room usage per week
-			- task_day_load_penalty (0.005-0.025): penalty for same-task same-day concentration
-			- early_period_penalty (0.005-0.04): penalty for early-morning periods
-			- late_period_penalty (0.005-0.03): penalty for late-afternoon periods
-			- compact_bonus_weight (0.0-0.015): bonus for compressing schedule into fewer days
-			- random_jitter (0.001-0.003): small random perturbation for diversity
-			- classroom_stickiness_bonus (0.001-0.015): bonus for keeping same teaching task in the same classroom across all periods
-			- weekend_penalty (0.0-0.03): penalty for scheduling on Saturday or Sunday
-			
-			Output ONLY a valid JSON object with:
-			{
-			  "policyParams": { all 10 weight keys with numeric values },
-			  "interpretation": "brief explanation in Chinese of how you understood the requirements"
-			}
-			""";
-
-		StringBuilder userPrompt = new StringBuilder();
-		userPrompt.append("Policy type: ").append(policyType).append("\n");
-		if (extraRequirement != null && !extraRequirement.isBlank()) {
-			userPrompt.append("Additional requirements: ").append(extraRequirement).append("\n");
-		}
-		if (teacherProfiles != null && !teacherProfiles.isEmpty()) {
-			userPrompt.append("Teacher profiles: ").append(teacherProfiles).append("\n");
-		}
-		userPrompt.append("\nGenerate the JSON policy parameters now.");
+		String systemPrompt = readResource("prompts/policy-translate-system.md");
+		String userPrompt = readResource("prompts/policy-translate-user-template.md")
+			.replace("{policyType}", policyType)
+			.replace("{extraRequirement}", extraRequirement != null && !extraRequirement.isBlank() ? extraRequirement : "无")
+			.replace("{teacherProfiles}", teacherProfiles != null && !teacherProfiles.isEmpty() ? teacherProfiles.toString() : "无");
 
 		try {
-			String llmResponse = chatClient.generate(systemPrompt, userPrompt.toString());
+			String llmResponse = chatClient.generate(systemPrompt, userPrompt);
 			@SuppressWarnings("unchecked")
 			Map<String, Object> result = objectMapper.readValue(llmResponse, Map.class);
 			Map<String, Object> response = new LinkedHashMap<>();
@@ -78,6 +54,15 @@ public class PolicyTranslateController {
 		} catch (Exception e) {
 			log.error("Policy translation failed", e);
 			throw new BusinessException(500, "策略参数翻译失败: " + e.getMessage(), e);
+		}
+	}
+
+	private String readResource(String path) {
+		try {
+			InputStream inputStream = new ClassPathResource(path).getInputStream();
+			return new String(inputStream.readAllBytes(), StandardCharsets.UTF_8).trim();
+		} catch (Exception e) {
+			throw new BusinessException(500, "读取策略翻译 Prompt 失败: " + path, e);
 		}
 	}
 }

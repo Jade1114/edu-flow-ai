@@ -48,6 +48,7 @@ FEATURE_SCHEMA_PATH = ROOT_DIR / "data" / "feature_schema.json"
 OUTPUT_PATH = ROOT_DIR / "data" / "generated_scheme_demo.csv"
 OUTPUT_DIR = ROOT_DIR / "data" / "generated_schemes"
 SUMMARY_PATH = OUTPUT_DIR / "summary.csv"
+PROMPT_DIR = ROOT_DIR / "prompts"
 
 OUTPUT_COLUMNS = [
     "sequence",
@@ -160,6 +161,10 @@ def log_chain(message: str, payload: Any | None = None) -> None:
         print(f"{LOG_PREFIX} {message}", flush=True)
         return
     print(f"{LOG_PREFIX} {message}: {json.dumps(payload, ensure_ascii=False, default=str)}", flush=True)
+
+
+def load_prompt(file_name: str) -> str:
+    return (PROMPT_DIR / file_name).read_text(encoding="utf-8").strip()
 
 
 def load_schema(schema_path: Path) -> dict[str, Any]:
@@ -644,17 +649,13 @@ def resolve_teacher_penalties(tasks: list[dict[str, Any]], teacher_profiles: dic
                 for profile in profiles
             ],
         })
-        system_prompt = (
-            "你是排课教师画像解析器。只输出 JSON。"
-            "根据教师画像全文提取 teacher_penalties，key 使用 teacherId。"
-            "unavailable_slots 必须是 [day_of_week, period_index] 数组，day_of_week=1..7，period_index=1..5。"
-            "max_weekly_hours 无明确要求则为 null，penalty_weight 默认 0.05，reason 简短说明来源。"
-        )
-        user_prompt = json.dumps(
+        payload_json = json.dumps(
             {"teaching_tasks": tasks, "teacher_profiles": profiles},
             ensure_ascii=False,
             default=str,
         )
+        system_prompt = load_prompt("teacher-penalty-system.md")
+        user_prompt = load_prompt("teacher-penalty-user-template.md").replace("{payload_json}", payload_json)
         chat_response = post_json(
             f"{chat_base_url}/chat/completions",
             {

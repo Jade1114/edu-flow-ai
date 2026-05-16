@@ -52,20 +52,6 @@ const loginAction = {
 const actions = [
   {
     group: '分课',
-    key: 'rag-context',
-    label: '获取 RAG Context',
-    method: 'GET',
-    path: () => `/api/allocation-tasks/${required(form.taskId, '分课任务 ID')}/rag-context?topK=${topK()}`,
-  },
-  {
-    group: '分课',
-    key: 'prompt-preview',
-    label: '获取 Prompt Preview',
-    method: 'GET',
-    path: () => `/api/allocation-tasks/${required(form.taskId, '分课任务 ID')}/prompt-preview?topK=${topK()}`,
-  },
-  {
-    group: '分课',
     key: 'generate-schemes',
     label: '生成候选方案',
     method: 'POST',

@@ -19,29 +19,17 @@ import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 public class AllocationTaskController {
 	private final AllocationTaskService allocationTaskService;
 	private final AllocationSchemeService allocationSchemeService;
-	private final AllocationRagContextService allocationRagContextService;
-	private final AllocationPromptBuilderService allocationPromptBuilderService;
-	private final AllocationGeneratePreviewService allocationGeneratePreviewService;
-	private final AllocationGenerateParseService allocationGenerateParseService;
 	private final AllocationSchemeGenerationService allocationSchemeGenerationService;
 	private final GenerationTracker generationTracker;
 
 	public AllocationTaskController(
 		AllocationTaskService allocationTaskService,
 		AllocationSchemeService allocationSchemeService,
-		AllocationRagContextService allocationRagContextService,
-		AllocationPromptBuilderService allocationPromptBuilderService,
-		AllocationGeneratePreviewService allocationGeneratePreviewService,
-		AllocationGenerateParseService allocationGenerateParseService,
 		AllocationSchemeGenerationService allocationSchemeGenerationService,
 		GenerationTracker generationTracker
 	) {
 		this.allocationTaskService = allocationTaskService;
 		this.allocationSchemeService = allocationSchemeService;
-		this.allocationRagContextService = allocationRagContextService;
-		this.allocationPromptBuilderService = allocationPromptBuilderService;
-		this.allocationGeneratePreviewService = allocationGeneratePreviewService;
-		this.allocationGenerateParseService = allocationGenerateParseService;
 		this.allocationSchemeGenerationService = allocationSchemeGenerationService;
 		this.generationTracker = generationTracker;
 	}
@@ -63,38 +51,6 @@ public class AllocationTaskController {
 	public ApiResponse<List<AllocationScheme>> findSchemes(@PathVariable Long id) {
 		allocationTaskService.findById(id);
 		return ApiResponse.success(allocationSchemeService.findAll(id, null));
-	}
-
-	@GetMapping("/{id}/rag-context")
-	public ApiResponse<AllocationRagContext> buildRagContext(
-		@PathVariable Long id,
-		@RequestParam(required = false) Integer topK
-	) {
-		return ApiResponse.success(allocationRagContextService.buildContext(id, topK));
-	}
-
-	@GetMapping("/{id}/prompt-preview")
-	public ApiResponse<AllocationPromptPreview> buildPromptPreview(
-		@PathVariable Long id,
-		@RequestParam(required = false) Integer topK
-	) {
-		return ApiResponse.success(allocationPromptBuilderService.buildPreview(id, topK));
-	}
-
-	@PostMapping("/{id}/generate-preview")
-	public ApiResponse<AllocationGeneratePreview> generatePreview(
-		@PathVariable Long id,
-		@RequestParam(required = false) Integer topK
-	) {
-		return ApiResponse.success(allocationGeneratePreviewService.generate(id, topK));
-	}
-
-	@PostMapping("/{id}/generate-parse-preview")
-	public ApiResponse<AllocationParsePreview> generateParsePreview(
-		@PathVariable Long id,
-		@RequestParam(required = false) Integer topK
-	) {
-		return ApiResponse.success(allocationGenerateParseService.generateParsePreview(id, topK));
 	}
 
 	@PostMapping("/{id}/schemes")
