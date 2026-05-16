@@ -124,12 +124,23 @@ public class AllocationTaskController {
 	@GetMapping(value = "/{id}/generation-stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
 	public SseEmitter streamGenerationStatus(@PathVariable Long id) {
 		SseEmitter emitter = new SseEmitter(5 * 60 * 1000L);
+		// 无论成功还是失败，都通过 emitter 发送，不让异常逃逸到 GlobalExceptionHandler
+		emitter.onError(ex -> {
+			// SSE async error — emitter already removed by tracker
+		});
+		emitter.onTimeout(() -> {
+			// timeout — emitter already removed by tracker
+		});
 		try {
-			return generationTracker.subscribe(id);
-		} catch (Exception exception) {
+			SseEmitter subscribed = generationTracker.subscribe(id);
+			// 如果 subscribe 返回了新 emitter，用它的 error/timeout 处理
+			subscribed.onError(ex -> { /* tracker handles cleanup */ });
+			subscribed.onTimeout(() -> { /* tracker handles cleanup */ });
+			return subscribed;
+		} catch (Exception ex) {
 			try {
 				emitter.send(SseEmitter.event().name("status").data(
-					new GenerationStatus("FAILED", "error", "进度流连接失败", 100, exception.getMessage(), 0, null)
+					new GenerationStatus("FAILED", "error", "进度流连接失败", 100, ex.getMessage(), 0, null)
 				));
 			} catch (Exception ignored) {
 				// ignore secondary SSE send failures

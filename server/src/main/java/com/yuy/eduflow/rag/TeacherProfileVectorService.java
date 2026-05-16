@@ -40,8 +40,8 @@ public class TeacherProfileVectorService {
 		TeacherProfile profile = teacherProfileMapper.findByTeacherId(teacherId);
 		log.info("re-fetched profile from DB: {}", profile);
 		if (profile == null) {
-			log.error("profile not found in DB after save!");
-			throw new ResourceNotFoundException("教师个人情况不存在");
+			log.warn("teacher id={} has no teacher_profile, skipping vector index (probably ADMIN or no profile set)", teacherId);
+			return null;
 		}
 		if (!StringUtils.hasText(profile.getVectorText())) {
 			log.error("vectorText is empty for profile id={}", profile.getId());

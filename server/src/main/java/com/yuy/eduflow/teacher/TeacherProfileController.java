@@ -38,7 +38,11 @@ public class TeacherProfileController {
 	}
 
 	@PostMapping("/vector-index")
-	public ApiResponse<TeacherProfile> indexVector(@PathVariable Long teacherId) {
-		return ApiResponse.success(teacherProfileVectorService.indexTeacherProfile(teacherId));
+	public ApiResponse<String> indexVector(@PathVariable Long teacherId) {
+		TeacherProfile result = teacherProfileVectorService.indexTeacherProfile(teacherId);
+		if (result == null) {
+			return ApiResponse.success("该教师没有画像数据，已跳过向量索引");
+		}
+		return ApiResponse.success(result);
 	}
 }

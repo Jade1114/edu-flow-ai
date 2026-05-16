@@ -46,6 +46,10 @@ public class TeacherProfileService {
 			log.info("UPDATE affected rows={}", rows);
 		}
 		TeacherProfile result = teacherProfileVectorService.indexTeacherProfile(teacherId);
+		if (result == null) {
+			log.warn("indexTeacherProfile returned null for teacherId={}, using un-indexed profile", teacherId);
+			result = existing != null ? existing : profile;
+		}
 		log.info("=== save() end === profile={}", result);
 		return result;
 	}

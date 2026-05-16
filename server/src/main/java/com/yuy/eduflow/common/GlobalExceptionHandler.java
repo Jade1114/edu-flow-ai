@@ -71,7 +71,11 @@ public class GlobalExceptionHandler {
     // --- 兜底：所有未捕获异常 ---
     @ExceptionHandler(Exception.class)
     @ResponseStatus(HttpStatus.INTERNAL_SERVER_ERROR)
-    public ApiResponse<Void> handleException(Exception exception, HttpServletResponse response) {
+    public Object handleException(Exception exception, HttpServletResponse response) {
+        // SSE 请求不要尝试返回 JSON，直接设置状态码即可
+        if (MediaType.TEXT_EVENT_STREAM_VALUE.equals(response.getContentType())) {
+            return null;
+        }
         prepareJsonResponse(response);
         // 不把内部异常信息暴露给前端
         return ApiResponse.error(500, "服务器内部错误");
