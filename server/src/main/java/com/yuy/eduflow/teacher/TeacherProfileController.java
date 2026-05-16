@@ -43,6 +43,6 @@ public class TeacherProfileController {
 		if (result == null) {
 			return ApiResponse.success("该教师没有画像数据，已跳过向量索引");
 		}
-		return ApiResponse.success(result);
+		return ApiResponse.success("向量索引完成，teacherId=" + teacherId);
 	}
 }

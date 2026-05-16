@@ -95,9 +95,9 @@ public class MlFeedbackTrainingService {
 
 			CommandResult trainResult = runCommand(scriptsDir, pythonExe.toString(),
 				"train_lightgbm.py",
-				"--input", samplePath.toString(),
-				"--output", modelPath.toString(),
-				"--schema-output", schemaPath.toString()
+				"--data", samplePath.toString(),
+				"--model", modelPath.toString(),
+				"--schema", schemaPath.toString()
 			);
 
 			if (trainResult.exitCode() != 0) {
