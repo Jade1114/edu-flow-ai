@@ -127,7 +127,8 @@ public class AllocationMlSchemeService {
 		ProcessBuilder builder = new ProcessBuilder(command);
 		builder.directory(mlDir.toFile());
 		builder.redirectErrorStream(true);
-		log.info("Running ML scheme generator: {}", String.join(" ", command));
+		log.info("ML scheme generator starting: policy={}, taskId={}", policyOrDefault(policy), task.getId());
+		log.debug("ML scheme generator command: {}", String.join(" ", command));
 
 		try {
 			Process process = builder.start();
@@ -136,7 +137,8 @@ public class AllocationMlSchemeService {
 				output = reader.lines().collect(Collectors.joining("\n"));
 			}
 			int exitCode = process.waitFor();
-			log.info("ML scheme generator exited with code={}, output={}", exitCode, output);
+			log.info("ML scheme generator done: exitCode={}", exitCode);
+			log.debug("ML scheme generator output:\n{}", output);
 			if (exitCode != 0) {
 				throw new BusinessException(500, "自训练模型生成失败：" + output);
 			}
@@ -181,7 +183,8 @@ public class AllocationMlSchemeService {
 		ProcessBuilder builder = new ProcessBuilder(command);
 		builder.directory(mlDir.toFile());
 		builder.redirectErrorStream(true);
-		log.info("Running ML scheme evaluator: {}", String.join(" ", command));
+		log.info("ML scheme evaluator starting: dir={}", outputDir);
+		log.debug("ML scheme evaluator command: {}", String.join(" ", command));
 
 		try {
 			Process process = builder.start();
@@ -190,7 +193,8 @@ public class AllocationMlSchemeService {
 				output = reader.lines().collect(Collectors.joining("\n"));
 			}
 			int exitCode = process.waitFor();
-			log.info("ML scheme evaluator exited with code={}, output={}", exitCode, output);
+			log.info("ML scheme evaluator done: exitCode={}", exitCode);
+			log.debug("ML scheme evaluator output:\n{}", output);
 			if (exitCode != 0) {
 				log.warn("Scheme evaluator exited non-zero but continuing: {}", output);
 			}

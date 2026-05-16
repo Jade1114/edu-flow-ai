@@ -35,7 +35,7 @@ public class TeacherProfileService {
 		Teacher teacher = teacherService.findById(teacherId);
 		log.info("teacher found: id={}, name={}", teacher.getId(), teacher.getName());
 		TeacherProfile profile = toProfile(teacher, request);
-		log.info("vectorText built: [{}]", profile.getVectorText());
+		log.debug("vectorText built: [{}]", profile.getVectorText());
 		TeacherProfile existing = teacherProfileMapper.findByTeacherId(teacherId);
 		log.info("existing profile: {}", existing);
 		if (existing == null) {

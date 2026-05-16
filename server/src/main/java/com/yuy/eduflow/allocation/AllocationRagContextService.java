@@ -41,8 +41,8 @@ public class AllocationRagContextService {
 		long elapsed = System.currentTimeMillis() - t0;
 		log.info("RAG search done in {}ms, found {} teachers", elapsed, teachers.size());
 		for (AllocationRagTeacherResult t : teachers) {
-			log.info("  >> teacherId={}, name={}, score={}, vectorText=[{}]",
-				t.teacherId(), t.teacherName(), t.score(),
+			log.info("  >> teacherId={}, name={}, score={}", t.teacherId(), t.teacherName(), t.score());
+			log.debug("  >> vectorText=[{}]",
 				t.vectorText() != null ? t.vectorText().substring(0, Math.min(80, t.vectorText().length())) : null);
 		}
 		return new AllocationRagContext(task.getId(), task.getName(), query, limit, teachers);

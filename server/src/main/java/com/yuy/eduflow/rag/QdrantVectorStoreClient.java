@@ -25,8 +25,9 @@ public class QdrantVectorStoreClient {
 
 	public void upsert(Long pointId, List<Double> vector, Map<String, Object> payload) {
 		validateVector(vector);
-		log.info("Qdrant upsert: pointId={}, payload keys={}, vectorText=[{}]",
-			pointId, payload.keySet(), payload.get("vectorText"));
+		log.info("Qdrant upsert: pointId={}, payload keys={}", pointId, payload.keySet());
+		log.debug("Qdrant upsert vectorText=[{}]", payload.get("vectorText"));
+		String vectorText = (String) payload.get("vectorText");
 		Map<String, Object> point = new LinkedHashMap<>();
 		point.put("id", pointId);
 		point.put("vector", vector);
