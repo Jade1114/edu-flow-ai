@@ -110,9 +110,10 @@ public class AllocationTaskController {
 	public ApiResponse<GenerationStatus> generateAsync(
 		@PathVariable Long id,
 		@RequestParam(required = false) Integer topK,
-		@RequestParam(required = false) String policy
+		@RequestParam(required = false) String policy,
+		@RequestParam(required = false) String policyParams
 	) {
-		generationTracker.startGeneration(id, topK, policy);
+		generationTracker.startGeneration(id, topK, policy, policyParams);
 		return ApiResponse.success(generationTracker.getStatus(id));
 	}
 

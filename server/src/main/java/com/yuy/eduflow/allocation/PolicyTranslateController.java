@@ -45,10 +45,12 @@ public class PolicyTranslateController {
 			- late_period_penalty (0.005-0.03): penalty for late-afternoon periods
 			- compact_bonus_weight (0.0-0.015): bonus for compressing schedule into fewer days
 			- random_jitter (0.001-0.003): small random perturbation for diversity
+			- classroom_stickiness_bonus (0.001-0.015): bonus for keeping same teaching task in the same classroom across all periods
+			- weekend_penalty (0.0-0.03): penalty for scheduling on Saturday or Sunday
 			
 			Output ONLY a valid JSON object with:
 			{
-			  "policyParams": { all 8 weight keys with numeric values },
+			  "policyParams": { all 10 weight keys with numeric values },
 			  "interpretation": "brief explanation in Chinese of how you understood the requirements"
 			}
 			""";

@@ -80,14 +80,16 @@ DEFAULT_CANDIDATE_POOL_SIZE = 500
 
 POLICY_PROFILES = {
     "BALANCED": {
-        "weekday_load_penalty": 0.004,
-        "room_day_load_penalty": 0.012,
-        "room_week_load_penalty": 0.003,
-        "task_day_load_penalty": 0.018,
-        "early_period_penalty": 0.01,
-        "late_period_penalty": 0.01,
+        "weekday_load_penalty": 0.008,
+        "room_day_load_penalty": 0.005,
+        "room_week_load_penalty": 0.002,
+        "task_day_load_penalty": 0.012,
+        "early_period_penalty": 0.012,
+        "late_period_penalty": 0.008,
         "compact_bonus_weight": 0.0,
         "random_jitter": 0.002,
+        "classroom_stickiness_bonus": 0.006,
+        "weekend_penalty": 0.01
     },
     "TEACHER_FRIENDLY": {
         "weekday_load_penalty": 0.006,
@@ -98,6 +100,8 @@ POLICY_PROFILES = {
         "late_period_penalty": 0.03,
         "compact_bonus_weight": 0.0,
         "random_jitter": 0.001,
+        "classroom_stickiness_bonus": 0.004,
+        "weekend_penalty": 0.015
     },
     "CLASS_BALANCED": {
         "weekday_load_penalty": 0.012,
@@ -108,28 +112,36 @@ POLICY_PROFILES = {
         "late_period_penalty": 0.01,
         "compact_bonus_weight": 0.0,
         "random_jitter": 0.002,
+        "classroom_stickiness_bonus": 0.005,
+        "weekend_penalty": 0.008
     },
     "ROOM_EFFICIENT": {
         "weekday_load_penalty": 0.002,
         "room_day_load_penalty": 0.025,
-        "room_week_load_penalty": 0.010,
+        "room_week_load_penalty": 0.01,
         "task_day_load_penalty": 0.005,
         "early_period_penalty": 0.005,
         "late_period_penalty": 0.005,
         "compact_bonus_weight": 0.0,
         "random_jitter": 0.003,
+        "classroom_stickiness_bonus": 0.008,
+        "weekend_penalty": 0.01
     },
     "COMPACT": {
         "weekday_load_penalty": 0.002,
         "room_day_load_penalty": 0.008,
         "room_week_load_penalty": 0.002,
-        "task_day_load_penalty": 0.010,
+        "task_day_load_penalty": 0.01,
         "early_period_penalty": 0.005,
         "late_period_penalty": 0.005,
         "compact_bonus_weight": 0.015,
         "random_jitter": 0.002,
-    },
+        "classroom_stickiness_bonus": 0.003,
+        "weekend_penalty": 0.005
+    }
 }
+
+
 
 DEFAULT_POLICY = "BALANCED"
 
@@ -172,6 +184,7 @@ def build_candidate_rows(
         is_morning = int(period_index in (1, 2))
         is_afternoon = int(period_index in (3, 4))
         is_evening = int(period_index >= 5)
+        is_weekend = int(day_of_week >= 6)
         is_early_period = int(period_index == 1)
         is_late_period = int(period_index >= 5)
 
@@ -237,6 +250,7 @@ def build_candidate_rows(
                     "is_morning": is_morning,
                     "is_afternoon": is_afternoon,
                     "is_evening": is_evening,
+                    "is_weekend": is_weekend,
                     "is_early_period": is_early_period,
                     "is_late_period": is_late_period,
                     "teacher_occupied_at_slot": int(teacher_occupied),
@@ -286,10 +300,15 @@ def build_features(rows: list[dict[str, Any]], schema: dict[str, Any]) -> pd.Dat
     return features
 
 
-def load_policy(policy_name: str) -> dict[str, float]:
+def load_policy(policy_name: str, custom_params: dict[str, float] | None = None) -> dict[str, float]:
     if policy_name not in POLICY_PROFILES:
         raise ValueError(f"Unknown policy: {policy_name}. Available: {sorted(POLICY_PROFILES.keys())}")
-    return dict(POLICY_PROFILES[policy_name])
+    merged = dict(POLICY_PROFILES[policy_name])
+    if custom_params:
+        for key in merged:
+            if key in custom_params:
+                merged[key] = float(custom_params[key])
+    return merged
 
 
 def shortlist_candidates(candidates: list[dict[str, Any]], pool_size: int, rng: random.Random, policy: dict[str, float]) -> list[dict[str, Any]]:
@@ -312,7 +331,7 @@ def shortlist_candidates(candidates: list[dict[str, Any]], pool_size: int, rng: 
     )[:pool_size]
 
 
-def apply_selection_scores(candidates: list[dict[str, Any]], rng: random.Random, policy: dict[str, float]) -> None:
+def apply_selection_scores(candidates: list[dict[str, Any]], rng: random.Random, policy: dict[str, float], task_classroom_id: int | None = None) -> None:
     for candidate in candidates:
         distribution_penalty = (
             candidate["scheme_day_load"] * policy["weekday_load_penalty"]
@@ -320,17 +339,25 @@ def apply_selection_scores(candidates: list[dict[str, Any]], rng: random.Random,
             + candidate["room_week_load"] * policy["room_week_load_penalty"]
             + candidate["task_day_load"] * policy["task_day_load_penalty"]
         )
+        weekend_penalty = (1 if int(candidate.get("is_weekend", 0)) else 0) * policy.get("weekend_penalty", 0.0)
         early_penalty = (1 if int(candidate.get("is_early_period", 0)) else 0) * policy["early_period_penalty"]
         late_penalty = (1 if int(candidate.get("is_late_period", 0)) else 0) * policy["late_period_penalty"]
         compact_bonus = candidate.get("scheme_day_load", 0) * policy["compact_bonus_weight"]
 
-        candidate["distribution_penalty"] = round(distribution_penalty + early_penalty + late_penalty, 6)
+        stickiness_bonus = 0.0
+        if task_classroom_id is not None:
+            candidate_room = int(candidate.get("candidate_classroom_id", 0))
+            if candidate_room == task_classroom_id:
+                stickiness_bonus = float(policy.get("classroom_stickiness_bonus", 0.0))
+
+        candidate["distribution_penalty"] = round(distribution_penalty + weekend_penalty + early_penalty + late_penalty, 6)
         candidate["selection_score"] = max(
             0.0,
             float(candidate["predicted_score"])
             + float(candidate["rule_score"]) * 0.02
             - candidate["distribution_penalty"]
             + compact_bonus
+            + stickiness_bonus
             + rng.random() * policy["random_jitter"],
         )
 
@@ -342,6 +369,7 @@ def rank_candidates(
     candidates: list[dict[str, Any]],
     rng: random.Random,
     policy: dict[str, float],
+    task_classroom_id: int | None = None,
 ) -> list[dict[str, Any]]:
     if not candidates:
         return []
@@ -349,7 +377,7 @@ def rank_candidates(
     predictions = np.clip(booster.predict(features), 0.0, 1.0)
     for candidate, predicted_score in zip(candidates, predictions):
         candidate["predicted_score"] = float(predicted_score)
-    apply_selection_scores(candidates, rng, policy)
+    apply_selection_scores(candidates, rng, policy, task_classroom_id)
 
     return sorted(
         candidates,
@@ -376,9 +404,10 @@ def choose_candidate(
     rng: random.Random,
     candidate_pool_size: int,
     policy: dict[str, float],
+    task_classroom_id: int | None = None,
 ) -> dict[str, Any] | None:
     candidates = shortlist_candidates(candidates, candidate_pool_size, rng, policy)
-    ranked = rank_candidates(booster=booster, schema=schema, candidates=candidates, rng=rng, policy=policy)
+    ranked = rank_candidates(booster=booster, schema=schema, candidates=candidates, rng=rng, policy=policy, task_classroom_id=task_classroom_id)
     if not ranked:
         return None
     if strategy == "greedy":
@@ -435,6 +464,7 @@ def generate_scheme(
 ) -> tuple[list[dict[str, Any]], list[PseudoAssignment]]:
     scheme_rows: list[dict[str, Any]] = []
     selected_assignments: list[PseudoAssignment] = []
+    task_classroom_map: dict[int, int] = {}  # task_id -> first chosen classroom_id
     sequence = 1
 
     scoped_tasks = tasks[:max_tasks] if max_tasks is not None else tasks
@@ -443,6 +473,7 @@ def generate_scheme(
         teacher_id = int(task["teacher_id"])
         class_group_ids = parse_id_tuple(task.get("class_group_ids"))
         required_fragments = periods_needed(task)
+        task_classroom = task_classroom_map.get(task_id)
 
         for fragment_index in range(1, required_fragments + 1):
             candidates = build_candidate_rows(
@@ -460,7 +491,14 @@ def generate_scheme(
                 rng=rng,
                 candidate_pool_size=candidate_pool_size,
                 policy=policy,
+                task_classroom_id=task_classroom,
             )
+            if best is None:
+                continue
+            # Track first classroom for this task
+            chosen_room = int(best["candidate_classroom_id"])
+            if task_id not in task_classroom_map:
+                task_classroom_map[task_id] = chosen_room
             if best is None:
                 continue
 
@@ -551,6 +589,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--top-k", type=int, default=5, help="Top-K candidate pool size for top-k-random strategy.")
     parser.add_argument("--random-seed", type=int, default=42, help="Base random seed for variant generation.")
     parser.add_argument("--policy", default=DEFAULT_POLICY, choices=list(POLICY_PROFILES.keys()), help="Generation policy profile.")
+    parser.add_argument("--policy-params", default=None, help="JSON string of custom policy weights to override preset values.")
     parser.add_argument("--teaching-task-ids", default=None, help="Comma-separated teaching task IDs to schedule.")
     parser.add_argument("--start-week", type=int, default=None, help="Optional minimum week number.")
     parser.add_argument("--end-week", type=int, default=None, help="Optional maximum week number.")
@@ -583,7 +622,11 @@ def main() -> None:
     if not time_slots:
         raise ValueError("No time slots available for scheme generation.")
 
-    policy = load_policy(args.policy)
+    custom_params = None
+    if args.policy_params:
+        import json
+        custom_params = json.loads(args.policy_params)
+    policy = load_policy(args.policy, custom_params)
 
     if args.variant_count <= 1:
         rows, _ = generate_scheme(

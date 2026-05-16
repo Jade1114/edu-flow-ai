@@ -42,10 +42,10 @@ public class AllocationMlSchemeService {
 	}
 
 	public AllocationParsePreview generateParsePreview(Long taskId, Integer topK, String policy) {
-		return generateParsePreview(taskId, topK, policy, ignored -> {});
+		return generateParsePreview(taskId, topK, policy, null, ignored -> {});
 	}
 
-	public AllocationParsePreview generateParsePreview(Long taskId, Integer topK, String policy, Consumer<GenerationStatus> progressReporter) {
+	public AllocationParsePreview generateParsePreview(Long taskId, Integer topK, String policy, String policyParams, Consumer<GenerationStatus> progressReporter) {
 		AllocationTask task = allocationTaskMapper.findById(taskId);
 		if (task == null) {
 			throw new ResourceNotFoundException("排课任务不存在");
@@ -64,7 +64,7 @@ public class AllocationMlSchemeService {
 
 		try {
 			Files.createDirectories(outputDir);
-			runModelScript(mlDir, outputDir, task, teachingTaskIds, normalizedVariantCount(topK), progressReporter);
+			runModelScript(mlDir, outputDir, task, teachingTaskIds, normalizedVariantCount(topK), policy, policyParams, progressReporter);
 			progressReporter.accept(running("eval", "自训练模型评估方案质量...", 62));
 			runEvaluator(mlDir, outputDir);
 			progressReporter.accept(running("parse", "解析评估后的 CSV 方案...", 68));
@@ -88,6 +88,8 @@ public class AllocationMlSchemeService {
 		AllocationTask task,
 		List<String> teachingTaskIds,
 		int variantCount,
+		String policy,
+		String policyParams,
 		Consumer<GenerationStatus> progressReporter
 	) {
 		List<String> command = new ArrayList<>();
@@ -102,7 +104,11 @@ public class AllocationMlSchemeService {
 		command.add("--candidate-pool-size");
 		command.add(String.valueOf(DEFAULT_CANDIDATE_POOL_SIZE));
 		command.add("--policy");
-		command.add(policyOrDefault(null));
+		command.add(policyOrDefault(policy));
+		if (policyParams != null && !policyParams.isBlank()) {
+			command.add("--policy-params");
+			command.add(policyParams);
+		}
 		command.add("--teaching-task-ids");
 		command.add(String.join(",", teachingTaskIds));
 		command.add("--output-dir");
