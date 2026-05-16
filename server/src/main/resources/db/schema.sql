@@ -41,6 +41,7 @@ CREATE TABLE IF NOT EXISTS course (
     id BIGINT PRIMARY KEY AUTO_INCREMENT,
     name VARCHAR(100) NOT NULL,
     course_type VARCHAR(50) NULL,
+    required_room_type VARCHAR(50) NULL COMMENT '课程所需教室类型 普通教室/阶梯教室/机房实验室',
     required_hours INT NULL,
     description TEXT NULL,
     status VARCHAR(20) NOT NULL DEFAULT 'ACTIVE',
@@ -264,7 +265,7 @@ CREATE TABLE IF NOT EXISTS course_assignment (
     CONSTRAINT fk_course_assignment_time_slot FOREIGN KEY (time_slot_id) REFERENCES time_slot (id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
--- v2: 冲突检测结果（biz_type 改为 SCHEDULE_SEGMENT）
+-- v2: 冲突检测结果
 CREATE TABLE IF NOT EXISTS conflict_check_result (
     id BIGINT PRIMARY KEY AUTO_INCREMENT,
     biz_type VARCHAR(30) NOT NULL,
@@ -302,4 +303,34 @@ CREATE TABLE IF NOT EXISTS adjustment_request (
     INDEX idx_adjustment_status (status),
     CONSTRAINT fk_adjustment_assignment FOREIGN KEY (assignment_id) REFERENCES course_assignment (id),
     CONSTRAINT fk_adjustment_teacher FOREIGN KEY (teacher_id) REFERENCES teacher (id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- v6: 模型训练日志（记录每次重训的版本、指标、数据来源）
+CREATE TABLE IF NOT EXISTS model_training_log (
+    id BIGINT PRIMARY KEY AUTO_INCREMENT,
+    model_version VARCHAR(16) NOT NULL COMMENT '模型版本号 v1/v2/...',
+    training_type VARCHAR(30) NOT NULL COMMENT 'INITIAL / FEEDBACK / FULL',
+    scheme_count INT NOT NULL DEFAULT 0 COMMENT '参与训练的方案数',
+    item_count INT NOT NULL DEFAULT 0 COMMENT '参与训练的明细数',
+    feedback_count INT NOT NULL DEFAULT 0 COMMENT '反馈记录数',
+    adjustment_count INT NOT NULL DEFAULT 0 COMMENT '调整记录数',
+    conflict_count INT NOT NULL DEFAULT 0 COMMENT '冲突记录数',
+    sample_count INT NOT NULL DEFAULT 0 COMMENT '生成样本总数',
+    positive_count INT NOT NULL DEFAULT 0 COMMENT '正样本数',
+    negative_count INT NOT NULL DEFAULT 0 COMMENT '负样本数',
+    train_accuracy DOUBLE NULL COMMENT '训练集准确率',
+    train_auc DOUBLE NULL COMMENT '训练集 AUC',
+    eval_accuracy DOUBLE NULL COMMENT '验证集准确率',
+    eval_auc DOUBLE NULL COMMENT '验证集 AUC',
+    model_path VARCHAR(500) NULL COMMENT '模型文件路径',
+    sample_path VARCHAR(500) NULL COMMENT '训练样本路径',
+    metrics_json TEXT NULL COMMENT '完整指标 JSON',
+    status VARCHAR(20) NOT NULL DEFAULT 'RUNNING' COMMENT 'RUNNING / SUCCEEDED / FAILED',
+    error_message TEXT NULL,
+    train_started_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    train_finished_at DATETIME NULL,
+    INDEX idx_training_log_version (model_version),
+    INDEX idx_training_log_type (training_type),
+    INDEX idx_training_log_status (status),
+    INDEX idx_training_log_started (train_started_at)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

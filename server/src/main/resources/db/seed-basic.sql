@@ -481,3 +481,315 @@ WHERE tt.course_id = (SELECT id FROM course WHERE name='Java程序设计')
   AND tt.notes = '数据专业单独开班';
 
 COMMIT;
+
+-- ============================================================
+-- v6 扩展：数据规模翻倍
+-- 教师 10→20 / 课程 14→24 / 班级 8→16 / 教室 10→18 / 教学任务 18→36
+-- ============================================================
+
+START TRANSACTION;
+
+-- ============================================================
+-- 扩展教师（+10人）
+-- ============================================================
+INSERT INTO teacher (employee_no, password, role, name, department, title, max_weekly_hours, status) VALUES
+('T1011', '123456', 'TEACHER', '马超', '电子信息与计算机工程系', '教授',   10, 'ACTIVE'),
+('T1012', '123456', 'TEACHER', '黄丽', '电子信息与计算机工程系', '副教授', 12, 'ACTIVE'),
+('T1013', '123456', 'TEACHER', '林杰', '电子信息与计算机工程系', '副教授', 12, 'ACTIVE'),
+('T1014', '123456', 'TEACHER', '何雪', '电子信息与计算机工程系', '讲师',   14, 'ACTIVE'),
+('T1015', '123456', 'TEACHER', '胡刚', '电子信息与计算机工程系', '讲师',   14, 'ACTIVE'),
+('T1016', '123456', 'TEACHER', '徐静', '电子信息与计算机工程系', '讲师',   14, 'ACTIVE'),
+('T1017', '123456', 'TEACHER', '叶枫', '电子信息与计算机工程系', '副教授', 12, 'ACTIVE'),
+('T1018', '123456', 'TEACHER', '罗敏', '电子信息与计算机工程系', '讲师',   14, 'ACTIVE'),
+('T1019', '123456', 'TEACHER', '邓辉', '电子信息与计算机工程系', '教授',   10, 'ACTIVE'),
+('T1020', '123456', 'TEACHER', '沈婷', '电子信息与计算机工程系', '讲师',   14, 'ACTIVE')
+ON DUPLICATE KEY UPDATE name = VALUES(name);
+
+-- ============================================================
+-- 扩展课程（+10门）
+-- ============================================================
+INSERT INTO course (name, course_type, required_room_type, required_hours, description, status) VALUES
+('编译原理',            '专业核心课', '普通教室',   48, '词法分析、语法分析、语义分析、代码优化', 'ACTIVE'),
+('计算机图形学',        '专业选修课', '机房实验室', 36, '图形管线、变换、光照模型、渲染基础', 'ACTIVE'),
+('嵌入式系统',          '专业核心课', '机房实验室', 48, 'ARM体系结构、嵌入式Linux、驱动开发', 'ACTIVE'),
+('数字图像处理',        '专业选修课', '机房实验室', 36, '图像增强、滤波、分割、特征提取', 'ACTIVE'),
+('分布式系统',          '专业选修课', '普通教室',   36, '分布式共识、CAP理论、微服务架构', 'ACTIVE'),
+('软件测试',            '专业选修课', '机房实验室', 36, '测试方法、自动化测试、性能测试', 'ACTIVE'),
+('信息安全概论',        '专业核心课', '普通教室',   48, '密码学基础、网络安全、系统安全', 'ACTIVE'),
+('移动应用开发',        '专业选修课', '机房实验室', 36, 'Android/iOS基础、Flutter跨平台开发', 'ACTIVE'),
+('云计算概论',          '专业选修课', '普通教室',   36, '虚拟化、容器技术、云原生架构', 'ACTIVE'),
+('数据挖掘',            '专业选修课', '机房实验室', 36, '关联规则、聚类、分类、推荐系统', 'ACTIVE')
+ON DUPLICATE KEY UPDATE description = VALUES(description);
+
+-- ============================================================
+-- 扩展班级（+8个 2024级）
+-- ============================================================
+INSERT INTO class_group (name, major, grade, student_count, description) VALUES
+('24级软件工程1班',              '软件工程',              '2024', 44, '软件工程专业2024级1班'),
+('24级软件工程2班',              '软件工程',              '2024', 41, '软件工程专业2024级2班'),
+('24级计算机科学与技术1班',      '计算机科学与技术',      '2024', 46, '计科专业2024级1班'),
+('24级计算机科学与技术2班',      '计算机科学与技术',      '2024', 43, '计科专业2024级2班'),
+('24级人工智能1班',              '人工智能',              '2024', 40, '人工智能专业2024级1班'),
+('24级人工智能2班',              '人工智能',              '2024', 38, '人工智能专业2024级2班'),
+('24级数据科学与大数据技术1班',  '数据科学与大数据技术',  '2024', 42, '数据专业2024级1班'),
+('24级数据科学与大数据技术2班',  '数据科学与大数据技术',  '2024', 39, '数据专业2024级2班')
+ON DUPLICATE KEY UPDATE description = VALUES(description);
+
+-- ============================================================
+-- 扩展教室（+8间）
+-- ============================================================
+INSERT INTO classroom (name, building, capacity, classroom_type, status) VALUES
+('08301', '综合楼C座', 80,  '普通教室',  'ACTIVE'),
+('08302', '综合楼C座', 80,  '普通教室',  'ACTIVE'),
+('08303', '综合楼C座', 100, '阶梯教室',  'ACTIVE'),
+('08304', '综合楼C座', 60,  '机房实验室', 'ACTIVE'),
+('08305', '综合楼C座', 60,  '机房实验室', 'ACTIVE'),
+('08106', '综合楼A座', 120, '阶梯教室',  'ACTIVE'),
+('08206', '综合楼B座', 70,  '普通教室',  'ACTIVE'),
+('08207', '综合楼B座', 70,  '普通教室',  'ACTIVE')
+ON DUPLICATE KEY UPDATE building = VALUES(building);
+
+-- ============================================================
+-- 扩展教学任务（+18个，TT19~TT36）
+-- 新教师 + 新课程 + 2024级班级
+-- ============================================================
+
+-- TT19: 编译原理 → 马超 → 软件1班(23级) → 48h → 08301(80座)
+INSERT INTO teaching_task (course_id, primary_teacher_id, classroom_id, total_hours, notes, status)
+SELECT c.id, t.id, cr.id, 48, NULL, 'ACTIVE'
+FROM course c, teacher t, classroom cr WHERE c.name='编译原理' AND t.employee_no='T1011' AND cr.name='08301';
+
+-- TT20: 计算机图形学 → 黄丽 → 计科1班(23级) → 36h → 08304(60座机房)
+INSERT INTO teaching_task (course_id, primary_teacher_id, classroom_id, total_hours, notes, status)
+SELECT c.id, t.id, cr.id, 36, '上机实践课', 'ACTIVE'
+FROM course c, teacher t, classroom cr WHERE c.name='计算机图形学' AND t.employee_no='T1012' AND cr.name='08304';
+
+-- TT21: 嵌入式系统 → 林杰 → 人工智能1班+2班(23级) → 48h → 08304(60座机房)
+INSERT INTO teaching_task (course_id, primary_teacher_id, classroom_id, total_hours, notes, status)
+SELECT c.id, t.id, cr.id, 48, '合班授课，上机实践', 'ACTIVE'
+FROM course c, teacher t, classroom cr WHERE c.name='嵌入式系统' AND t.employee_no='T1013' AND cr.name='08304';
+
+-- TT22: 数字图像处理 → 何雪 → 数据1班(23级) → 36h → 08305(60座机房)
+INSERT INTO teaching_task (course_id, primary_teacher_id, classroom_id, total_hours, notes, status)
+SELECT c.id, t.id, cr.id, 36, '上机实践课', 'ACTIVE'
+FROM course c, teacher t, classroom cr WHERE c.name='数字图像处理' AND t.employee_no='T1014' AND cr.name='08305';
+
+-- TT23: 分布式系统 → 胡刚 → 软件2班(23级) → 36h → 08302(80座)
+INSERT INTO teaching_task (course_id, primary_teacher_id, classroom_id, total_hours, notes, status)
+SELECT c.id, t.id, cr.id, 36, NULL, 'ACTIVE'
+FROM course c, teacher t, classroom cr WHERE c.name='分布式系统' AND t.employee_no='T1015' AND cr.name='08302';
+
+-- TT24: 软件测试 → 徐静 → 软件1班(23级) → 36h → 08305(60座机房)
+INSERT INTO teaching_task (course_id, primary_teacher_id, classroom_id, total_hours, notes, status)
+SELECT c.id, t.id, cr.id, 36, '上机实践课', 'ACTIVE'
+FROM course c, teacher t, classroom cr WHERE c.name='软件测试' AND t.employee_no='T1016' AND cr.name='08305';
+
+-- TT25: 信息安全概论 → 叶枫 → 计科1班+计科2班(23级) → 48h → 08106(120座阶梯)
+INSERT INTO teaching_task (course_id, primary_teacher_id, classroom_id, total_hours, notes, status)
+SELECT c.id, t.id, cr.id, 48, '合班授课', 'ACTIVE'
+FROM course c, teacher t, classroom cr WHERE c.name='信息安全概论' AND t.employee_no='T1017' AND cr.name='08106';
+
+-- TT26: 移动应用开发 → 罗敏 → 软件2班(23级) → 36h → 08305(60座机房)
+INSERT INTO teaching_task (course_id, primary_teacher_id, classroom_id, total_hours, notes, status)
+SELECT c.id, t.id, cr.id, 36, '上机实践课', 'ACTIVE'
+FROM course c, teacher t, classroom cr WHERE c.name='移动应用开发' AND t.employee_no='T1018' AND cr.name='08305';
+
+-- TT27: 云计算概论 → 邓辉 → 数据2班(23级) → 36h → 08302(80座)
+INSERT INTO teaching_task (course_id, primary_teacher_id, classroom_id, total_hours, notes, status)
+SELECT c.id, t.id, cr.id, 36, NULL, 'ACTIVE'
+FROM course c, teacher t, classroom cr WHERE c.name='云计算概论' AND t.employee_no='T1019' AND cr.name='08302';
+
+-- TT28: 数据挖掘 → 沈婷 → 数据1班(23级) → 36h → 08304(60座机房)
+INSERT INTO teaching_task (course_id, primary_teacher_id, classroom_id, total_hours, notes, status)
+SELECT c.id, t.id, cr.id, 36, '上机实践课', 'ACTIVE'
+FROM course c, teacher t, classroom cr WHERE c.name='数据挖掘' AND t.employee_no='T1020' AND cr.name='08304';
+
+-- TT29: 编译原理 → 马超 → 软件1班+2班(24级) → 48h → 08303(100座阶梯)
+INSERT INTO teaching_task (course_id, primary_teacher_id, classroom_id, total_hours, notes, status)
+SELECT c.id, t.id, cr.id, 48, '合班授课，24级', 'ACTIVE'
+FROM course c, teacher t, classroom cr WHERE c.name='编译原理' AND t.employee_no='T1011' AND cr.name='08303';
+
+-- TT30: 嵌入式系统 → 林杰 → 计科1班(24级) → 48h → 08206(70座)
+INSERT INTO teaching_task (course_id, primary_teacher_id, classroom_id, total_hours, notes, status)
+SELECT c.id, t.id, cr.id, 48, '24级单独开班', 'ACTIVE'
+FROM course c, teacher t, classroom cr WHERE c.name='嵌入式系统' AND t.employee_no='T1013' AND cr.name='08206';
+
+-- TT31: 信息安全概论 → 叶枫 → 软件1班(24级) → 48h → 08207(70座)
+INSERT INTO teaching_task (course_id, primary_teacher_id, classroom_id, total_hours, notes, status)
+SELECT c.id, t.id, cr.id, 48, '24级单独开班', 'ACTIVE'
+FROM course c, teacher t, classroom cr WHERE c.name='信息安全概论' AND t.employee_no='T1017' AND cr.name='08207';
+
+-- TT32: 计算机图形学 → 黄丽 → 人工智能1班(24级) → 36h → 08105(60座机房)
+INSERT INTO teaching_task (course_id, primary_teacher_id, classroom_id, total_hours, notes, status)
+SELECT c.id, t.id, cr.id, 36, '上机实践课，24级', 'ACTIVE'
+FROM course c, teacher t, classroom cr WHERE c.name='计算机图形学' AND t.employee_no='T1012' AND cr.name='08105';
+
+-- TT33: 数字图像处理 → 何雪 → 人工智能2班(24级) → 36h → 08205(60座机房)
+INSERT INTO teaching_task (course_id, primary_teacher_id, classroom_id, total_hours, notes, status)
+SELECT c.id, t.id, cr.id, 36, '上机实践课，24级', 'ACTIVE'
+FROM course c, teacher t, classroom cr WHERE c.name='数字图像处理' AND t.employee_no='T1014' AND cr.name='08205';
+
+-- TT34: 分布式系统 → 胡刚 → 计科2班(24级) → 36h → 08206(70座)
+INSERT INTO teaching_task (course_id, primary_teacher_id, classroom_id, total_hours, notes, status)
+SELECT c.id, t.id, cr.id, 36, '24级单独开班', 'ACTIVE'
+FROM course c, teacher t, classroom cr WHERE c.name='分布式系统' AND t.employee_no='T1015' AND cr.name='08206';
+
+-- TT35: 软件测试 → 徐静 → 数据2班(24级) → 36h → 08205(60座机房)
+INSERT INTO teaching_task (course_id, primary_teacher_id, classroom_id, total_hours, notes, status)
+SELECT c.id, t.id, cr.id, 36, '上机实践课，24级', 'ACTIVE'
+FROM course c, teacher t, classroom cr WHERE c.name='软件测试' AND t.employee_no='T1016' AND cr.name='08205';
+
+-- TT36: 数据挖掘 → 沈婷 → 数据1班(24级) → 36h → 08105(60座机房)
+INSERT INTO teaching_task (course_id, primary_teacher_id, classroom_id, total_hours, notes, status)
+SELECT c.id, t.id, cr.id, 36, '上机实践课，24级', 'ACTIVE'
+FROM course c, teacher t, classroom cr WHERE c.name='数据挖掘' AND t.employee_no='T1020' AND cr.name='08105';
+
+-- ============================================================
+-- 扩展教学任务-班级关联
+-- ============================================================
+
+-- TT19: 编译原理 → 马超 → 软件1班(23级)
+INSERT IGNORE INTO teaching_task_class_group (teaching_task_id, class_group_id)
+SELECT tt.id, cg.id FROM teaching_task tt
+JOIN course c ON tt.course_id = c.id JOIN teacher t ON tt.primary_teacher_id = t.id
+CROSS JOIN class_group cg
+WHERE c.name='编译原理' AND t.employee_no='T1011' AND tt.notes IS NULL
+  AND cg.name='23级软件工程1班';
+
+-- TT20: 计算机图形学 → 黄丽 → 计科1班(23级)
+INSERT IGNORE INTO teaching_task_class_group (teaching_task_id, class_group_id)
+SELECT tt.id, cg.id FROM teaching_task tt
+JOIN course c ON tt.course_id = c.id JOIN teacher t ON tt.primary_teacher_id = t.id
+CROSS JOIN class_group cg
+WHERE c.name='计算机图形学' AND t.employee_no='T1012'
+  AND cg.name='23级计算机科学与技术1班';
+
+-- TT21: 嵌入式系统 → 林杰 → AI1+AI2(23级)
+INSERT IGNORE INTO teaching_task_class_group (teaching_task_id, class_group_id)
+SELECT tt.id, cg.id FROM teaching_task tt
+JOIN course c ON tt.course_id = c.id JOIN teacher t ON tt.primary_teacher_id = t.id
+CROSS JOIN class_group cg
+WHERE c.name='嵌入式系统' AND t.employee_no='T1013'
+  AND cg.name IN ('23级人工智能1班','23级人工智能2班');
+
+-- TT22: 数字图像处理 → 何雪 → 数据1班(23级)
+INSERT IGNORE INTO teaching_task_class_group (teaching_task_id, class_group_id)
+SELECT tt.id, cg.id FROM teaching_task tt
+JOIN course c ON tt.course_id = c.id JOIN teacher t ON tt.primary_teacher_id = t.id
+CROSS JOIN class_group cg
+WHERE c.name='数字图像处理' AND t.employee_no='T1014'
+  AND cg.name='23级数据科学与大数据技术1班';
+
+-- TT23: 分布式系统 → 胡刚 → 软件2班(23级)
+INSERT IGNORE INTO teaching_task_class_group (teaching_task_id, class_group_id)
+SELECT tt.id, cg.id FROM teaching_task tt
+JOIN course c ON tt.course_id = c.id JOIN teacher t ON tt.primary_teacher_id = t.id
+CROSS JOIN class_group cg
+WHERE c.name='分布式系统' AND t.employee_no='T1015'
+  AND cg.name='23级软件工程2班';
+
+-- TT24: 软件测试 → 徐静 → 软件1班(23级)
+INSERT IGNORE INTO teaching_task_class_group (teaching_task_id, class_group_id)
+SELECT tt.id, cg.id FROM teaching_task tt
+JOIN course c ON tt.course_id = c.id JOIN teacher t ON tt.primary_teacher_id = t.id
+CROSS JOIN class_group cg
+WHERE c.name='软件测试' AND t.employee_no='T1016'
+  AND cg.name='23级软件工程1班';
+
+-- TT25: 信息安全概论 → 叶枫 → 计科1+2(23级)
+INSERT IGNORE INTO teaching_task_class_group (teaching_task_id, class_group_id)
+SELECT tt.id, cg.id FROM teaching_task tt
+JOIN course c ON tt.course_id = c.id JOIN teacher t ON tt.primary_teacher_id = t.id
+CROSS JOIN class_group cg
+WHERE c.name='信息安全概论' AND t.employee_no='T1017'
+  AND cg.name IN ('23级计算机科学与技术1班','23级计算机科学与技术2班');
+
+-- TT26: 移动应用开发 → 罗敏 → 软件2班(23级)
+INSERT IGNORE INTO teaching_task_class_group (teaching_task_id, class_group_id)
+SELECT tt.id, cg.id FROM teaching_task tt
+JOIN course c ON tt.course_id = c.id JOIN teacher t ON tt.primary_teacher_id = t.id
+CROSS JOIN class_group cg
+WHERE c.name='移动应用开发' AND t.employee_no='T1018'
+  AND cg.name='23级软件工程2班';
+
+-- TT27: 云计算概论 → 邓辉 → 数据2班(23级)
+INSERT IGNORE INTO teaching_task_class_group (teaching_task_id, class_group_id)
+SELECT tt.id, cg.id FROM teaching_task tt
+JOIN course c ON tt.course_id = c.id JOIN teacher t ON tt.primary_teacher_id = t.id
+CROSS JOIN class_group cg
+WHERE c.name='云计算概论' AND t.employee_no='T1019'
+  AND cg.name='23级数据科学与大数据技术2班';
+
+-- TT28: 数据挖掘 → 沈婷 → 数据1班(23级)
+INSERT IGNORE INTO teaching_task_class_group (teaching_task_id, class_group_id)
+SELECT tt.id, cg.id FROM teaching_task tt
+JOIN course c ON tt.course_id = c.id JOIN teacher t ON tt.primary_teacher_id = t.id
+CROSS JOIN class_group cg
+WHERE c.name='数据挖掘' AND t.employee_no='T1020'
+  AND cg.name='23级数据科学与大数据技术1班';
+
+-- TT29: 编译原理 → 马超 → 软件1+2班(24级)
+INSERT IGNORE INTO teaching_task_class_group (teaching_task_id, class_group_id)
+SELECT tt.id, cg.id FROM teaching_task tt
+JOIN course c ON tt.course_id = c.id JOIN teacher t ON tt.primary_teacher_id = t.id
+CROSS JOIN class_group cg
+WHERE c.name='编译原理' AND t.employee_no='T1011' AND tt.notes='合班授课，24级'
+  AND cg.name IN ('24级软件工程1班','24级软件工程2班');
+
+-- TT30: 嵌入式系统 → 林杰 → 计科1班(24级)
+INSERT IGNORE INTO teaching_task_class_group (teaching_task_id, class_group_id)
+SELECT tt.id, cg.id FROM teaching_task tt
+JOIN course c ON tt.course_id = c.id JOIN teacher t ON tt.primary_teacher_id = t.id
+CROSS JOIN class_group cg
+WHERE c.name='嵌入式系统' AND t.employee_no='T1013' AND tt.notes='24级单独开班'
+  AND cg.name='24级计算机科学与技术1班';
+
+-- TT31: 信息安全概论 → 叶枫 → 软件1班(24级)
+INSERT IGNORE INTO teaching_task_class_group (teaching_task_id, class_group_id)
+SELECT tt.id, cg.id FROM teaching_task tt
+JOIN course c ON tt.course_id = c.id JOIN teacher t ON tt.primary_teacher_id = t.id
+CROSS JOIN class_group cg
+WHERE c.name='信息安全概论' AND t.employee_no='T1017' AND tt.notes='24级单独开班'
+  AND cg.name='24级软件工程1班';
+
+-- TT32: 计算机图形学 → 黄丽 → AI1班(24级)
+INSERT IGNORE INTO teaching_task_class_group (teaching_task_id, class_group_id)
+SELECT tt.id, cg.id FROM teaching_task tt
+JOIN course c ON tt.course_id = c.id JOIN teacher t ON tt.primary_teacher_id = t.id
+CROSS JOIN class_group cg
+WHERE c.name='计算机图形学' AND t.employee_no='T1012' AND tt.notes='上机实践课，24级'
+  AND cg.name='24级人工智能1班';
+
+-- TT33: 数字图像处理 → 何雪 → AI2班(24级)
+INSERT IGNORE INTO teaching_task_class_group (teaching_task_id, class_group_id)
+SELECT tt.id, cg.id FROM teaching_task tt
+JOIN course c ON tt.course_id = c.id JOIN teacher t ON tt.primary_teacher_id = t.id
+CROSS JOIN class_group cg
+WHERE c.name='数字图像处理' AND t.employee_no='T1014' AND tt.notes='上机实践课，24级'
+  AND cg.name='24级人工智能2班';
+
+-- TT34: 分布式系统 → 胡刚 → 计科2班(24级)
+INSERT IGNORE INTO teaching_task_class_group (teaching_task_id, class_group_id)
+SELECT tt.id, cg.id FROM teaching_task tt
+JOIN course c ON tt.course_id = c.id JOIN teacher t ON tt.primary_teacher_id = t.id
+CROSS JOIN class_group cg
+WHERE c.name='分布式系统' AND t.employee_no='T1015' AND tt.notes='24级单独开班'
+  AND cg.name='24级计算机科学与技术2班';
+
+-- TT35: 软件测试 → 徐静 → 数据2班(24级)
+INSERT IGNORE INTO teaching_task_class_group (teaching_task_id, class_group_id)
+SELECT tt.id, cg.id FROM teaching_task tt
+JOIN course c ON tt.course_id = c.id JOIN teacher t ON tt.primary_teacher_id = t.id
+CROSS JOIN class_group cg
+WHERE c.name='软件测试' AND t.employee_no='T1016' AND tt.notes='上机实践课，24级'
+  AND cg.name='24级数据科学与大数据技术2班';
+
+-- TT36: 数据挖掘 → 沈婷 → 数据1班(24级)
+INSERT IGNORE INTO teaching_task_class_group (teaching_task_id, class_group_id)
+SELECT tt.id, cg.id FROM teaching_task tt
+JOIN course c ON tt.course_id = c.id JOIN teacher t ON tt.primary_teacher_id = t.id
+CROSS JOIN class_group cg
+WHERE c.name='数据挖掘' AND t.employee_no='T1020' AND tt.notes='上机实践课，24级'
+  AND cg.name='24级数据科学与大数据技术1班';
+
+COMMIT;

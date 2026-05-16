@@ -12,5 +12,6 @@ server/ml/.venv/
 server/ml/data/*.csv
 server/ml/data/*.json
 server/ml/data/generated_schemes/
+server/ml/data/feedback_exports/
 server/ml/models/*.txt
 server/ml/models/*.pkl
