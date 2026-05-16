@@ -47,7 +47,7 @@ public class TeacherProfileVectorService {
 			log.error("vectorText is empty for profile id={}", profile.getId());
 			throw new ValidationException("教师画像文本不能为空");
 		}
-		log.info("embedding vectorText=[{}]...", profile.getVectorText());
+		log.debug("embedding vectorText=[{}]...", profile.getVectorText());
 		List<Double> vector = embeddingClient.embed(profile.getVectorText());
 		log.info("embedding done, vector size={}", vector.size());
 		log.info("upserting to Qdrant... profileId={}", profile.getId());

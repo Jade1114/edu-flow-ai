@@ -32,16 +32,11 @@ public class MlFeedbackTrainingService {
 	}
 
 	public MlFeedbackExportResult exportFeedback(Long taskId) {
-		try {
-			Path serverDir = resolveServerDir();
-			Path exportDir = serverDir.resolve("ml/data/feedback_exports");
-			String suffix = taskId == null ? "all" : "task_" + taskId;
-			Path exportPath = exportDir.resolve("feedback_" + suffix + "_" + FILE_TIME_FORMAT.format(LocalDateTime.now()) + ".json");
-			return exportFeedback(taskId, exportPath, null);
-		} catch (Exception e) {
-			log.error("exportFeedback failed: {}", e.getMessage(), e);
-			throw e;
-		}
+		Path serverDir = resolveServerDir();
+		Path exportDir = serverDir.resolve("ml/data/feedback_exports");
+		String suffix = taskId == null ? "all" : "task_" + taskId;
+		Path exportPath = exportDir.resolve("feedback_" + suffix + "_" + FILE_TIME_FORMAT.format(LocalDateTime.now()) + ".json");
+		return exportFeedback(taskId, exportPath, null);
 	}
 
 	public MlTrainingStatusResult train(Long taskId) {
@@ -121,35 +116,22 @@ public class MlFeedbackTrainingService {
 	}
 
 	public List<Map<String, Object>> getTrainingLogs(int limit) {
-		try {
-			return mapper.findTrainingLogs(limit);
-		} catch (Exception e) {
-			log.error("getTrainingLogs failed: {}", e.getMessage(), e);
-			throw e;
-		}
+		return mapper.findTrainingLogs(limit);
 	}
 
 	public Map<String, Object> getLatestTrainingLog() {
-		try {
-			return mapper.findLatestTrainingLog();
-		} catch (Exception e) {
-			log.error("getLatestTrainingLog failed: {}", e.getMessage(), e);
-			throw e;
-		}
+		return mapper.findLatestTrainingLog();
 	}
 
 	private MlFeedbackExportResult exportFeedback(Long taskId, Path exportPath, Path samplePath) {
-		log.info("exportFeedback taskId={}, exportPath={}", taskId, exportPath);
+		log.debug("exportFeedback taskId={}, exportPath={}", taskId, exportPath);
 		List<Map<String, Object>> schemes = mapper.findSchemes(taskId);
-		log.info("  schemes: {} rows", schemes.size());
 		List<Map<String, Object>> items = mapper.findItems(taskId);
-		log.info("  items: {} rows", items.size());
 		List<Map<String, Object>> feedback = mapper.findFeedback(taskId);
-		log.info("  feedback: {} rows", feedback.size());
 		List<Map<String, Object>> adjustments = mapper.findAdjustmentLogs(taskId);
-		log.info("  adjustments: {} rows", adjustments.size());
 		List<Map<String, Object>> conflicts = mapper.findConflicts(taskId);
-		log.info("  conflicts: {} rows", conflicts.size());
+		log.debug("exportFeedback done: schemes={}, items={}, feedback={}, adjustments={}, conflicts={}",
+			schemes.size(), items.size(), feedback.size(), adjustments.size(), conflicts.size());
 
 		Map<String, Object> payload = new LinkedHashMap<>();
 		payload.put("taskId", taskId);

@@ -72,7 +72,8 @@ public class PolicyTranslateController {
 			Map<String, Object> response = new LinkedHashMap<>();
 			response.put("policyParams", result.get("policyParams"));
 			response.put("interpretation", result.getOrDefault("interpretation", "已根据您的需求生成排课策略参数"));
-			log.info("Policy translation: policyType={}, interpretation={}", policyType, result.get("interpretation"));
+			log.info("Policy translation: policyType={}, requirement={}, params={}, interpretation={}",
+				policyType, extraRequirement, result.get("policyParams"), result.get("interpretation"));
 			return ApiResponse.success(response);
 		} catch (Exception e) {
 			log.error("Policy translation failed", e);

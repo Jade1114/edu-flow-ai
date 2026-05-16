@@ -17,12 +17,7 @@ mybatis:
     map-underscore-to-camel-case: true
   type-handlers-package: com.yuy.eduflow.enums
 
-logging:
-  level:
-    com.yuy.eduflow: INFO
-    org.mybatis: WARN
-    java.sql: WARN
-
+# logging 交由 logback-spring.xml 统一管理
 server:
   port: ${SERVER_PORT:8080}
 
