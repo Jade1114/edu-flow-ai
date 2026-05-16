@@ -27,6 +27,12 @@ let generationSource = null;
 const topK = ref(5);
 const policy = ref('BALANCED');
 
+// === 反馈训练 ===
+const feedbackStats = ref(null);
+const feedbackLoading = ref(false);
+const training = ref(false);
+const trainResult = ref(null);
+
 const policyOptions = [
   { value: 'BALANCED', label: '综合平衡' },
   { value: 'TEACHER_FRIENDLY', label: '教师友好' },
@@ -45,6 +51,38 @@ async function loadTeachingTasks() {
   teachingTasks.value = await request.get(
     `/api/teaching-tasks?status=${ActiveStatus.ACTIVE}`,
   );
+}
+
+async function loadFeedbackStats(taskId) {
+  feedbackLoading.value = true;
+  try {
+    const params = taskId ? `?taskId=${taskId}` : '';
+    feedbackStats.value = await request.get(`/api/ml/feedback/export${params}`);
+  } catch (e) {
+    ElMessage.error('加载反馈数据失败');
+  } finally {
+    feedbackLoading.value = false;
+  }
+}
+
+async function triggerRetrain(taskId) {
+  training.value = true;
+  trainResult.value = { status: 'RUNNING', message: '正在导出反馈数据...' };
+  try {
+    const params = taskId ? `?taskId=${taskId}` : '';
+    const result = await request.post(`/api/ml/feedback/train${params}`);
+    trainResult.value = result;
+    if (result.status === 'SUCCEEDED') {
+      ElMessage.success(`训练完成！${result.sampleCount || 0} 条样本已生成`);
+    } else {
+      ElMessage.error(`训练失败: ${result.message}`);
+    }
+  } catch (e) {
+    trainResult.value = { status: 'FAILED', message: e.message || '请求失败' };
+    ElMessage.error('重训请求失败');
+  } finally {
+    training.value = false;
+  }
 }
 
 function openTaskDialog(row) {
@@ -482,6 +520,42 @@ onUnmounted(() => {
         size="small"
         style="width: 100px"
       />
+    </div>
+
+    <!-- 反馈训练面板 -->
+    <div style="margin: 12px 0; padding: 12px 16px; border: 1px solid var(--el-border-color-light, #dcdfe6); border-radius: 8px; background: var(--el-fill-color-lighter, #fafafa); display: flex; gap: 16px; align-items: center; flex-wrap: wrap">
+      <span style="font-weight: 600; font-size: 14px; color: #303133">🔄 反馈训练</span>
+      <el-button size="small" @click="loadFeedbackStats(currentTaskId)" :loading="feedbackLoading">
+        查看反馈数据
+      </el-button>
+      <el-button
+        size="small"
+        type="warning"
+        @click="triggerRetrain(currentTaskId)"
+        :loading="training"
+        :disabled="training"
+      >
+        重训模型
+      </el-button>
+      <template v-if="feedbackStats">
+        <el-divider direction="vertical" />
+        <div style="display: flex; gap: 14px; font-size: 13px; flex-wrap: wrap">
+          <span>方案 <strong>{{ feedbackStats.schemeCount }}</strong></span>
+          <span>明细 <strong>{{ feedbackStats.itemCount }}</strong></span>
+          <span>反馈 <strong>{{ feedbackStats.feedbackCount }}</strong></span>
+          <span>调整 <strong>{{ feedbackStats.adjustmentCount }}</strong></span>
+          <span>冲突 <strong>{{ feedbackStats.conflictCount }}</strong></span>
+        </div>
+      </template>
+      <template v-if="trainResult">
+        <el-divider direction="vertical" />
+        <el-tag
+          :type="trainResult.status === 'SUCCEEDED' ? 'success' : trainResult.status === 'FAILED' ? 'danger' : 'warning'"
+          size="small"
+        >
+          {{ trainResult.status === 'RUNNING' ? '训练中...' : trainResult.status === 'SUCCEEDED' ? `训练完成 · ${trainResult.sampleCount || 0} 样本` : `失败: ${trainResult.message}` }}
+        </el-tag>
+      </template>
     </div>
 
     <el-table :data="tasks" border size="small">

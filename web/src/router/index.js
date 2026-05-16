@@ -28,7 +28,7 @@ const router = createRouter({
         { path: 'dashboard', name: 'AdminDashboard', component: () => import('@/views/admin/DashboardView.vue') },
         { path: 'basic-data', name: 'AdminBasicData', component: () => import('@/views/admin/BasicDataView.vue') },
         { path: 'allocation', name: 'AdminAllocation', component: () => import('@/views/admin/AllocationView.vue') },
-        { path: 'ai-schedule-compare', name: 'AdminAiScheduleCompare', component: () => import('@/views/admin/AiScheduleCompareView.vue') },
+        { path: 'model-training', name: 'AdminModelTraining', component: () => import('@/views/admin/ModelTrainingView.vue') },
         { path: 'timetable', name: 'AdminTimetable', component: () => import('@/views/admin/TimetableView.vue') },
         { path: 'adjustment', name: 'AdminAdjustment', component: () => import('@/views/admin/AdjustmentView.vue') },
       ],
