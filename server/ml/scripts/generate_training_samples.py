@@ -235,6 +235,74 @@ def fetch_time_slots(connection) -> list[dict[str, Any]]:
     )
 
 
+def fetch_teacher_profiles(connection) -> dict[int, dict[str, object]]:
+    """Return {teacher_id: {unavailable_slots, max_weekly_hours}}."""
+    rows = fetch_all(
+        connection,
+        """
+        SELECT p.teacher_id, p.unavailable_time_text, p.workload_requirement,
+               t.max_weekly_hours
+        FROM teacher_profile p
+        JOIN teacher t ON t.id = p.teacher_id
+        WHERE t.status = 'ACTIVE'
+        """,
+    )
+    profiles: dict[int, dict[str, object]] = {}
+    for row in rows:
+        tid = int(row["teacher_id"])
+        unavailable = parse_unavailable_time(row.get("unavailable_time_text") or "")
+        max_hours = parse_workload_max_hours(row.get("workload_requirement") or "")
+        # Fallback to teacher.max_weekly_hours if profile doesn't specify
+        if max_hours is None:
+            db_max = row.get("max_weekly_hours")
+            max_hours = int(db_max) if db_max is not None else None
+        profiles[tid] = {
+            "unavailable_slots": unavailable,
+            "max_weekly_hours": max_hours,
+        }
+    return profiles
+
+
+def parse_unavailable_time(text: str) -> set[tuple[int, int]]:
+    """Parse '周一全天、周三上午' → {(1,1),(1,2)...(3,1),(3,2)}."""
+    slots: set[tuple[int, int]] = set()
+    if not text or not text.strip():
+        return slots
+    DAY_MAP: dict[str, int] = {
+        "周一": 1, "周二": 2, "周三": 3, "周四": 4,
+        "周五": 5, "周六": 6, "周日": 7,
+    }
+    TIME_MAP: dict[str, tuple[int, ...]] = {
+        "全天": (1, 2, 3, 4, 5),
+        "上午": (1, 2),
+        "下午": (3, 4, 5),
+    }
+    for part in text.replace("、", ",").split(","):
+        part = part.strip()
+        if not part:
+            continue
+        for day_name, day_idx in DAY_MAP.items():
+            if day_name in part:
+                remainder = part.replace(day_name, "").strip()
+                periods = TIME_MAP.get(remainder, (1, 2, 3, 4, 5))
+                for p in periods:
+                    slots.add((day_idx, p))
+                break
+    return slots
+
+
+def parse_workload_max_hours(text: str) -> int | None:
+    """Parse '希望每周不超过 8 课时' → 8."""
+    import re
+    m = re.search(r'(\d+)\s*课时', text)
+    if m:
+        return int(m.group(1))
+    m = re.search(r'不超过\s*(\d+)', text)
+    if m:
+        return int(m.group(1))
+    return None
+
+
 def parse_id_tuple(raw_ids: str | None) -> tuple[int, ...]:
     if not raw_ids:
         return ()

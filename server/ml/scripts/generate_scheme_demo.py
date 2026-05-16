@@ -28,6 +28,7 @@ from generate_training_samples import (
     effective_required_room_type,
     fetch_classrooms,
     fetch_tasks,
+    fetch_teacher_profiles,
     fetch_time_slots,
     is_room_type_match,
     load_db_config,
@@ -331,7 +332,14 @@ def shortlist_candidates(candidates: list[dict[str, Any]], pool_size: int, rng: 
     )[:pool_size]
 
 
-def apply_selection_scores(candidates: list[dict[str, Any]], rng: random.Random, policy: dict[str, float], task_classroom_id: int | None = None) -> None:
+def apply_selection_scores(
+    candidates: list[dict[str, Any]],
+    rng: random.Random,
+    policy: dict[str, float],
+    task_classroom_id: int | None = None,
+    teacher_id: int | None = None,
+    teacher_profiles: dict[int, dict[str, object]] | None = None,
+) -> None:
     for candidate in candidates:
         distribution_penalty = (
             candidate["scheme_day_load"] * policy["weekday_load_penalty"]
@@ -350,7 +358,26 @@ def apply_selection_scores(candidates: list[dict[str, Any]], rng: random.Random,
             if candidate_room == task_classroom_id:
                 stickiness_bonus = float(policy.get("classroom_stickiness_bonus", 0.0))
 
+        # Teacher profile penalty: unavailable time → -0.05, preferred → +0.01
+        teacher_profile_penalty = 0.0
+        if teacher_id is not None and teacher_profiles is not None:
+            profile = teacher_profiles.get(teacher_id)
+            if profile is not None:
+                unavailable_slots = profile.get("unavailable_slots", set())
+                if isinstance(unavailable_slots, set):
+                    day = int(candidate.get("day_of_week", 0))
+                    period = int(candidate.get("period_index", 0))
+                    if (day, period) in unavailable_slots:
+                        teacher_profile_penalty = 0.05
+                # Workload penalty: exceed preferred max → -0.03
+                preferred_max = profile.get("max_weekly_hours")
+                if preferred_max is not None:
+                    current_week_hours = int(candidate.get("teacher_week_load", 0))
+                    if current_week_hours + 1 > int(preferred_max):
+                        teacher_profile_penalty += 0.03
+
         candidate["distribution_penalty"] = round(distribution_penalty + weekend_penalty + early_penalty + late_penalty, 6)
+        candidate["teacher_profile_penalty"] = round(teacher_profile_penalty, 4)
         candidate["selection_score"] = max(
             0.0,
             float(candidate["predicted_score"])
@@ -358,6 +385,7 @@ def apply_selection_scores(candidates: list[dict[str, Any]], rng: random.Random,
             - candidate["distribution_penalty"]
             + compact_bonus
             + stickiness_bonus
+            - teacher_profile_penalty
             + rng.random() * policy["random_jitter"],
         )
 
@@ -370,6 +398,8 @@ def rank_candidates(
     rng: random.Random,
     policy: dict[str, float],
     task_classroom_id: int | None = None,
+    teacher_id: int | None = None,
+    teacher_profiles: dict[int, dict[str, object]] | None = None,
 ) -> list[dict[str, Any]]:
     if not candidates:
         return []
@@ -377,7 +407,7 @@ def rank_candidates(
     predictions = np.clip(booster.predict(features), 0.0, 1.0)
     for candidate, predicted_score in zip(candidates, predictions):
         candidate["predicted_score"] = float(predicted_score)
-    apply_selection_scores(candidates, rng, policy, task_classroom_id)
+    apply_selection_scores(candidates, rng, policy, task_classroom_id, teacher_id, teacher_profiles)
 
     return sorted(
         candidates,
@@ -405,9 +435,14 @@ def choose_candidate(
     candidate_pool_size: int,
     policy: dict[str, float],
     task_classroom_id: int | None = None,
+    teacher_id: int | None = None,
+    teacher_profiles: dict[int, dict[str, object]] | None = None,
 ) -> dict[str, Any] | None:
     candidates = shortlist_candidates(candidates, candidate_pool_size, rng, policy)
-    ranked = rank_candidates(booster=booster, schema=schema, candidates=candidates, rng=rng, policy=policy, task_classroom_id=task_classroom_id)
+    ranked = rank_candidates(
+        booster=booster, schema=schema, candidates=candidates, rng=rng, policy=policy,
+        task_classroom_id=task_classroom_id, teacher_id=teacher_id, teacher_profiles=teacher_profiles,
+    )
     if not ranked:
         return None
     if strategy == "greedy":
@@ -453,6 +488,7 @@ def generate_scheme(
     tasks: list[dict[str, Any]],
     classrooms: list[dict[str, Any]],
     time_slots: list[dict[str, Any]],
+    teacher_profiles: dict[int, dict[str, object]],
     booster: lgb.Booster,
     schema: dict[str, Any],
     max_tasks: int | None,
@@ -492,6 +528,8 @@ def generate_scheme(
                 candidate_pool_size=candidate_pool_size,
                 policy=policy,
                 task_classroom_id=task_classroom,
+                teacher_id=teacher_id,
+                teacher_profiles=teacher_profiles,
             )
             if best is None:
                 continue
@@ -614,6 +652,7 @@ def main() -> None:
         tasks = fetch_tasks(connection)
         classrooms = fetch_classrooms(connection)
         time_slots = fetch_time_slots(connection)
+        teacher_profiles = fetch_teacher_profiles(connection)
 
     tasks = filter_tasks(tasks, parse_teaching_task_ids(args.teaching_task_ids))
     time_slots = filter_time_slots(time_slots, args.start_week, args.end_week)
@@ -633,6 +672,7 @@ def main() -> None:
             tasks=tasks,
             classrooms=classrooms,
             time_slots=time_slots,
+            teacher_profiles=teacher_profiles,
             booster=booster,
             schema=schema,
             max_tasks=args.max_tasks,
@@ -656,6 +696,7 @@ def main() -> None:
             tasks=tasks,
             classrooms=classrooms,
             time_slots=time_slots,
+            teacher_profiles=teacher_profiles,
             booster=booster,
             schema=schema,
             max_tasks=args.max_tasks,
