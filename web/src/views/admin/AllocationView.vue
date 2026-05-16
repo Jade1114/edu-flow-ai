@@ -34,12 +34,86 @@ const training = ref(false);
 const trainResult = ref(null);
 
 const policyOptions = [
-  { value: 'BALANCED', label: '综合平衡' },
-  { value: 'TEACHER_FRIENDLY', label: '教师友好' },
-  { value: 'CLASS_BALANCED', label: '班级均衡' },
-  { value: 'ROOM_EFFICIENT', label: '教室利用' },
-  { value: 'COMPACT', label: '紧凑排课' },
+  { value: 'BALANCED', label: '综合平衡', desc: '均衡所有维度的默认策略' },
+  { value: 'TEACHER_FRIENDLY', label: '教师友好', desc: '避免早课和晚课，减少教师单日过载' },
+  { value: 'CLASS_BALANCED', label: '班级均衡', desc: '强调班级每日课时均匀分布' },
+  { value: 'ROOM_EFFICIENT', label: '教室利用', desc: '最大化教室使用效率，减少空闲' },
+  { value: 'COMPACT', label: '紧凑排课', desc: '压缩到更少天数，留出整块空闲' },
 ];
+
+// === 预设权重（与 Python POLICY_PROFILES 保持一致）===
+const PRESET_WEIGHTS = {
+  BALANCED: {
+    weekend_penalty: 0.01, weekday_load_penalty: 0.008, room_day_load_penalty: 0.005,
+    room_week_load_penalty: 0.002, task_day_load_penalty: 0.012,
+    early_period_penalty: 0.012, late_period_penalty: 0.008,
+    compact_bonus_weight: 0.0, random_jitter: 0.002,
+    classroom_stickiness_bonus: 0.006,
+  },
+  TEACHER_FRIENDLY: {
+    weekend_penalty: 0.015, weekday_load_penalty: 0.006, room_day_load_penalty: 0.004,
+    room_week_load_penalty: 0.001, task_day_load_penalty: 0.025,
+    early_period_penalty: 0.04, late_period_penalty: 0.03,
+    compact_bonus_weight: 0.0, random_jitter: 0.001,
+    classroom_stickiness_bonus: 0.004,
+  },
+  CLASS_BALANCED: {
+    weekend_penalty: 0.01, weekday_load_penalty: 0.012, room_day_load_penalty: 0.004,
+    room_week_load_penalty: 0.001, task_day_load_penalty: 0.008,
+    early_period_penalty: 0.01, late_period_penalty: 0.01,
+    compact_bonus_weight: 0.0, random_jitter: 0.002,
+    classroom_stickiness_bonus: 0.005,
+  },
+  ROOM_EFFICIENT: {
+    weekend_penalty: 0.01, weekday_load_penalty: 0.002, room_day_load_penalty: 0.025,
+    room_week_load_penalty: 0.01, task_day_load_penalty: 0.005,
+    early_period_penalty: 0.005, late_period_penalty: 0.005,
+    compact_bonus_weight: 0.0, random_jitter: 0.003,
+    classroom_stickiness_bonus: 0.008,
+  },
+  COMPACT: {
+    weekend_penalty: 0.005, weekday_load_penalty: 0.002, room_day_load_penalty: 0.008,
+    room_week_load_penalty: 0.002, task_day_load_penalty: 0.01,
+    early_period_penalty: 0.005, late_period_penalty: 0.005,
+    compact_bonus_weight: 0.015, random_jitter: 0.002,
+    classroom_stickiness_bonus: 0.003,
+  },
+};
+
+const weightLabels = {
+  weekday_load_penalty: '星期均衡惩罚',
+  room_day_load_penalty: '教室日负载',
+  room_week_load_penalty: '教室周负载',
+  task_day_load_penalty: '单日集中惩罚',
+  early_period_penalty: '早课惩罚',
+  late_period_penalty: '晚课惩罚',
+  compact_bonus_weight: '紧凑奖励',
+  random_jitter: '随机扰动',
+  classroom_stickiness_bonus: '教室粘性奖励',
+  weekend_penalty: '周末惩罚',
+};
+
+const weightDescs = {
+  weekday_load_penalty: '每天课时分布不均的惩罚力度，越大越均匀',
+  room_day_load_penalty: '同一教室单日过度使用的惩罚',
+  room_week_load_penalty: '同一教室整周过度使用的惩罚',
+  task_day_load_penalty: '同一教学任务集中在同一天的惩罚',
+  early_period_penalty: '安排在早课（第1-2节）的惩罚',
+  late_period_penalty: '安排在晚课（第4-5节）的惩罚',
+  compact_bonus_weight: '压缩在更少天数完成的奖励',
+  random_jitter: '随机扰动，打破重复模式的微小噪声',
+  classroom_stickiness_bonus: '同一教学任务保持在同教室的奖励，越大越不换教室',
+  weekend_penalty: '周六/周日排课的惩罚，越大越避免周末排课',
+};
+
+// === 策略弹窗 ===
+const policyDialogVisible = ref(false);
+const pendingTaskId = ref(null);
+const customRequirement = ref('');
+const translating = ref(false);
+const customWeights = ref(null);
+const policyMode = ref('preset'); // 'preset' | 'custom'
+const activePolicy = ref('BALANCED');
 
 const teachingTasks = ref([]);
 
@@ -175,14 +249,81 @@ async function generateSchemes(taskId) {
   genStatus.value = { stage: "running", status: "RUNNING", message: "开始生成..." };
   currentTaskId.value = taskId;
 
+  const params = new URLSearchParams({ topK: topK.value, policy: policy.value });
+  if (customWeights.value) {
+    params.append('policyParams', JSON.stringify(customWeights.value));
+  }
   try {
-    await request.post(`/api/allocation-tasks/${taskId}/generate-async?topK=${topK.value}&policy=${policy.value}`);
+    await request.post(`/api/allocation-tasks/${taskId}/generate-async?${params.toString()}`);
     startSse(taskId);
   } catch (e) {
     generating.value = false;
     genStatus.value = { stage: "error", status: "FAILED", message: e.message };
     ElMessage.error("启动生成失败");
   }
+}
+
+// === 策略弹窗 ===
+function openPolicyDialog(taskId) {
+  pendingTaskId.value = taskId;
+  activePolicy.value = policy.value;
+  policyMode.value = 'preset';
+  customRequirement.value = '';
+  customWeights.value = null;
+  policyDialogVisible.value = true;
+}
+
+function selectPreset(preset) {
+  activePolicy.value = preset;
+  policyMode.value = 'preset';
+  customWeights.value = null;
+}
+
+async function translatePolicy() {
+  if (!customRequirement.value.trim()) {
+    ElMessage.warning('请输入排课需求描述');
+    return;
+  }
+  translating.value = true;
+  try {
+    const result = await request.post('/api/param/translate', {
+      policyType: activePolicy.value,
+      extraRequirement: customRequirement.value.trim(),
+    });
+    if (result && result.policyParams) {
+      customWeights.value = result.policyParams;
+      policyMode.value = 'custom';
+      ElMessage.success('LLM 已生成策略权重');
+      if (result.interpretation) {
+        ElMessage.info(result.interpretation);
+      }
+    } else {
+      ElMessage.error('LLM 未返回有效权重');
+    }
+  } catch (e) {
+    ElMessage.error('策略翻译失败: ' + (e.message || '未知错误'));
+  } finally {
+    translating.value = false;
+  }
+}
+
+function resetToPreset() {
+  policyMode.value = 'preset';
+  customWeights.value = null;
+  customRequirement.value = '';
+}
+
+function displayedWeights() {
+  if (policyMode.value === 'custom' && customWeights.value) {
+    return customWeights.value;
+  }
+  return PRESET_WEIGHTS[activePolicy.value] || PRESET_WEIGHTS.BALANCED;
+}
+
+function confirmGenerate() {
+  policy.value = activePolicy.value;
+  policyDialogVisible.value = false;
+  generateSchemes(pendingTaskId.value);
 }
 
 function stageLabel(stage) {
@@ -581,9 +722,8 @@ onUnmounted(() => {
           <el-button
             type="success"
             size="small"
-            :loading="generating"
             :disabled="generating"
-            @click="generateSchemes(row.id)"
+            @click="openPolicyDialog(row.id)"
           >
             {{ generating ? (genStatus?.stage ? stageLabel(genStatus.stage) : '生成中...') : '生成方案' }}
           </el-button>
@@ -593,6 +733,84 @@ onUnmounted(() => {
         </template>
       </el-table-column>
     </el-table>
+
+    <!-- Policy Dialog -->
+    <el-dialog
+      v-model="policyDialogVisible"
+      title="选择排课策略"
+      width="680px"
+      :close-on-click-modal="false"
+    >
+      <!-- 预设选择 -->
+      <div style="margin-bottom: 16px">
+        <div style="font-weight: 600; margin-bottom: 10px; color: #303133">预设策略</div>
+        <el-radio-group v-model="activePolicy" @change="selectPreset" style="display: flex; flex-wrap: wrap; gap: 8px">
+          <el-radio-button
+            v-for="opt in policyOptions"
+            :key="opt.value"
+            :value="opt.value"
+            :disabled="translating"
+          >
+            {{ opt.label }}
+          </el-radio-button>
+        </el-radio-group>
+        <div style="margin-top: 6px; font-size: 12px; color: #909399">
+          {{ policyOptions.find(o => o.value === activePolicy)?.desc || '' }}
+        </div>
+      </div>
+
+      <!-- LLM 翻译 -->
+      <el-divider content-position="left">LLM 自定义权重</el-divider>
+      <div style="display: flex; gap: 8px; margin-bottom: 8px">
+        <el-input
+          v-model="customRequirement"
+          placeholder="如：减少上午排课，实验课集中周三周四，张明老师不要周五下午"
+          :disabled="translating"
+          style="flex: 1"
+          @keyup.enter="translatePolicy"
+        />
+        <el-button type="primary" :loading="translating" @click="translatePolicy">
+          翻译
+        </el-button>
+      </div>
+      <div v-if="policyMode === 'custom'" style="display: flex; align-items: center; gap: 8px; margin-bottom: 12px">
+        <el-tag type="warning" size="small">LLM 自定义权重</el-tag>
+        <el-button size="small" text @click="resetToPreset">恢复预设</el-button>
+      </div>
+
+      <!-- 权重展示 -->
+      <div style="background: #f8fafc; border-radius: 8px; padding: 14px 16px">
+        <div style="font-weight: 600; font-size: 13px; color: #303133; margin-bottom: 10px">
+          {{ policyMode === 'custom' ? '当前权重（LLM 生成）' : '当前权重（预设）' }}
+        </div>
+        <div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px">
+          <div
+            v-for="(val, key) in displayedWeights()"
+            :key="key"
+            :title="weightDescs[key] || key"
+            style="display: flex; justify-content: space-between; align-items: center; padding: 5px 8px; border-radius: 6px; background: #fff; font-size: 12px"
+          >
+            <span style="color: #606266">{{ weightLabels[key] || key }}</span>
+            <span
+              :style="{
+                fontWeight: 700,
+                color: policyMode === 'custom' ? '#e6a23c' : '#409eff',
+                fontSize: '13px'
+              }"
+            >
+              {{ typeof val === 'number' ? val.toFixed(3) : val }}
+            </span>
+          </div>
+        </div>
+      </div>
+
+      <template #footer>
+        <el-button @click="policyDialogVisible = false">取消</el-button>
+        <el-button type="primary" @click="confirmGenerate" :disabled="translating">
+          确认生成
+        </el-button>
+      </template>
+    </el-dialog>
 
     <!-- Task Dialog -->
     <el-dialog
