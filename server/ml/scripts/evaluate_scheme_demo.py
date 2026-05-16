@@ -23,6 +23,7 @@ ROOT_DIR = Path(__file__).resolve().parents[1]
 SCHEME_PATH = ROOT_DIR / "data" / "generated_scheme_demo.csv"
 SCHEME_DIR = ROOT_DIR / "data" / "generated_schemes"
 RANKED_SUMMARY_PATH = SCHEME_DIR / "ranked_summary.csv"
+LOG_PREFIX = "[SCHEDULE-EVAL]"
 
 RANKED_SUMMARY_COLUMNS = [
     "rank",
@@ -31,6 +32,7 @@ RANKED_SUMMARY_COLUMNS = [
     "fragment_count",
     "task_count",
     "hard_conflict_count",
+    "hard_conflict_rate",
     "early_period_count",
     "late_period_count",
     "avg_predicted_score",
@@ -45,6 +47,9 @@ RANKED_SUMMARY_COLUMNS = [
     "teacher_week_load_max",
     "class_week_load_max",
     "room_week_load_max",
+    "teacher_satisfaction",
+    "teacher_unavailable_hit_count",
+    "teacher_overload_count",
     "weekday_distribution",
     "period_distribution",
     "top_rooms",
@@ -56,6 +61,7 @@ class SchemeMetrics:
     fragment_count: int
     task_count: int
     hard_conflict_count: int
+    hard_conflict_rate: float
     early_period_count: int
     late_period_count: int
     avg_predicted_score: float
@@ -70,6 +76,9 @@ class SchemeMetrics:
     teacher_week_load_max: int
     class_week_load_max: int
     room_week_load_max: int
+    teacher_satisfaction: float
+    teacher_unavailable_hit_count: int
+    teacher_overload_count: int
     scheme_score: float
 
 
@@ -78,6 +87,13 @@ class SchemeDistribution:
     weekday_distribution: dict[int, int]
     period_distribution: dict[int, int]
     top_rooms: dict[str, int]
+
+
+def log_eval(message: str, payload: Any | None = None) -> None:
+    if payload is None:
+        print(f"{LOG_PREFIX} {message}", flush=True)
+        return
+    print(f"{LOG_PREFIX} {message}: {json.dumps(payload, ensure_ascii=False, default=str)}", flush=True)
 
 
 def load_scheme(path: Path) -> list[dict[str, Any]]:
@@ -121,7 +137,81 @@ def build_distribution(rows: list[dict[str, Any]]) -> SchemeDistribution:
     )
 
 
-def evaluate_scheme(rows: list[dict[str, Any]]) -> SchemeMetrics:
+def load_teacher_penalties(path: Path | None) -> dict[str, dict[str, Any]]:
+    if path is None or not path.exists():
+        log_eval("教师画像惩罚未传入，满意度按满分处理", {"path": str(path) if path else None})
+        return {}
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    raw_penalties = payload.get("teacher_penalties", payload)
+    if not isinstance(raw_penalties, dict):
+        log_eval("教师画像惩罚 JSON 格式无效，满意度按满分处理", {"path": str(path)})
+        return {}
+    penalties = {str(key): value for key, value in raw_penalties.items() if isinstance(value, dict)}
+    log_eval("教师画像惩罚加载完成", {
+        "path": str(path),
+        "teacher_count": len(penalties),
+        "teachers": [
+            {
+                "teacher_id": key,
+                "unavailable_slots": value.get("unavailable_slots") or [],
+                "max_weekly_hours": value.get("max_weekly_hours"),
+                "penalty_weight": value.get("penalty_weight"),
+                "reason": value.get("reason"),
+            }
+            for key, value in sorted(penalties.items())
+        ],
+    })
+    return penalties
+
+
+def normalized_slots(raw_slots: Any) -> set[tuple[int, int]]:
+    slots: set[tuple[int, int]] = set()
+    if not raw_slots:
+        return slots
+    for slot in raw_slots:
+        if isinstance(slot, (list, tuple)) and len(slot) >= 2:
+            try:
+                slots.add((int(slot[0]), int(slot[1])))
+            except (TypeError, ValueError):
+                continue
+    return slots
+
+
+def compute_teacher_satisfaction(
+    rows: list[dict[str, Any]],
+    penalties: dict[str, dict[str, Any]],
+    teacher_week_load: Counter[tuple[str, int]],
+) -> tuple[float, int, int]:
+    if not rows or not penalties:
+        return 100.0, 0, 0
+    unavailable_hit_count = 0
+    for row in rows:
+        teacher_id = str(row.get("teacher_id") or row.get("teaching_task_id"))
+        penalty = penalties.get(teacher_id)
+        if not penalty:
+            continue
+        if (as_int(row, "day_of_week"), as_int(row, "period_index")) in normalized_slots(penalty.get("unavailable_slots")):
+            unavailable_hit_count += 1
+
+    overloaded_teachers: set[str] = set()
+    for (teacher_id, _week_number), load in teacher_week_load.items():
+        penalty = penalties.get(str(teacher_id))
+        if not penalty or penalty.get("max_weekly_hours") is None:
+            continue
+        try:
+            max_weekly_hours = int(penalty["max_weekly_hours"])
+        except (TypeError, ValueError):
+            continue
+        if load > max_weekly_hours:
+            overloaded_teachers.add(str(teacher_id))
+
+    hit_rate = unavailable_hit_count / len(rows)
+    overload_rate = len(overloaded_teachers) / max(len(penalties), 1)
+    satisfaction = max(0.0, min(100.0, 100.0 - hit_rate * 70.0 - overload_rate * 30.0))
+    return round(satisfaction, 2), unavailable_hit_count, len(overloaded_teachers)
+
+
+def evaluate_scheme(rows: list[dict[str, Any]], teacher_penalties: dict[str, dict[str, Any]] | None = None) -> SchemeMetrics:
     teacher_day_load: Counter[tuple[str, int, int]] = Counter()
     class_day_load: Counter[tuple[str, int, int]] = Counter()
     room_day_load: Counter[tuple[str, int, int]] = Counter()
@@ -133,14 +223,15 @@ def evaluate_scheme(rows: list[dict[str, Any]]) -> SchemeMetrics:
     # stable proxy for class/course distribution until the demo output is expanded.
     for row in rows:
         task_id = row["teaching_task_id"]
+        teacher_id = row.get("teacher_id") or task_id
         room_id = row["classroom_id"]
         week_number = as_int(row, "week_number")
         day_of_week = as_int(row, "day_of_week")
 
-        teacher_key = (task_id, week_number, day_of_week)
+        teacher_key = (teacher_id, week_number, day_of_week)
         class_key = (task_id, week_number, day_of_week)
         room_key = (room_id, week_number, day_of_week)
-        teacher_week_key = (task_id, week_number)
+        teacher_week_key = (teacher_id, week_number)
         class_week_key = (task_id, week_number)
         room_week_key = (room_id, week_number)
 
@@ -167,15 +258,41 @@ def evaluate_scheme(rows: list[dict[str, Any]]) -> SchemeMetrics:
     class_week_values = list(class_week_load.values())
     room_week_values = list(room_week_load.values())
 
-    hard_conflict_penalty = len(hard_conflicts) * 12
+    hard_conflict_rate = len(hard_conflicts) / len(rows)
+    hard_conflict_penalty = min(35.0, hard_conflict_rate * 45.0 + len(hard_conflicts) * 1.5)
     early_late_penalty = (early_period_count + late_period_count) * 0.05
     teacher_balance_penalty = stdev_or_zero(teacher_day_values) * 1.2
     class_balance_penalty = stdev_or_zero(class_day_values) * 1.2
     room_balance_penalty = stdev_or_zero(room_day_values) * 0.8
+    teacher_satisfaction, unavailable_hit_count, overload_count = compute_teacher_satisfaction(
+        rows,
+        teacher_penalties or {},
+        teacher_week_load,
+    )
 
     avg_predicted_score = sum(predicted_scores) / len(predicted_scores)
     avg_rule_score = sum(rule_scores) / len(rule_scores)
     base_score = 100 * ((avg_predicted_score + avg_rule_score) / 2)
+    teacher_satisfaction_penalty = (100.0 - teacher_satisfaction) * 0.25
+    log_eval("方案评分机制拆解", {
+        "formula": "scheme_score = clamp(base_score - hard_conflict_penalty - early_late_penalty - teacher_balance_penalty - class_balance_penalty - room_balance_penalty - teacher_satisfaction_penalty, 0, 100)",
+        "base_score_formula": "100 * ((avg_predicted_score + avg_rule_score) / 2)",
+        "hard_conflict_penalty_formula": "min(35, hard_conflict_rate*45 + hard_conflict_count*1.5)",
+        "base_score": round(base_score, 6),
+        "avg_predicted_score": round(avg_predicted_score, 6),
+        "avg_rule_score": round(avg_rule_score, 6),
+        "hard_conflict_count": len(hard_conflicts),
+        "hard_conflict_rate": round(hard_conflict_rate, 6),
+        "hard_conflict_penalty": round(hard_conflict_penalty, 6),
+        "early_late_penalty": round(early_late_penalty, 6),
+        "teacher_balance_penalty": round(teacher_balance_penalty, 6),
+        "class_balance_penalty": round(class_balance_penalty, 6),
+        "room_balance_penalty": round(room_balance_penalty, 6),
+        "teacher_satisfaction": teacher_satisfaction,
+        "teacher_satisfaction_penalty": round(teacher_satisfaction_penalty, 6),
+        "teacher_unavailable_hit_count": unavailable_hit_count,
+        "teacher_overload_count": overload_count,
+    })
     scheme_score = max(
         0.0,
         min(
@@ -185,7 +302,8 @@ def evaluate_scheme(rows: list[dict[str, Any]]) -> SchemeMetrics:
             - early_late_penalty
             - teacher_balance_penalty
             - class_balance_penalty
-            - room_balance_penalty,
+            - room_balance_penalty
+            - teacher_satisfaction_penalty,
         ),
     )
 
@@ -193,6 +311,7 @@ def evaluate_scheme(rows: list[dict[str, Any]]) -> SchemeMetrics:
         fragment_count=len(rows),
         task_count=len({row["teaching_task_id"] for row in rows}),
         hard_conflict_count=len(hard_conflicts),
+        hard_conflict_rate=hard_conflict_rate,
         early_period_count=early_period_count,
         late_period_count=late_period_count,
         avg_predicted_score=avg_predicted_score,
@@ -207,6 +326,9 @@ def evaluate_scheme(rows: list[dict[str, Any]]) -> SchemeMetrics:
         teacher_week_load_max=max(teacher_week_values or [0]),
         class_week_load_max=max(class_week_values or [0]),
         room_week_load_max=max(room_week_values or [0]),
+        teacher_satisfaction=teacher_satisfaction,
+        teacher_unavailable_hit_count=unavailable_hit_count,
+        teacher_overload_count=overload_count,
         scheme_score=scheme_score,
     )
 
@@ -216,6 +338,7 @@ def print_metrics(metrics: SchemeMetrics) -> None:
     print(f"Fragments              : {metrics.fragment_count}")
     print(f"Teaching tasks         : {metrics.task_count}")
     print(f"Hard-conflict fragments: {metrics.hard_conflict_count}")
+    print(f"Hard-conflict rate     : {metrics.hard_conflict_rate:.2%}")
     print(f"Early-period fragments : {metrics.early_period_count}")
     print(f"Late-period fragments  : {metrics.late_period_count}")
     print(f"Avg predicted score    : {metrics.avg_predicted_score:.4f}")
@@ -231,6 +354,9 @@ def print_metrics(metrics: SchemeMetrics) -> None:
     print(f"Teacher week max load  : {metrics.teacher_week_load_max}")
     print(f"Class week max load    : {metrics.class_week_load_max}")
     print(f"Room week max load     : {metrics.room_week_load_max}")
+    print(f"Teacher satisfaction   : {metrics.teacher_satisfaction:.2f}/100")
+    print(f"Teacher unavailable hit: {metrics.teacher_unavailable_hit_count}")
+    print(f"Teacher overload count : {metrics.teacher_overload_count}")
     print(f"Scheme score           : {metrics.scheme_score:.2f}/100")
 
 
@@ -299,8 +425,12 @@ def compute_dimensional_scores(metrics: SchemeMetrics, distribution: SchemeDistr
     }
 
 
-def evaluate_scheme_to_dict(rows: list[dict[str, Any]], scheme_file: Path) -> dict[str, Any]:
-    metrics = evaluate_scheme(rows)
+def evaluate_scheme_to_dict(
+    rows: list[dict[str, Any]],
+    scheme_file: Path,
+    teacher_penalties: dict[str, dict[str, Any]] | None = None,
+) -> dict[str, Any]:
+    metrics = evaluate_scheme(rows, teacher_penalties)
     distribution = build_distribution(rows)
     dimensions = compute_dimensional_scores(metrics, distribution)
     metrics_dict = asdict(metrics)
@@ -319,26 +449,32 @@ def write_evaluation_json(evaluation: dict[str, Any], output_path: Path) -> None
     output_path.write_text(json.dumps(evaluation, ensure_ascii=False, indent=2), encoding="utf-8")
 
 
-def evaluate_single_csv_to_json(scheme_path: Path) -> Path:
+def evaluate_single_csv_to_json(scheme_path: Path, teacher_penalties: dict[str, dict[str, Any]] | None = None) -> Path:
+    log_eval("开始评估方案 CSV", {"scheme_file": str(scheme_path)})
     rows = load_scheme(scheme_path)
-    evaluation = evaluate_scheme_to_dict(rows, scheme_path)
+    evaluation = evaluate_scheme_to_dict(rows, scheme_path, teacher_penalties)
+    log_eval("方案评估结果", evaluation)
     json_path = scheme_path.with_suffix(".json")
     write_evaluation_json(evaluation, json_path)
     print(f"Evaluation JSON → {json_path}")
     return json_path
 
 
-def evaluate_directory_to_json(scheme_dir: Path) -> list[Path]:
+def evaluate_directory_to_json(scheme_dir: Path, teacher_penalties: dict[str, dict[str, Any]] | None = None) -> list[Path]:
     scheme_files = sorted(path for path in scheme_dir.glob("scheme_*.csv") if path.is_file())
     if not scheme_files:
         raise FileNotFoundError(f"No scheme_*.csv files found in {scheme_dir}")
     json_paths: list[Path] = []
     for scheme_file in scheme_files:
-        json_paths.append(evaluate_single_csv_to_json(scheme_file))
+        json_paths.append(evaluate_single_csv_to_json(scheme_file, teacher_penalties))
     return json_paths
 
 
-def evaluate_scheme_directory(scheme_dir: Path, output_path: Path) -> list[dict[str, Any]]:
+def evaluate_scheme_directory(
+    scheme_dir: Path,
+    output_path: Path,
+    teacher_penalties: dict[str, dict[str, Any]] | None = None,
+) -> list[dict[str, Any]]:
     if not scheme_dir.exists():
         raise FileNotFoundError(f"Scheme directory not found: {scheme_dir}. Run generate_scheme_demo.py first.")
     scheme_files = sorted(path for path in scheme_dir.glob("scheme_*.csv") if path.is_file())
@@ -348,7 +484,7 @@ def evaluate_scheme_directory(scheme_dir: Path, output_path: Path) -> list[dict[
     evaluated: list[tuple[Path, SchemeMetrics, SchemeDistribution]] = []
     for scheme_file in scheme_files:
         rows = load_scheme(scheme_file)
-        evaluated.append((scheme_file, evaluate_scheme(rows), build_distribution(rows)))
+        evaluated.append((scheme_file, evaluate_scheme(rows, teacher_penalties), build_distribution(rows)))
 
     evaluated.sort(key=lambda item: item[1].scheme_score, reverse=True)
     summary_rows = [
@@ -377,30 +513,32 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--scheme-dir", type=Path, default=None, help="Directory containing scheme_*.csv files.")
     parser.add_argument("--output", type=Path, default=None, help="Output path for ranked summary CSV in directory mode.")
     parser.add_argument("--top", type=int, default=10, help="Number of ranked schemes to print in directory mode.")
+    parser.add_argument("--teacher-penalties", type=Path, default=None, help="Teacher penalty JSON generated by generate_scheme_demo.py.")
     parser.add_argument("--json", action="store_true", help="Output evaluation JSON files next to each scheme CSV.")
     return parser.parse_args()
 
 
 def main() -> None:
     args = parse_args()
+    teacher_penalties = load_teacher_penalties(args.teacher_penalties)
     if args.json:
         if args.scheme_dir is not None:
-            json_paths = evaluate_directory_to_json(args.scheme_dir)
+            json_paths = evaluate_directory_to_json(args.scheme_dir, teacher_penalties)
             print(f"Generated {len(json_paths)} evaluation JSON files in {args.scheme_dir}")
             return
-        json_path = evaluate_single_csv_to_json(args.scheme)
+        json_path = evaluate_single_csv_to_json(args.scheme, teacher_penalties)
         print(f"Generated evaluation JSON → {json_path}")
         return
 
     if args.scheme_dir is not None:
         output_path = args.output or (args.scheme_dir / "ranked_summary.csv")
-        summary_rows = evaluate_scheme_directory(args.scheme_dir, output_path)
+        summary_rows = evaluate_scheme_directory(args.scheme_dir, output_path, teacher_penalties)
         print_ranked_summary(summary_rows, args.top)
         print(f"\nRanked summary -> {output_path}")
         return
 
     rows = load_scheme(args.scheme)
-    metrics = evaluate_scheme(rows)
+    metrics = evaluate_scheme(rows, teacher_penalties)
     distribution = build_distribution(rows)
     print_metrics(metrics)
     print_distribution(distribution)

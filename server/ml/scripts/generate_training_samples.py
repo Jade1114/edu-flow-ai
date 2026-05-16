@@ -172,6 +172,7 @@ def fetch_tasks(connection) -> list[dict[str, Any]]:
         SELECT
             tt.id AS teaching_task_id,
             tt.primary_teacher_id AS teacher_id,
+            t.name AS teacher_name,
             tt.assistant_teacher_id,
             tt.classroom_id AS bound_classroom_id,
             tt.total_hours,
@@ -201,6 +202,7 @@ def fetch_tasks(connection) -> list[dict[str, Any]]:
             tt.classroom_id,
             tt.total_hours,
             tt.required_room_type,
+            t.name,
             c.course_type,
             c.required_hours,
             t.department,

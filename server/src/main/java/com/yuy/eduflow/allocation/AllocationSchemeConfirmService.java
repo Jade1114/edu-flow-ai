@@ -6,12 +6,14 @@ import com.yuy.eduflow.common.exception.ConflictException;
 import com.yuy.eduflow.common.exception.ResourceNotFoundException;
 import com.yuy.eduflow.common.exception.ValidationException;
 import java.util.List;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import com.yuy.eduflow.enums.AssignmentStatus;
 import com.yuy.eduflow.enums.SchemeStatus;
 import com.yuy.eduflow.enums.TaskStatus;
 import org.springframework.transaction.annotation.Transactional;
 
+@Slf4j
 @Service
 public class AllocationSchemeConfirmService {
 	
@@ -58,11 +60,12 @@ public class AllocationSchemeConfirmService {
 			}
 		}
 
-		// 如果是重新确认，先清空旧的正式课表
-		boolean isReconfirm = scheme.getStatus() == SchemeStatus.CONFIRMED;
-		if (isReconfirm) {
-			courseAssignmentMapper.deleteBySourceSchemeId(schemeId);
-		}
+		int inactivatedAssignments = courseAssignmentMapper.inactivateByAllocationTaskId(
+			scheme.getTaskId(),
+			AssignmentStatus.INACTIVE.code()
+		);
+		log.info("Confirming allocation scheme: schemeId={}, taskId={}, inactivatedOldAssignments={}",
+			schemeId, scheme.getTaskId(), inactivatedAssignments);
 
 		int assignmentCount = 0;
 		for (AllocationItem item : items) {
@@ -77,7 +80,13 @@ public class AllocationSchemeConfirmService {
 		if (allocationSchemeMapper.updateStatus(scheme.getId(), SchemeStatus.CONFIRMED.code()) != 1) {
 			throw new ConflictException("分课方案状态更新失败");
 		}
-		allocationSchemeMapper.rejectOtherCandidates(scheme.getTaskId(), scheme.getId(), SchemeStatus.CANDIDATE.code(), SchemeStatus.REJECTED.code());
+		int rejectedSchemes = allocationSchemeMapper.rejectOtherSelectableSchemes(
+			scheme.getTaskId(),
+			scheme.getId(),
+			SchemeStatus.REJECTED.code()
+		);
+		log.info("Allocation scheme confirmed: schemeId={}, insertedAssignments={}, rejectedOtherSchemes={}",
+			scheme.getId(), assignmentCount, rejectedSchemes);
 		if (allocationTaskMapper.updateStatus(scheme.getTaskId(), SchemeStatus.CONFIRMED.code()) != 1) {
 			throw new ConflictException("分课任务状态更新失败");
 		}

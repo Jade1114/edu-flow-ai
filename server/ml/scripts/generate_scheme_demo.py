@@ -12,7 +12,10 @@ from __future__ import annotations
 import argparse
 import csv
 import json
+import os
 import random
+import urllib.error
+import urllib.request
 from collections import Counter
 from pathlib import Path
 from typing import Any
@@ -49,6 +52,8 @@ SUMMARY_PATH = OUTPUT_DIR / "summary.csv"
 OUTPUT_COLUMNS = [
     "sequence",
     "teaching_task_id",
+    "teacher_id",
+    "teacher_name",
     "fragment_index",
     "classroom_id",
     "time_slot_id",
@@ -60,6 +65,9 @@ OUTPUT_COLUMNS = [
     "has_hard_conflict",
     "reject_reason",
 ]
+
+TEACHER_PENALTIES_FILENAME = "teacher_penalties.json"
+LOG_PREFIX = "[SCHEDULE-CHAIN]"
 
 SUMMARY_COLUMNS = [
     "scheme_no",
@@ -145,6 +153,13 @@ POLICY_PROFILES = {
 
 
 DEFAULT_POLICY = "BALANCED"
+
+
+def log_chain(message: str, payload: Any | None = None) -> None:
+    if payload is None:
+        print(f"{LOG_PREFIX} {message}", flush=True)
+        return
+    print(f"{LOG_PREFIX} {message}: {json.dumps(payload, ensure_ascii=False, default=str)}", flush=True)
 
 
 def load_schema(schema_path: Path) -> dict[str, Any]:
@@ -363,12 +378,12 @@ def apply_selection_scores(
         if teacher_id is not None and teacher_profiles is not None:
             profile = teacher_profiles.get(teacher_id)
             if profile is not None:
-                unavailable_slots = profile.get("unavailable_slots", set())
-                if isinstance(unavailable_slots, set):
-                    day = int(candidate.get("day_of_week", 0))
-                    period = int(candidate.get("period_index", 0))
-                    if (day, period) in unavailable_slots:
-                        teacher_profile_penalty = 0.05
+                unavailable_slots = profile.get("unavailable_slots", [])
+                day = int(candidate.get("day_of_week", 0))
+                period = int(candidate.get("period_index", 0))
+                normalized_slots = {tuple(slot) for slot in normalize_unavailable_slots(unavailable_slots)}
+                if (day, period) in normalized_slots:
+                    teacher_profile_penalty = float(profile.get("penalty_weight") or 0.05)
                 # Workload penalty: exceed preferred max → -0.03
                 preferred_max = profile.get("max_weekly_hours")
                 if preferred_max is not None:
@@ -376,8 +391,22 @@ def apply_selection_scores(
                     if current_week_hours + 1 > int(preferred_max):
                         teacher_profile_penalty += 0.03
 
+        random_jitter = rng.random() * policy["random_jitter"]
         candidate["distribution_penalty"] = round(distribution_penalty + weekend_penalty + early_penalty + late_penalty, 6)
+        candidate["distribution_penalty_breakdown"] = {
+            "weekday_load": round(candidate["scheme_day_load"] * policy["weekday_load_penalty"], 6),
+            "room_day_load": round(candidate["room_day_load"] * policy["room_day_load_penalty"], 6),
+            "room_week_load": round(candidate["room_week_load"] * policy["room_week_load_penalty"], 6),
+            "task_day_load": round(candidate["task_day_load"] * policy["task_day_load_penalty"], 6),
+            "weekend": round(weekend_penalty, 6),
+            "early_period": round(early_penalty, 6),
+            "late_period": round(late_penalty, 6),
+        }
+        candidate["compact_bonus"] = round(compact_bonus, 6)
+        candidate["stickiness_bonus"] = round(stickiness_bonus, 6)
         candidate["teacher_profile_penalty"] = round(teacher_profile_penalty, 4)
+        candidate["random_jitter_value"] = round(random_jitter, 6)
+        candidate["selection_score_formula"] = "predicted_score + rule_score*0.02 - distribution_penalty + compact_bonus + stickiness_bonus - teacher_profile_penalty + random_jitter"
         candidate["selection_score"] = max(
             0.0,
             float(candidate["predicted_score"])
@@ -386,7 +415,7 @@ def apply_selection_scores(
             + compact_bonus
             + stickiness_bonus
             - teacher_profile_penalty
-            + rng.random() * policy["random_jitter"],
+            + random_jitter,
         )
 
 
@@ -483,6 +512,227 @@ def parse_teaching_task_ids(raw_value: str | None) -> set[int] | None:
     return {int(value.strip()) for value in raw_value.split(",") if value.strip()}
 
 
+def build_teacher_penalty_query(tasks: list[dict[str, Any]]) -> str:
+    parts = []
+    for task in tasks:
+        parts.append(
+            "教学任务{task_id}-教师{teacher_id}-课程类型{course_type}-班级{class_groups}".format(
+                task_id=task.get("teaching_task_id"),
+                teacher_id=task.get("teacher_id"),
+                course_type=task.get("course_type") or "未知",
+                class_groups=task.get("class_group_ids") or "未知",
+            )
+        )
+    return "；".join(parts)
+
+
+def post_json(url: str, body: dict[str, Any], headers: dict[str, str] | None = None, timeout: int = 60) -> dict[str, Any]:
+    request = urllib.request.Request(
+        url,
+        data=json.dumps(body, ensure_ascii=False).encode("utf-8"),
+        headers={"Content-Type": "application/json", **(headers or {})},
+        method="POST",
+    )
+    with urllib.request.urlopen(request, timeout=timeout) as response:
+        return json.loads(response.read().decode("utf-8"))
+
+
+def normalize_unavailable_slots(raw_slots: Any) -> list[list[int]]:
+    normalized: list[list[int]] = []
+    if not raw_slots:
+        return normalized
+    for slot in raw_slots:
+        if isinstance(slot, (list, tuple)) and len(slot) >= 2:
+            try:
+                normalized.append([int(slot[0]), int(slot[1])])
+            except (TypeError, ValueError):
+                continue
+    return sorted(normalized)
+
+
+def normalize_teacher_penalties(raw: dict[str, Any]) -> dict[int, dict[str, Any]]:
+    payload = raw.get("teacher_penalties", raw)
+    penalties: dict[int, dict[str, Any]] = {}
+    if not isinstance(payload, dict):
+        return penalties
+    for teacher_key, value in payload.items():
+        if not isinstance(value, dict):
+            continue
+        try:
+            teacher_id = int(value.get("teacher_id") or teacher_key)
+        except (TypeError, ValueError):
+            continue
+        penalties[teacher_id] = {
+            "unavailable_slots": normalize_unavailable_slots(value.get("unavailable_slots")),
+            "max_weekly_hours": int(value["max_weekly_hours"]) if value.get("max_weekly_hours") is not None else None,
+            "penalty_weight": float(value.get("penalty_weight") or 0.05),
+            "reason": str(value.get("reason") or value.get("note") or ""),
+        }
+    return penalties
+
+
+def fallback_teacher_penalties(teacher_profiles: dict[int, dict[str, object]]) -> dict[int, dict[str, Any]]:
+    return {
+        teacher_id: {
+            "unavailable_slots": normalize_unavailable_slots(profile.get("unavailable_slots")),
+            "max_weekly_hours": profile.get("max_weekly_hours"),
+            "penalty_weight": 0.05,
+            "reason": "MySQL teacher_profile fallback",
+        }
+        for teacher_id, profile in teacher_profiles.items()
+    }
+
+
+def resolve_teacher_penalties(tasks: list[dict[str, Any]], teacher_profiles: dict[int, dict[str, object]]) -> dict[int, dict[str, Any]]:
+    fallback = fallback_teacher_penalties(teacher_profiles)
+    embedding_api_key = os.getenv("OPENAI_API_KEY")
+    embedding_base_url = os.getenv("OPENAI_BASE_URL", "https://api.openai.com/v1").rstrip("/")
+    embedding_model = os.getenv("OPENAI_EMBEDDING_MODEL", "text-embedding-3-small")
+    chat_api_key = os.getenv("OPENAI_CHAT_API_KEY")
+    chat_base_url = os.getenv("OPENAI_CHAT_BASE_URL", "").rstrip("/")
+    chat_model = os.getenv("OPENAI_CHAT_MODEL", "deepseek-v4-pro")
+    qdrant_url = os.getenv("QDRANT_URL", "http://localhost:6333").rstrip("/")
+    qdrant_api_key = os.getenv("QDRANT_API_KEY")
+    qdrant_collection = os.getenv("QDRANT_COLLECTION", "teacher_profiles")
+
+    log_chain("教师画像惩罚解析开始", {
+        "task_count": len(tasks),
+        "fallback_profile_count": len(fallback),
+        "rag_enabled": bool(embedding_api_key and chat_api_key and chat_base_url),
+        "embedding_model": embedding_model,
+        "chat_model": chat_model,
+        "qdrant_collection": qdrant_collection,
+    })
+    if not (embedding_api_key and chat_api_key and chat_base_url):
+        log_chain("教师画像惩罚使用 MySQL fallback（未配置完整 Embedding/Chat 环境变量）", summarize_teacher_penalties(fallback))
+        return fallback
+
+    try:
+        query = build_teacher_penalty_query(tasks)
+        log_chain("LLM/RAG 教师画像检索 Query", {"query": query})
+        embedding_response = post_json(
+            f"{embedding_base_url}/embeddings",
+            {"model": embedding_model, "input": query},
+            {"Authorization": f"Bearer {embedding_api_key}"},
+        )
+        vector = embedding_response["data"][0]["embedding"]
+        log_chain("Embedding 完成", {"vector_size": len(vector)})
+        qdrant_headers = {"api-key": qdrant_api_key} if qdrant_api_key else None
+        qdrant_limit = min(max(len({int(task["teacher_id"]) for task in tasks}) + 3, 5), 20)
+        log_chain("Qdrant 检索教师画像", {"url": qdrant_url, "collection": qdrant_collection, "top_n": qdrant_limit})
+        search_response = post_json(
+            f"{qdrant_url}/collections/{qdrant_collection}/points/search",
+            {
+                "vector": vector,
+                "limit": qdrant_limit,
+                "with_payload": True,
+                "with_vector": False,
+                "filter": {"must": [{"key": "status", "match": {"value": "ACTIVE"}}]},
+            },
+            qdrant_headers,
+        )
+        profiles = [item.get("payload", {}) for item in search_response.get("result", [])]
+        log_chain("Qdrant 返回教师画像", {
+            "profile_count": len(profiles),
+            "teachers": [
+                {
+                    "teacher_id": profile.get("teacherId"),
+                    "teacher_name": profile.get("teacherName"),
+                    "department": profile.get("department"),
+                    "has_special_note": bool(profile.get("specialNote")),
+                }
+                for profile in profiles
+            ],
+        })
+        system_prompt = (
+            "你是排课教师画像解析器。只输出 JSON。"
+            "根据教师画像全文提取 teacher_penalties，key 使用 teacherId。"
+            "unavailable_slots 必须是 [day_of_week, period_index] 数组，day_of_week=1..7，period_index=1..5。"
+            "max_weekly_hours 无明确要求则为 null，penalty_weight 默认 0.05，reason 简短说明来源。"
+        )
+        user_prompt = json.dumps(
+            {"teaching_tasks": tasks, "teacher_profiles": profiles},
+            ensure_ascii=False,
+            default=str,
+        )
+        chat_response = post_json(
+            f"{chat_base_url}/chat/completions",
+            {
+                "model": chat_model,
+                "messages": [
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": user_prompt},
+                ],
+                "response_format": {"type": "json_object"},
+                "temperature": 0.3,
+            },
+            {"Authorization": f"Bearer {chat_api_key}"},
+            timeout=600,
+        )
+        content = chat_response["choices"][0]["message"]["content"]
+        log_chain("LLM 教师画像结构化原始输出", json.loads(content))
+        penalties = normalize_teacher_penalties(json.loads(content))
+        resolved = penalties or fallback
+        log_chain("教师画像惩罚最终结构", summarize_teacher_penalties(resolved))
+        return resolved
+    except (KeyError, ValueError, urllib.error.URLError, TimeoutError) as exc:
+        log_chain("教师画像惩罚 RAG 失败，回退 MySQL 解析", {"error": str(exc), "fallback": summarize_teacher_penalties(fallback)})
+        return fallback
+
+
+def summarize_teacher_penalties(penalties: dict[int, dict[str, Any]]) -> dict[str, Any]:
+    return {
+        "teacher_count": len(penalties),
+        "teachers": [
+            {
+                "teacher_id": teacher_id,
+                "unavailable_slots": penalty.get("unavailable_slots") or [],
+                "max_weekly_hours": penalty.get("max_weekly_hours"),
+                "penalty_weight": penalty.get("penalty_weight"),
+                "reason": penalty.get("reason"),
+            }
+            for teacher_id, penalty in sorted(penalties.items())
+        ],
+    }
+
+
+def write_teacher_penalties(penalties: dict[int, dict[str, Any]], output_path: Path) -> None:
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    payload = {"teacher_penalties": {str(key): value for key, value in sorted(penalties.items())}}
+    output_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+
+
+def log_selected_candidate(task: dict[str, Any], fragment_index: int, best: dict[str, Any], candidate_count: int) -> None:
+    log_chain("模型选择排课片段", {
+        "teaching_task_id": task.get("teaching_task_id"),
+        "teacher_id": task.get("teacher_id"),
+        "teacher_name": task.get("teacher_name") or "",
+        "fragment_index": fragment_index,
+        "candidate_count": candidate_count,
+        "chosen": {
+            "classroom_id": best.get("candidate_classroom_id"),
+            "time_slot_id": best.get("candidate_time_slot_id"),
+            "week_number": best.get("week_number"),
+            "day_of_week": best.get("day_of_week"),
+            "period_index": best.get("period_index"),
+            "has_hard_conflict": best.get("has_hard_conflict"),
+            "reject_reason": best.get("reject_reason"),
+        },
+        "score": {
+            "formula": best.get("selection_score_formula"),
+            "selection_score": round(float(best.get("selection_score", 0.0)), 6),
+            "predicted_score": round(float(best.get("predicted_score", 0.0)), 6),
+            "rule_score": round(float(best.get("rule_score", 0.0)), 6),
+            "distribution_penalty": best.get("distribution_penalty"),
+            "distribution_penalty_breakdown": best.get("distribution_penalty_breakdown"),
+            "teacher_profile_penalty": best.get("teacher_profile_penalty"),
+            "compact_bonus": best.get("compact_bonus"),
+            "stickiness_bonus": best.get("stickiness_bonus"),
+            "random_jitter": best.get("random_jitter_value"),
+        },
+    })
+
+
 def generate_scheme(
     *,
     tasks: list[dict[str, Any]],
@@ -532,7 +782,14 @@ def generate_scheme(
                 teacher_profiles=teacher_profiles,
             )
             if best is None:
+                log_chain("模型未选出可用候选", {
+                    "teaching_task_id": task_id,
+                    "teacher_id": teacher_id,
+                    "fragment_index": fragment_index,
+                    "candidate_count": len(candidates),
+                })
                 continue
+            log_selected_candidate(task, fragment_index, best, len(candidates))
             # Track first classroom for this task
             chosen_room = int(best["candidate_classroom_id"])
             if task_id not in task_classroom_map:
@@ -555,6 +812,8 @@ def generate_scheme(
                 {
                     "sequence": sequence,
                     "teaching_task_id": task_id,
+                    "teacher_id": teacher_id,
+                    "teacher_name": task.get("teacher_name") or "",
                     "fragment_index": fragment_index,
                     "classroom_id": assignment.classroom_id,
                     "time_slot_id": assignment.time_slot_id,
@@ -646,6 +905,19 @@ def main() -> None:
         raise FileNotFoundError(f"Model not found: {args.model}. Run train_lightgbm.py first.")
     schema = load_schema(args.schema)
     booster = lgb.Booster(model_file=str(args.model))
+    log_chain("排课方案生成链路启动", {
+        "model_path": str(args.model),
+        "schema_path": str(args.schema),
+        "variant_count": args.variant_count,
+        "strategy": args.strategy,
+        "top_k": args.top_k,
+        "candidate_pool_size": args.candidate_pool_size,
+        "policy": args.policy,
+        "custom_policy_params": json.loads(args.policy_params) if args.policy_params else None,
+        "teaching_task_ids": args.teaching_task_ids,
+        "start_week": args.start_week,
+        "end_week": args.end_week,
+    })
 
     db_config = load_db_config()
     with connect(db_config) as connection:
@@ -660,19 +932,45 @@ def main() -> None:
         raise ValueError("No teaching tasks available for scheme generation.")
     if not time_slots:
         raise ValueError("No time slots available for scheme generation.")
+    log_chain("排课基础数据加载完成", {
+        "teaching_task_count": len(tasks),
+        "classroom_count": len(classrooms),
+        "time_slot_count": len(time_slots),
+        "teacher_profile_count": len(teacher_profiles),
+        "tasks": [
+            {
+                "teaching_task_id": task.get("teaching_task_id"),
+                "teacher_id": task.get("teacher_id"),
+                "teacher_name": task.get("teacher_name"),
+                "total_hours": task.get("total_hours"),
+                "required_fragments": periods_needed(task),
+                "class_group_ids": task.get("class_group_ids"),
+                "bound_classroom_id": task.get("bound_classroom_id"),
+                "required_room_type": effective_required_room_type(task),
+            }
+            for task in tasks
+        ],
+    })
+    teacher_penalties = resolve_teacher_penalties(tasks, teacher_profiles)
 
     custom_params = None
     if args.policy_params:
-        import json
         custom_params = json.loads(args.policy_params)
     policy = load_policy(args.policy, custom_params)
+    log_chain("策略权重生效", {
+        "policy": args.policy,
+        "custom_params": custom_params,
+        "effective_weights": policy,
+        "candidate_score_formula": "selection_score = predicted_score + rule_score*0.02 - distribution_penalty + compact_bonus + stickiness_bonus - teacher_profile_penalty + random_jitter",
+        "distribution_penalty_formula": "scheme_day_load*weekday_load_penalty + room_day_load*room_day_load_penalty + room_week_load*room_week_load_penalty + task_day_load*task_day_load_penalty + weekend + early + late",
+    })
 
     if args.variant_count <= 1:
         rows, _ = generate_scheme(
             tasks=tasks,
             classrooms=classrooms,
             time_slots=time_slots,
-            teacher_profiles=teacher_profiles,
+            teacher_profiles=teacher_penalties,
             booster=booster,
             schema=schema,
             max_tasks=args.max_tasks,
@@ -683,12 +981,16 @@ def main() -> None:
             policy=policy,
         )
         write_scheme(rows, args.output)
+        write_teacher_penalties(teacher_penalties, args.output.parent / TEACHER_PENALTIES_FILENAME)
+        log_chain("单方案生成完成", {"output_path": str(args.output), **summarize_scheme(rows, tasks, args.max_tasks)})
         print_summary(rows, tasks, args.max_tasks)
         print(f"Output -> {args.output}")
+        print(f"Teacher penalties -> {args.output.parent / TEACHER_PENALTIES_FILENAME}")
         return
 
     summary_rows: list[dict[str, Any]] = []
     args.output_dir.mkdir(parents=True, exist_ok=True)
+    write_teacher_penalties(teacher_penalties, args.output_dir / TEACHER_PENALTIES_FILENAME)
     for scheme_no in range(1, args.variant_count + 1):
         output_path = args.output_dir / f"scheme_{scheme_no:03d}.csv"
         rng = random.Random(args.random_seed + scheme_no)
@@ -696,7 +998,7 @@ def main() -> None:
             tasks=tasks,
             classrooms=classrooms,
             time_slots=time_slots,
-            teacher_profiles=teacher_profiles,
+            teacher_profiles=teacher_penalties,
             booster=booster,
             schema=schema,
             max_tasks=args.max_tasks,
@@ -711,6 +1013,7 @@ def main() -> None:
         summary_rows.append({"scheme_no": scheme_no, "output_path": str(output_path), **summary})
 
     write_summary(summary_rows, SUMMARY_PATH)
+    log_chain("多方案生成完成", {"summary_rows": summary_rows, "summary_path": str(SUMMARY_PATH)})
     print(f"Generated {len(summary_rows)} scheme variants -> {args.output_dir}")
     print(f"Summary -> {SUMMARY_PATH}")
 

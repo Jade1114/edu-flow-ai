@@ -69,6 +69,15 @@ public interface CourseAssignmentMapper {
 	int deleteBySourceSchemeId(@Param("schemeId") Long schemeId);
 
 	@Update("""
+		UPDATE course_assignment ca
+		JOIN allocation_task_teaching_task att ON att.teaching_task_id = ca.teaching_task_id
+		SET ca.status = #{status}
+		WHERE att.allocation_task_id = #{taskId}
+		  AND ca.status = 'ACTIVE'
+		""")
+	int inactivateByAllocationTaskId(@Param("taskId") Long taskId, @Param("status") String status);
+
+	@Update("""
 		UPDATE course_assignment
 		SET time_slot_id = #{timeSlotId},
 		    classroom_id = #{classroomId}

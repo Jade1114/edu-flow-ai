@@ -112,6 +112,7 @@ const pendingTaskId = ref(null);
 const customRequirement = ref('');
 const translating = ref(false);
 const customWeights = ref(null);
+const editableWeights = ref({ ...PRESET_WEIGHTS.BALANCED });
 const policyMode = ref('preset'); // 'preset' | 'custom'
 const activePolicy = ref('BALANCED');
 
@@ -264,12 +265,21 @@ async function generateSchemes(taskId) {
 }
 
 // === 策略弹窗 ===
+function resetEditableWeights(weights) {
+  editableWeights.value = { ...(weights || PRESET_WEIGHTS.BALANCED) };
+}
+
+function markWeightsCustom() {
+  customWeights.value = { ...editableWeights.value };
+  policyMode.value = 'custom';
+}
+
 function openPolicyDialog(taskId) {
   pendingTaskId.value = taskId;
   activePolicy.value = policy.value;
-  policyMode.value = 'preset';
+  policyMode.value = customWeights.value ? 'custom' : 'preset';
   customRequirement.value = '';
-  customWeights.value = null;
+  resetEditableWeights(customWeights.value || PRESET_WEIGHTS[activePolicy.value]);
   policyDialogVisible.value = true;
 }
 
@@ -277,6 +287,7 @@ function selectPreset(preset) {
   activePolicy.value = preset;
   policyMode.value = 'preset';
   customWeights.value = null;
+  resetEditableWeights(PRESET_WEIGHTS[preset]);
 }
 
 async function translatePolicy() {
@@ -292,6 +303,7 @@ async function translatePolicy() {
     });
     if (result && result.policyParams) {
       customWeights.value = result.policyParams;
+      resetEditableWeights(result.policyParams);
       policyMode.value = 'custom';
       ElMessage.success('LLM 已生成策略权重');
       if (result.interpretation) {
@@ -311,17 +323,16 @@ function resetToPreset() {
   policyMode.value = 'preset';
   customWeights.value = null;
   customRequirement.value = '';
+  resetEditableWeights(PRESET_WEIGHTS[activePolicy.value]);
 }
 
 function displayedWeights() {
-  if (policyMode.value === 'custom' && customWeights.value) {
-    return customWeights.value;
-  }
-  return PRESET_WEIGHTS[activePolicy.value] || PRESET_WEIGHTS.BALANCED;
+  return editableWeights.value;
 }
 
 function confirmGenerate() {
   policy.value = activePolicy.value;
+  customWeights.value = policyMode.value === 'custom' ? { ...editableWeights.value } : null;
   policyDialogVisible.value = false;
   generateSchemes(pendingTaskId.value);
 }
@@ -781,25 +792,27 @@ onUnmounted(() => {
       <!-- 权重展示 -->
       <div style="background: #f8fafc; border-radius: 8px; padding: 14px 16px">
         <div style="font-weight: 600; font-size: 13px; color: #303133; margin-bottom: 10px">
-          {{ policyMode === 'custom' ? '当前权重（LLM 生成）' : '当前权重（预设）' }}
+          {{ policyMode === 'custom' ? '当前权重（自定义）' : '当前权重（预设，可手动调整）' }}
         </div>
         <div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px">
           <div
             v-for="(val, key) in displayedWeights()"
             :key="key"
             :title="weightDescs[key] || key"
-            style="display: flex; justify-content: space-between; align-items: center; padding: 5px 8px; border-radius: 6px; background: #fff; font-size: 12px"
+            style="display: flex; justify-content: space-between; align-items: center; gap: 8px; padding: 5px 8px; border-radius: 6px; background: #fff; font-size: 12px"
           >
             <span style="color: #606266">{{ weightLabels[key] || key }}</span>
-            <span
-              :style="{
-                fontWeight: 700,
-                color: policyMode === 'custom' ? '#e6a23c' : '#409eff',
-                fontSize: '13px'
-              }"
-            >
-              {{ typeof val === 'number' ? val.toFixed(3) : val }}
-            </span>
+            <el-input-number
+              v-model="editableWeights[key]"
+              :min="0"
+              :max="1"
+              :step="0.001"
+              :precision="3"
+              controls-position="right"
+              size="small"
+              style="width: 116px"
+              @change="markWeightsCustom"
+            />
           </div>
         </div>
       </div>

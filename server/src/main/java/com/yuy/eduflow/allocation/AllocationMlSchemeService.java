@@ -127,8 +127,11 @@ public class AllocationMlSchemeService {
 		ProcessBuilder builder = new ProcessBuilder(command);
 		builder.directory(mlDir.toFile());
 		builder.redirectErrorStream(true);
-		log.info("ML scheme generator starting: policy={}, taskId={}", policyOrDefault(policy), task.getId());
-		log.debug("ML scheme generator command: {}", String.join(" ", command));
+		log.info("ML scheme generator starting: taskId={}, policy={}, variantCount={}, topK={}, outputDir={}", task.getId(), policyOrDefault(policy), variantCount, DEFAULT_TOP_K, outputDir);
+		if (policyParams != null && !policyParams.isBlank()) {
+			log.info("ML scheme generator custom policyParams={}", policyParams);
+		}
+		log.info("ML scheme generator command: {}", String.join(" ", command));
 
 		try {
 			Process process = builder.start();
@@ -138,7 +141,9 @@ public class AllocationMlSchemeService {
 			}
 			int exitCode = process.waitFor();
 			log.info("ML scheme generator done: exitCode={}", exitCode);
-			log.debug("ML scheme generator output:\n{}", output);
+			if (!output.isBlank()) {
+				log.info("ML scheme generator output:\n{}", output);
+			}
 			if (exitCode != 0) {
 				throw new BusinessException(500, "自训练模型生成失败：" + output);
 			}
@@ -178,13 +183,18 @@ public class AllocationMlSchemeService {
 		command.add("scripts/evaluate_scheme_demo.py");
 		command.add("--scheme-dir");
 		command.add(outputDir.toString());
+		Path teacherPenalties = outputDir.resolve("teacher_penalties.json");
+		if (Files.exists(teacherPenalties)) {
+			command.add("--teacher-penalties");
+			command.add(teacherPenalties.toString());
+		}
 		command.add("--json");
 
 		ProcessBuilder builder = new ProcessBuilder(command);
 		builder.directory(mlDir.toFile());
 		builder.redirectErrorStream(true);
-		log.info("ML scheme evaluator starting: dir={}", outputDir);
-		log.debug("ML scheme evaluator command: {}", String.join(" ", command));
+		log.info("ML scheme evaluator starting: dir={}, teacherPenalties={}", outputDir, Files.exists(teacherPenalties) ? teacherPenalties : "none");
+		log.info("ML scheme evaluator command: {}", String.join(" ", command));
 
 		try {
 			Process process = builder.start();
@@ -194,7 +204,9 @@ public class AllocationMlSchemeService {
 			}
 			int exitCode = process.waitFor();
 			log.info("ML scheme evaluator done: exitCode={}", exitCode);
-			log.debug("ML scheme evaluator output:\n{}", output);
+			if (!output.isBlank()) {
+				log.info("ML scheme evaluator output:\n{}", output);
+			}
 			if (exitCode != 0) {
 				log.warn("Scheme evaluator exited non-zero but continuing: {}", output);
 			}
