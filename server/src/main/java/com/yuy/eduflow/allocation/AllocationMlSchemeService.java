@@ -29,7 +29,6 @@ import tools.jackson.databind.ObjectMapper;
 public class AllocationMlSchemeService {
 
 	private static final int DEFAULT_VARIANT_COUNT = 3;
-	private static final int DEFAULT_TOP_K = 8;
 	private static final int DEFAULT_CANDIDATE_POOL_SIZE = 500;
 	private static final String DEFAULT_POLICY = "BALANCED";
 	private static final DateTimeFormatter RUN_ID_FORMATTER = DateTimeFormatter.ofPattern("yyyyMMddHHmmssSSS");
@@ -107,7 +106,7 @@ public class AllocationMlSchemeService {
 	) {
 		List<String> command = new ArrayList<>();
 		command.add(resolvePythonExecutable(mlDir));
-		command.add("scripts/generate_scheme_demo.py");
+		command.add("scripts/generate_scheme_ga.py");
 		ModelArtifacts artifacts = preferredModelArtifacts(mlDir);
 		Path modelPath = artifacts.modelPath();
 		Path schemaPath = artifacts.schemaPath();
@@ -117,12 +116,20 @@ public class AllocationMlSchemeService {
 		command.add(schemaPath.toString());
 		command.add("--variant-count");
 		command.add(String.valueOf(variantCount));
-		command.add("--strategy");
-		command.add("top-k-random");
-		command.add("--top-k");
-		command.add(String.valueOf(DEFAULT_TOP_K));
 		command.add("--candidate-pool-size");
 		command.add(String.valueOf(DEFAULT_CANDIDATE_POOL_SIZE));
+		command.add("--candidate-top-n");
+		command.add("30");
+		command.add("--population-size");
+		command.add("80");
+		command.add("--generations");
+		command.add("80");
+		command.add("--elite-size");
+		command.add("8");
+		command.add("--tournament-size");
+		command.add("4");
+		command.add("--mutation-rate");
+		command.add("0.08");
 		command.add("--exclude-weekends");
 		command.add("--policy");
 		command.add(policyOrDefault(policy));
@@ -150,7 +157,7 @@ public class AllocationMlSchemeService {
 		ProcessBuilder builder = new ProcessBuilder(command);
 		builder.directory(mlDir.toFile());
 		builder.redirectErrorStream(true);
-		log.info("ML scheme generator starting: taskId={}, policy={}, variantCount={}, topK={}, model={}, schema={}, teacherPenalties={}, outputDir={}", task.getId(), policyOrDefault(policy), variantCount, DEFAULT_TOP_K, modelPath, schemaPath, teacherPenaltiesPath, outputDir);
+		log.info("ML GA scheme generator starting: taskId={}, policy={}, variantCount={}, candidatePoolSize={}, model={}, schema={}, teacherPenalties={}, outputDir={}", task.getId(), policyOrDefault(policy), variantCount, DEFAULT_CANDIDATE_POOL_SIZE, modelPath, schemaPath, teacherPenaltiesPath, outputDir);
 		if (policyParams != null && !policyParams.isBlank()) {
 			log.info("ML scheme generator custom policyParams={}", policyParams);
 		}

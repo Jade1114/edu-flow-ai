@@ -2,11 +2,11 @@
 
 This directory contains the Python-side intelligent scheduling pipeline for Edu-Flow-AI.
 
-The model layer does not directly write the official timetable. Java orchestrates business data, teacher profile parsing, process state, conflict checks, and persistence. Python focuses on candidate generation, LightGBM local scoring, and the target GA global optimization flow.
+The model layer does not directly write the official timetable. Java orchestrates business data, teacher profile parsing, process state, conflict checks, and persistence. Python focuses on candidate generation, LightGBM local scoring, and GA global optimization.
 
 ## Current Direction
 
-The project is moving from the transitional greedy/top-k-random generator to a cleaner GA + LightGBM architecture:
+The project now uses a clean GA + LightGBM architecture:
 
 ```text
 Database / feedback data
@@ -24,7 +24,7 @@ A single LightGBM training sample still represents:
 TeachingTask + candidate TimeSlot + candidate Classroom + current schedule state → score
 ```
 
-The GA optimizer will combine many scored fragments into complete timetable schemes.
+The GA optimizer combines many scored fragments into complete timetable schemes.
 
 ## Directory Layout
 
@@ -40,8 +40,7 @@ server/ml/
     ├── train_lightgbm.py
     ├── predict_demo.py
     ├── evaluate_model.py
-    ├── generate_scheme_demo.py    # transitional greedy/top-k-random entry, to be removed
-    ├── generate_scheme_ga.py      # target main generation entry, pending
+    ├── generate_scheme_ga.py      # main generation entry
     └── evaluate_scheme_demo.py
 ```
 
@@ -126,28 +125,31 @@ Example:
 python scripts/evaluate_model.py --top 10
 ```
 
-### `scripts/generate_scheme_demo.py`
-
-Transitional scheme generator. It uses LightGBM + greedy/top-k-random local selection and is scheduled for cleanup after the GA generator becomes the only official generation entry.
-
-Do not add new scheduling capabilities here unless they are required for migration.
-
 ### `scripts/generate_scheme_ga.py`
 
-Target main scheme generator, pending implementation.
-
-Expected responsibilities:
+Main scheme generator. Responsibilities:
 
 - build candidate pools per teaching-task fragment;
 - score candidates with LightGBM;
 - run GA global optimization;
 - write `scheme_001.csv` ~ `scheme_N.csv`;
 - preserve teacher-profile penalty explanation columns;
-- write optional `ga_summary.json`.
+- write `summary.csv` and `ga_summary.json`.
+
+Example:
+
+```bash
+python scripts/generate_scheme_ga.py \
+  --model models/schedule_ranker_v1.txt \
+  --schema data/feature_schema.json \
+  --variant-count 3 \
+  --teacher-penalties data/generated_schemes/teacher_penalties.json \
+  --exclude-weekends
+```
 
 ### `scripts/evaluate_scheme_demo.py`
 
-Evaluates generated schemes with scheme-level quality metrics. It should remain generator-agnostic and work for both transitional and GA outputs.
+Evaluates generated schemes with scheme-level quality metrics. It is generator-agnostic and works with GA CSV outputs.
 
 Example:
 
@@ -174,7 +176,7 @@ Python:
   CSV / summary output
 ```
 
-Python should not own LLM/RAG orchestration anymore. Teacher profile prompts under `server/ml/prompts/` are legacy duplicates and should be removed when `generate_scheme_demo.py` is replaced.
+Python does not own LLM/RAG orchestration anymore. Teacher profile parsing belongs to Java, and Python consumes only `teacher_penalties.json`.
 
 ## Related Project Docs
 

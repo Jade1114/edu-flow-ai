@@ -69,8 +69,7 @@ server/ml/
     ├── train_lightgbm.py
     ├── predict_demo.py
     ├── evaluate_model.py
-    ├── generate_scheme_demo.py      # 过渡入口，待 GA 替换后清理
-    ├── generate_scheme_ga.py        # 目标主生成入口（待实现）
+    ├── generate_scheme_ga.py        # 主生成入口
     ├── evaluate_scheme_demo.py
     └── build_feedback_training_samples.py
 ```
@@ -83,8 +82,7 @@ server/ml/
 | `train_lightgbm.py` | 训练 LightGBM 排课评分模型 | ✅ |
 | `predict_demo.py` | 加载模型并预测候选片段分数 | ✅ |
 | `evaluate_model.py` | 评估模型指标和特征重要性 | ✅ |
-| `generate_scheme_demo.py` | 逐片段 greedy/top-k-random 生成方案，过渡入口 | ⚠️ 待替换 |
-| `generate_scheme_ga.py` | 遗传算法全局搜索完整方案，目标主入口 | ⏳ |
+| `generate_scheme_ga.py` | 遗传算法全局搜索完整方案，主生成入口 | ✅ |
 | `evaluate_scheme_demo.py` | 评估方案级质量和教师画像满意度 | ✅ |
 | `build_feedback_training_samples.py` | 将反馈 JSON 转为训练 CSV | ✅ |
 
@@ -103,26 +101,6 @@ server/ml/
 评估结果接近满分，是因为第一版标签由规则自动生成，模型主要学习规则评分逻辑；这不代表已经学习到真实教务偏好。真实偏好需要通过反馈训练闭环逐步积累。
 
 ## 方案生成链路
-
-当前过渡链路仍是逐片段选择：
-
-```text
-教学任务列表
-↓
-构造候选 时间片 × 教室
-↓
-LightGBM 预测分
-↓
-叠加策略权重 / 教师画像惩罚 / 教室粘性 / 随机扰动
-↓
-选择当前片段候选
-↓
-更新临时课表状态
-↓
-重复直到任务片段排完
-```
-
-目标链路会改为 GA 全局搜索：
 
 ```text
 教学任务片段列表
@@ -161,7 +139,7 @@ teacher_penalties.json
 - `server/src/main/resources/prompts/teacher-penalty-system.md`
 - `server/src/main/resources/prompts/teacher-penalty-user-template.md`
 
-`server/ml/prompts/teacher-penalty-*.md` 是 Python 旧画像 RAG 链路残留，GA 切换时应删除。
+Python 侧旧画像 RAG prompt 已删除；教师画像解析只保留 Java resources 中的一份 prompt。
 
 需要的环境变量包括：`OPENAI_API_KEY`、`OPENAI_BASE_URL`、`OPENAI_EMBEDDING_MODEL`、`OPENAI_CHAT_API_KEY`、`OPENAI_CHAT_BASE_URL`、`OPENAI_CHAT_MODEL`、`QDRANT_URL`、`QDRANT_API_KEY`、`QDRANT_COLLECTION`。
 
@@ -189,11 +167,7 @@ cd server/ml
 source .venv/bin/activate
 python scripts/generate_training_samples.py
 python scripts/train_lightgbm.py
-# 当前过渡入口
-python scripts/generate_scheme_demo.py --variant-count 5 --policy BALANCED --exclude-weekends
-
-# 目标主入口（实现 GA 后替换 Java 调用）
-python scripts/generate_scheme_ga.py --variant-count 5 --policy BALANCED --exclude-weekends --population-size 80 --generations 80
+python scripts/generate_scheme_ga.py --variant-count 5 --policy BALANCED --exclude-weekends --population-size 80 --generations 80 --teacher-penalties data/generated_schemes/teacher_penalties.json
 python scripts/evaluate_scheme_demo.py --scheme-dir data/generated_schemes --json --teacher-penalties data/generated_schemes/teacher_penalties.json
 ```
 

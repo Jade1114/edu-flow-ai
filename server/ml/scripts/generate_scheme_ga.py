@@ -1,10 +1,8 @@
-"""Generate model-driven scheduling scheme demos.
+"""Generate scheduling schemes with GA + LightGBM.
 
-This script uses the trained LightGBM scoring model as the decision maker:
-
-    teaching tasks -> candidate slots/rooms -> model scores -> selected fragments -> demo scheme CSV
-
-It does not write to business tables.
+LightGBM scores local scheduling candidates. The genetic algorithm searches complete
+scheme combinations globally. Java prepares teacher profile penalties and persists the
+CSV output; this script does not call LLM/RAG services or write business tables.
 """
 
 from __future__ import annotations
@@ -12,10 +10,7 @@ from __future__ import annotations
 import argparse
 import csv
 import json
-import os
 import random
-import urllib.error
-import urllib.request
 from collections import Counter
 from pathlib import Path
 from typing import Any
@@ -45,10 +40,10 @@ from generate_training_samples import (
 ROOT_DIR = Path(__file__).resolve().parents[1]
 MODEL_PATH = ROOT_DIR / "models" / "schedule_ranker_v1.txt"
 FEATURE_SCHEMA_PATH = ROOT_DIR / "data" / "feature_schema.json"
-OUTPUT_PATH = ROOT_DIR / "data" / "generated_scheme_demo.csv"
+OUTPUT_PATH = ROOT_DIR / "data" / "generated_scheme_ga.csv"
 OUTPUT_DIR = ROOT_DIR / "data" / "generated_schemes"
 SUMMARY_PATH = OUTPUT_DIR / "summary.csv"
-PROMPT_DIR = ROOT_DIR / "prompts"
+GA_SUMMARY_PATH = OUTPUT_DIR / "ga_summary.json"
 
 OUTPUT_COLUMNS = [
     "sequence",
@@ -82,6 +77,7 @@ SUMMARY_COLUMNS = [
     "hard_conflict_fragments",
     "avg_predicted_score",
     "avg_rule_score",
+    "fitness",
 ]
 
 WEEKDAY_LOAD_PENALTY = 0.004
@@ -90,6 +86,19 @@ ROOM_WEEK_LOAD_PENALTY = 0.003
 TASK_DAY_LOAD_PENALTY = 0.018
 RANDOM_JITTER = 0.002
 DEFAULT_CANDIDATE_POOL_SIZE = 500
+DEFAULT_CANDIDATE_TOP_N = 30
+DEFAULT_POPULATION_SIZE = 80
+DEFAULT_GENERATIONS = 80
+DEFAULT_ELITE_SIZE = 8
+DEFAULT_TOURNAMENT_SIZE = 4
+DEFAULT_MUTATION_RATE = 0.08
+DEFAULT_PREDICTED_SCORE_WEIGHT = 100.0
+DEFAULT_RULE_SCORE_WEIGHT = 10.0
+DEFAULT_HARD_CONFLICT_PENALTY = 1000.0
+DEFAULT_TEACHER_PROFILE_PENALTY_SCALE = 100.0
+DEFAULT_DISTRIBUTION_PENALTY_SCALE = 20.0
+DEFAULT_CLASSROOM_STICKINESS_WEIGHT = 10.0
+DEFAULT_COMPACT_BONUS_WEIGHT = 10.0
 
 POLICY_PROFILES = {
     "BALANCED": {
@@ -164,10 +173,6 @@ def log_chain(message: str, payload: Any | None = None) -> None:
         print(f"{LOG_PREFIX} {message}", flush=True)
         return
     print(f"{LOG_PREFIX} {message}: {json.dumps(payload, ensure_ascii=False, default=str)}", flush=True)
-
-
-def load_prompt(file_name: str) -> str:
-    return (PROMPT_DIR / file_name).read_text(encoding="utf-8").strip()
 
 
 def load_schema(schema_path: Path) -> dict[str, Any]:
@@ -526,40 +531,6 @@ def rank_candidates(
     )
 
 
-def choose_candidate(
-    *,
-    booster: lgb.Booster,
-    schema: dict[str, Any],
-    candidates: list[dict[str, Any]],
-    strategy: str,
-    top_k: int,
-    rng: random.Random,
-    candidate_pool_size: int,
-    policy: dict[str, float],
-    task_classroom_id: int | None = None,
-    teacher_id: int | None = None,
-    teacher_profiles: dict[int, dict[str, object]] | None = None,
-) -> dict[str, Any] | None:
-    candidates = shortlist_candidates(candidates, candidate_pool_size, rng, policy)
-    ranked = rank_candidates(
-        booster=booster, schema=schema, candidates=candidates, rng=rng, policy=policy,
-        task_classroom_id=task_classroom_id, teacher_id=teacher_id, teacher_profiles=teacher_profiles,
-    )
-    if not ranked:
-        return None
-    penalty_stats = summarize_teacher_profile_penalty_candidates(ranked)
-    if strategy == "greedy":
-        selected = ranked[0]
-        selected["teacher_profile_candidate_stats"] = penalty_stats
-        return selected
-    if strategy == "top-k-random":
-        legal_ranked = [candidate for candidate in ranked if int(candidate["has_hard_conflict"]) == 0]
-        pool = legal_ranked if legal_ranked else ranked
-        selected = rng.choice(pool[: max(1, min(top_k, len(pool)))])
-        selected["teacher_profile_candidate_stats"] = penalty_stats
-        return selected
-    raise ValueError(f"Unsupported selection strategy: {strategy}")
-
 
 def filter_tasks(tasks: list[dict[str, Any]], teaching_task_ids: set[int] | None) -> list[dict[str, Any]]:
     if not teaching_task_ids:
@@ -589,30 +560,6 @@ def parse_teaching_task_ids(raw_value: str | None) -> set[int] | None:
         return None
     return {int(value.strip()) for value in raw_value.split(",") if value.strip()}
 
-
-def build_teacher_penalty_query(tasks: list[dict[str, Any]]) -> str:
-    parts = []
-    for task in tasks:
-        parts.append(
-            "教学任务{task_id}-教师{teacher_id}-课程类型{course_type}-班级{class_groups}".format(
-                task_id=task.get("teaching_task_id"),
-                teacher_id=task.get("teacher_id"),
-                course_type=task.get("course_type") or "未知",
-                class_groups=task.get("class_group_ids") or "未知",
-            )
-        )
-    return "；".join(parts)
-
-
-def post_json(url: str, body: dict[str, Any], headers: dict[str, str] | None = None, timeout: int = 60) -> dict[str, Any]:
-    request = urllib.request.Request(
-        url,
-        data=json.dumps(body, ensure_ascii=False).encode("utf-8"),
-        headers={"Content-Type": "application/json", **(headers or {})},
-        method="POST",
-    )
-    with urllib.request.urlopen(request, timeout=timeout) as response:
-        return json.loads(response.read().decode("utf-8"))
 
 
 def normalize_unavailable_slots(raw_slots: Any) -> list[list[int]]:
@@ -660,98 +607,6 @@ def fallback_teacher_penalties(teacher_profiles: dict[int, dict[str, object]]) -
         for teacher_id, profile in teacher_profiles.items()
     }
 
-
-def resolve_teacher_penalties(tasks: list[dict[str, Any]], teacher_profiles: dict[int, dict[str, object]]) -> dict[int, dict[str, Any]]:
-    fallback = fallback_teacher_penalties(teacher_profiles)
-    embedding_api_key = os.getenv("OPENAI_API_KEY")
-    embedding_base_url = os.getenv("OPENAI_BASE_URL", "https://api.openai.com/v1").rstrip("/")
-    embedding_model = os.getenv("OPENAI_EMBEDDING_MODEL", "text-embedding-3-small")
-    chat_api_key = os.getenv("OPENAI_CHAT_API_KEY")
-    chat_base_url = os.getenv("OPENAI_CHAT_BASE_URL", "").rstrip("/")
-    chat_model = os.getenv("OPENAI_CHAT_MODEL", "deepseek-v4-pro")
-    qdrant_url = os.getenv("QDRANT_URL", "http://localhost:6333").rstrip("/")
-    qdrant_api_key = os.getenv("QDRANT_API_KEY")
-    qdrant_collection = os.getenv("QDRANT_COLLECTION", "teacher_profiles")
-
-    log_chain("教师画像惩罚解析开始", {
-        "task_count": len(tasks),
-        "fallback_profile_count": len(fallback),
-        "rag_enabled": bool(embedding_api_key and chat_api_key and chat_base_url),
-        "embedding_model": embedding_model,
-        "chat_model": chat_model,
-        "qdrant_collection": qdrant_collection,
-    })
-    if not (embedding_api_key and chat_api_key and chat_base_url):
-        log_chain("教师画像惩罚使用 MySQL fallback（未配置完整 Embedding/Chat 环境变量）", summarize_teacher_penalties(fallback))
-        return fallback
-
-    try:
-        query = build_teacher_penalty_query(tasks)
-        log_chain("LLM/RAG 教师画像检索 Query", {"query": query})
-        embedding_response = post_json(
-            f"{embedding_base_url}/embeddings",
-            {"model": embedding_model, "input": query},
-            {"Authorization": f"Bearer {embedding_api_key}"},
-        )
-        vector = embedding_response["data"][0]["embedding"]
-        log_chain("Embedding 完成", {"vector_size": len(vector)})
-        qdrant_headers = {"api-key": qdrant_api_key} if qdrant_api_key else None
-        qdrant_limit = min(max(len({int(task["teacher_id"]) for task in tasks}) + 3, 5), 20)
-        log_chain("Qdrant 检索教师画像", {"url": qdrant_url, "collection": qdrant_collection, "top_n": qdrant_limit})
-        search_response = post_json(
-            f"{qdrant_url}/collections/{qdrant_collection}/points/search",
-            {
-                "vector": vector,
-                "limit": qdrant_limit,
-                "with_payload": True,
-                "with_vector": False,
-                "filter": {"must": [{"key": "status", "match": {"value": "ACTIVE"}}]},
-            },
-            qdrant_headers,
-        )
-        profiles = [item.get("payload", {}) for item in search_response.get("result", [])]
-        log_chain("Qdrant 返回教师画像", {
-            "profile_count": len(profiles),
-            "teachers": [
-                {
-                    "teacher_id": profile.get("teacherId"),
-                    "teacher_name": profile.get("teacherName"),
-                    "department": profile.get("department"),
-                    "has_special_note": bool(profile.get("specialNote")),
-                }
-                for profile in profiles
-            ],
-        })
-        payload_json = json.dumps(
-            {"teaching_tasks": tasks, "teacher_profiles": profiles},
-            ensure_ascii=False,
-            default=str,
-        )
-        system_prompt = load_prompt("teacher-penalty-system.md")
-        user_prompt = load_prompt("teacher-penalty-user-template.md").replace("{payload_json}", payload_json)
-        chat_response = post_json(
-            f"{chat_base_url}/chat/completions",
-            {
-                "model": chat_model,
-                "messages": [
-                    {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": user_prompt},
-                ],
-                "response_format": {"type": "json_object"},
-                "temperature": 0.3,
-            },
-            {"Authorization": f"Bearer {chat_api_key}"},
-            timeout=600,
-        )
-        content = chat_response["choices"][0]["message"]["content"]
-        log_chain("LLM 教师画像结构化原始输出", json.loads(content))
-        penalties = normalize_teacher_penalties(json.loads(content))
-        resolved = penalties or fallback
-        log_chain("教师画像惩罚最终结构", summarize_teacher_penalties(resolved))
-        return resolved
-    except (KeyError, ValueError, urllib.error.URLError, TimeoutError) as exc:
-        log_chain("教师画像惩罚 RAG 失败，回退 MySQL 解析", {"error": str(exc), "fallback": summarize_teacher_penalties(fallback)})
-        return fallback
 
 
 def summarize_teacher_penalties(penalties: dict[int, dict[str, Any]]) -> dict[str, Any]:
@@ -862,6 +717,247 @@ def log_selected_candidate(task: dict[str, Any], fragment_index: int, best: dict
     })
 
 
+def build_candidate_pools(
+    *,
+    tasks: list[dict[str, Any]],
+    classrooms: list[dict[str, Any]],
+    time_slots: list[dict[str, Any]],
+    teacher_profiles: dict[int, dict[str, object]],
+    booster: lgb.Booster,
+    schema: dict[str, Any],
+    max_tasks: int | None,
+    rng: random.Random,
+    candidate_pool_size: int,
+    candidate_top_n: int,
+    policy: dict[str, float],
+    exclude_weekends: bool,
+) -> list[dict[str, Any]]:
+    pools: list[dict[str, Any]] = []
+    scoped_tasks = tasks[:max_tasks] if max_tasks is not None else tasks
+    for task in scoped_tasks:
+        task_id = int(task["teaching_task_id"])
+        teacher_id = int(task["teacher_id"])
+        for fragment_index in range(1, periods_needed(task) + 1):
+            candidates = build_candidate_rows(
+                task=task,
+                classrooms=classrooms,
+                time_slots=time_slots,
+                selected_assignments=[],
+                exclude_weekends=exclude_weekends,
+            )
+            ranked = rank_candidates(
+                booster=booster,
+                schema=schema,
+                candidates=shortlist_candidates(candidates, candidate_pool_size, rng, policy),
+                rng=rng,
+                policy=policy,
+                task_classroom_id=None,
+                teacher_id=teacher_id,
+                teacher_profiles=teacher_profiles,
+            )
+            pool_candidates = ranked[: max(1, min(candidate_top_n, len(ranked)))]
+            if not pool_candidates:
+                log_chain("GA 候选池为空", {
+                    "teaching_task_id": task_id,
+                    "teacher_id": teacher_id,
+                    "fragment_index": fragment_index,
+                })
+                continue
+            pools.append({
+                "task": task,
+                "task_id": task_id,
+                "teacher_id": teacher_id,
+                "class_group_ids": parse_id_tuple(task.get("class_group_ids")),
+                "fragment_index": fragment_index,
+                "candidates": pool_candidates,
+            })
+    return pools
+
+
+def random_individual(pools: list[dict[str, Any]], rng: random.Random) -> list[int]:
+    return [rng.randrange(len(pool["candidates"])) for pool in pools]
+
+
+def individual_rows(individual: list[int], pools: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
+    for sequence, (gene, pool) in enumerate(zip(individual, pools), start=1):
+        candidate = pool["candidates"][gene]
+        task = pool["task"]
+        penalty_breakdown = candidate.get("teacher_profile_penalty_breakdown") or []
+        rows.append({
+            "sequence": sequence,
+            "teaching_task_id": pool["task_id"],
+            "teacher_id": pool["teacher_id"],
+            "teacher_name": task.get("teacher_name") or "",
+            "fragment_index": pool["fragment_index"],
+            "classroom_id": int(candidate["candidate_classroom_id"]),
+            "time_slot_id": int(candidate["candidate_time_slot_id"]),
+            "week_number": int(candidate["week_number"]),
+            "day_of_week": int(candidate["day_of_week"]),
+            "period_index": int(candidate["period_index"]),
+            "predicted_score": round(float(candidate.get("predicted_score") or 0.0), 4),
+            "rule_score": candidate.get("rule_score") or 0.0,
+            "has_hard_conflict": candidate.get("has_hard_conflict") or 0,
+            "reject_reason": candidate.get("reject_reason") or "",
+            "teacher_profile_penalty": candidate.get("teacher_profile_penalty") or 0.0,
+            "teacher_profile_penalty_explanation": format_teacher_profile_penalty_explanation(candidate),
+            "teacher_profile_penalty_breakdown": json.dumps(penalty_breakdown, ensure_ascii=False),
+        })
+    return rows
+
+
+def individual_assignments(individual: list[int], pools: list[dict[str, Any]]) -> list[PseudoAssignment]:
+    assignments: list[PseudoAssignment] = []
+    for gene, pool in zip(individual, pools):
+        candidate = pool["candidates"][gene]
+        assignments.append(PseudoAssignment(
+            task_id=pool["task_id"],
+            teacher_id=pool["teacher_id"],
+            class_group_ids=pool["class_group_ids"],
+            classroom_id=int(candidate["candidate_classroom_id"]),
+            time_slot_id=int(candidate["candidate_time_slot_id"]),
+            week_number=int(candidate["week_number"]),
+            day_of_week=int(candidate["day_of_week"]),
+            period_index=int(candidate["period_index"]),
+        ))
+    return assignments
+
+
+def evaluate_individual(
+    individual: list[int],
+    pools: list[dict[str, Any]],
+    *,
+    predicted_score_weight: float,
+    rule_score_weight: float,
+    hard_conflict_penalty: float,
+    teacher_profile_penalty_scale: float,
+    distribution_penalty_scale: float,
+    classroom_stickiness_weight: float,
+    compact_bonus_weight: float,
+) -> dict[str, Any]:
+    if not individual:
+        return {"fitness": -1_000_000.0}
+    teacher_slot: Counter[tuple[int, int]] = Counter()
+    class_slot: Counter[tuple[int, int]] = Counter()
+    room_slot: Counter[tuple[int, int]] = Counter()
+    day_load: Counter[tuple[int, int]] = Counter()
+    task_day_load: Counter[tuple[int, int, int]] = Counter()
+    task_rooms: dict[int, set[int]] = {}
+    predicted_total = 0.0
+    rule_total = 0.0
+    hard_conflicts = 0
+    teacher_profile_penalty_total = 0.0
+
+    for gene, pool in zip(individual, pools):
+        candidate = pool["candidates"][gene]
+        teacher_id = pool["teacher_id"]
+        time_slot_id = int(candidate["candidate_time_slot_id"])
+        room_id = int(candidate["candidate_classroom_id"])
+        week_number = int(candidate["week_number"])
+        day_of_week = int(candidate["day_of_week"])
+        predicted_total += float(candidate.get("predicted_score") or 0.0)
+        rule_total += float(candidate.get("rule_score") or 0.0)
+        hard_conflicts += int(candidate.get("has_hard_conflict") or 0)
+        teacher_profile_penalty_total += float(candidate.get("teacher_profile_penalty") or 0.0)
+        teacher_slot[(teacher_id, time_slot_id)] += 1
+        room_slot[(room_id, time_slot_id)] += 1
+        for class_group_id in pool["class_group_ids"]:
+            class_slot[(class_group_id, time_slot_id)] += 1
+        day_load[(week_number, day_of_week)] += 1
+        task_day_load[(pool["task_id"], week_number, day_of_week)] += 1
+        task_rooms.setdefault(pool["task_id"], set()).add(room_id)
+
+    duplicate_conflicts = sum(count - 1 for count in teacher_slot.values() if count > 1)
+    duplicate_conflicts += sum(count - 1 for count in room_slot.values() if count > 1)
+    duplicate_conflicts += sum(count - 1 for count in class_slot.values() if count > 1)
+    hard_conflicts += duplicate_conflicts
+    distribution_penalty = sum(max(0, count - 4) for count in day_load.values())
+    distribution_penalty += sum(max(0, count - 2) for count in task_day_load.values())
+    classroom_switches = sum(max(0, len(room_ids) - 1) for room_ids in task_rooms.values())
+    compact_bonus = sum(max(0, count - 1) for count in task_day_load.values())
+
+    size = len(individual)
+    avg_predicted = predicted_total / size
+    avg_rule = rule_total / size
+    fitness = (
+        avg_predicted * predicted_score_weight
+        + avg_rule * rule_score_weight
+        - hard_conflicts * hard_conflict_penalty
+        - teacher_profile_penalty_total * teacher_profile_penalty_scale
+        - distribution_penalty * distribution_penalty_scale
+        - classroom_switches * classroom_stickiness_weight
+        + compact_bonus * compact_bonus_weight
+    )
+    return {
+        "fitness": round(fitness, 6),
+        "avg_predicted_score": round(avg_predicted, 6),
+        "avg_rule_score": round(avg_rule, 6),
+        "hard_conflict_count": hard_conflicts,
+        "teacher_profile_penalty_total": round(teacher_profile_penalty_total, 6),
+        "distribution_penalty": distribution_penalty,
+        "classroom_switches": classroom_switches,
+        "compact_bonus": compact_bonus,
+    }
+
+
+def tournament_select(scored: list[dict[str, Any]], tournament_size: int, rng: random.Random) -> list[int]:
+    contenders = rng.sample(scored, k=min(tournament_size, len(scored)))
+    return max(contenders, key=lambda item: item["metrics"]["fitness"])["individual"][:]
+
+
+def crossover(parent_a: list[int], parent_b: list[int], pools: list[dict[str, Any]], rng: random.Random) -> list[int]:
+    task_ids = sorted({pool["task_id"] for pool in pools})
+    inherited_from_a = set(rng.sample(task_ids, k=max(1, len(task_ids) // 2))) if task_ids else set()
+    return [parent_a[index] if pools[index]["task_id"] in inherited_from_a else parent_b[index] for index in range(len(pools))]
+
+
+def mutate(individual: list[int], pools: list[dict[str, Any]], mutation_rate: float, rng: random.Random) -> None:
+    for index, pool in enumerate(pools):
+        if rng.random() < mutation_rate and len(pool["candidates"]) > 1:
+            individual[index] = rng.randrange(len(pool["candidates"]))
+
+
+def evolve_population(
+    pools: list[dict[str, Any]],
+    rng: random.Random,
+    *,
+    population_size: int,
+    generations: int,
+    elite_size: int,
+    tournament_size: int,
+    mutation_rate: float,
+    fitness_kwargs: dict[str, float],
+) -> list[dict[str, Any]]:
+    population = [random_individual(pools, rng) for _ in range(population_size)]
+    scored: list[dict[str, Any]] = []
+    for generation in range(1, generations + 1):
+        scored = [
+            {"individual": individual, "metrics": evaluate_individual(individual, pools, **fitness_kwargs)}
+            for individual in population
+        ]
+        scored.sort(key=lambda item: item["metrics"]["fitness"], reverse=True)
+        if generation == 1 or generation == generations or generation % 10 == 0:
+            log_chain("GA 迭代进度", {
+                "generation": generation,
+                "best_fitness": scored[0]["metrics"]["fitness"],
+                "best_hard_conflicts": scored[0]["metrics"].get("hard_conflict_count"),
+            })
+        next_population = [item["individual"][:] for item in scored[: max(1, min(elite_size, len(scored)))]]
+        while len(next_population) < population_size:
+            parent_a = tournament_select(scored, tournament_size, rng)
+            parent_b = tournament_select(scored, tournament_size, rng)
+            child = crossover(parent_a, parent_b, pools, rng)
+            mutate(child, pools, mutation_rate, rng)
+            next_population.append(child)
+        population = next_population
+    scored = [
+        {"individual": individual, "metrics": evaluate_individual(individual, pools, **fitness_kwargs)}
+        for individual in population
+    ]
+    scored.sort(key=lambda item: item["metrics"]["fitness"], reverse=True)
+    return scored
+
+
 def generate_scheme(
     *,
     tasks: list[dict[str, Any]],
@@ -871,98 +967,51 @@ def generate_scheme(
     booster: lgb.Booster,
     schema: dict[str, Any],
     max_tasks: int | None,
-    strategy: str,
-    top_k: int,
     rng: random.Random,
     candidate_pool_size: int,
+    candidate_top_n: int,
     policy: dict[str, float],
     exclude_weekends: bool = False,
-) -> tuple[list[dict[str, Any]], list[PseudoAssignment]]:
-    scheme_rows: list[dict[str, Any]] = []
-    selected_assignments: list[PseudoAssignment] = []
-    task_classroom_map: dict[int, int] = {}  # task_id -> first chosen classroom_id
-    sequence = 1
-
-    scoped_tasks = tasks[:max_tasks] if max_tasks is not None else tasks
-    for task in scoped_tasks:
-        task_id = int(task["teaching_task_id"])
-        teacher_id = int(task["teacher_id"])
-        class_group_ids = parse_id_tuple(task.get("class_group_ids"))
-        required_fragments = periods_needed(task)
-        task_classroom = task_classroom_map.get(task_id)
-
-        for fragment_index in range(1, required_fragments + 1):
-            candidates = build_candidate_rows(
-                task=task,
-                classrooms=classrooms,
-                time_slots=time_slots,
-                selected_assignments=selected_assignments,
-                exclude_weekends=exclude_weekends,
-            )
-            best = choose_candidate(
-                booster=booster,
-                schema=schema,
-                candidates=candidates,
-                strategy=strategy,
-                top_k=top_k,
-                rng=rng,
-                candidate_pool_size=candidate_pool_size,
-                policy=policy,
-                task_classroom_id=task_classroom,
-                teacher_id=teacher_id,
-                teacher_profiles=teacher_profiles,
-            )
-            if best is None:
-                log_chain("模型未选出可用候选", {
-                    "teaching_task_id": task_id,
-                    "teacher_id": teacher_id,
-                    "fragment_index": fragment_index,
-                    "candidate_count": len(candidates),
-                })
-                continue
-            log_selected_candidate(task, fragment_index, best, len(candidates))
-            # Track first classroom for this task
-            chosen_room = int(best["candidate_classroom_id"])
-            if task_id not in task_classroom_map:
-                task_classroom_map[task_id] = chosen_room
-            if best is None:
-                continue
-
-            assignment = PseudoAssignment(
-                task_id=task_id,
-                teacher_id=teacher_id,
-                class_group_ids=class_group_ids,
-                classroom_id=int(best["candidate_classroom_id"]),
-                time_slot_id=int(best["candidate_time_slot_id"]),
-                week_number=int(best["week_number"]),
-                day_of_week=int(best["day_of_week"]),
-                period_index=int(best["period_index"]),
-            )
-            selected_assignments.append(assignment)
-            penalty_breakdown = best.get("teacher_profile_penalty_breakdown") or []
-            scheme_rows.append(
-                {
-                    "sequence": sequence,
-                    "teaching_task_id": task_id,
-                    "teacher_id": teacher_id,
-                    "teacher_name": task.get("teacher_name") or "",
-                    "fragment_index": fragment_index,
-                    "classroom_id": assignment.classroom_id,
-                    "time_slot_id": assignment.time_slot_id,
-                    "week_number": assignment.week_number,
-                    "day_of_week": assignment.day_of_week,
-                    "period_index": assignment.period_index,
-                    "predicted_score": round(float(best["predicted_score"]), 4),
-                    "rule_score": best["rule_score"],
-                    "has_hard_conflict": best["has_hard_conflict"],
-                    "reject_reason": best["reject_reason"],
-                    "teacher_profile_penalty": best.get("teacher_profile_penalty") or 0.0,
-                    "teacher_profile_penalty_explanation": format_teacher_profile_penalty_explanation(best),
-                    "teacher_profile_penalty_breakdown": json.dumps(penalty_breakdown, ensure_ascii=False),
-                }
-            )
-            sequence += 1
-    return scheme_rows, selected_assignments
+    population_size: int = DEFAULT_POPULATION_SIZE,
+    generations: int = DEFAULT_GENERATIONS,
+    elite_size: int = DEFAULT_ELITE_SIZE,
+    tournament_size: int = DEFAULT_TOURNAMENT_SIZE,
+    mutation_rate: float = DEFAULT_MUTATION_RATE,
+    fitness_kwargs: dict[str, float] | None = None,
+) -> tuple[list[dict[str, Any]], list[PseudoAssignment], dict[str, Any]]:
+    pools = build_candidate_pools(
+        tasks=tasks,
+        classrooms=classrooms,
+        time_slots=time_slots,
+        teacher_profiles=teacher_profiles,
+        booster=booster,
+        schema=schema,
+        max_tasks=max_tasks,
+        rng=rng,
+        candidate_pool_size=candidate_pool_size,
+        candidate_top_n=candidate_top_n,
+        policy=policy,
+        exclude_weekends=exclude_weekends,
+    )
+    if not pools:
+        raise ValueError("GA candidate pools are empty")
+    effective_fitness_kwargs = fitness_kwargs or {}
+    scored = evolve_population(
+        pools,
+        rng,
+        population_size=population_size,
+        generations=generations,
+        elite_size=elite_size,
+        tournament_size=tournament_size,
+        mutation_rate=mutation_rate,
+        fitness_kwargs=effective_fitness_kwargs,
+    )
+    best = scored[0]
+    rows = individual_rows(best["individual"], pools)
+    assignments = individual_assignments(best["individual"], pools)
+    metrics = {**best["metrics"], "candidate_pool_count": len(pools)}
+    log_chain("GA 最优方案", metrics)
+    return rows, assignments, metrics
 
 
 def write_scheme(rows: list[dict[str, Any]], output_path: Path) -> None:
@@ -1010,29 +1059,35 @@ def write_summary(rows: list[dict[str, Any]], output_path: Path) -> None:
 
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Generate model-driven scheduling scheme demos.")
+    parser = argparse.ArgumentParser(description="Generate scheduling schemes with GA + LightGBM.")
     parser.add_argument("--model", type=Path, default=MODEL_PATH, help="Trained LightGBM model path.")
     parser.add_argument("--schema", type=Path, default=FEATURE_SCHEMA_PATH, help="Feature schema JSON path.")
     parser.add_argument("--output", type=Path, default=OUTPUT_PATH, help="Single generated scheme CSV output path.")
     parser.add_argument("--output-dir", type=Path, default=OUTPUT_DIR, help="Directory for multi-scheme outputs.")
     parser.add_argument("--max-tasks", type=int, default=None, help="Optional maximum number of teaching tasks to schedule.")
     parser.add_argument("--variant-count", type=int, default=1, help="Number of scheme variants to generate.")
-    parser.add_argument("--strategy", choices=["greedy", "top-k-random"], default="greedy", help="Candidate selection strategy.")
-    parser.add_argument("--top-k", type=int, default=5, help="Top-K candidate pool size for top-k-random strategy.")
     parser.add_argument("--random-seed", type=int, default=42, help="Base random seed for variant generation.")
     parser.add_argument("--policy", default=DEFAULT_POLICY, choices=list(POLICY_PROFILES.keys()), help="Generation policy profile.")
     parser.add_argument("--policy-params", default=None, help="JSON string of custom policy weights to override preset values.")
-    parser.add_argument("--teacher-penalties", type=Path, default=None, help="Teacher penalty JSON prepared by Java orchestration.")
+    parser.add_argument("--teacher-penalties", type=Path, required=True, help="Teacher penalty JSON prepared by Java orchestration.")
     parser.add_argument("--teaching-task-ids", default=None, help="Comma-separated teaching task IDs to schedule.")
     parser.add_argument("--start-week", type=int, default=None, help="Optional minimum week number.")
     parser.add_argument("--end-week", type=int, default=None, help="Optional maximum week number.")
     parser.add_argument("--exclude-weekends", action="store_true", help="Hard filter Saturday/Sunday time slots before model scoring.")
-    parser.add_argument(
-        "--candidate-pool-size",
-        type=int,
-        default=DEFAULT_CANDIDATE_POOL_SIZE,
-        help="Rule-filtered candidate pool size scored by the model per fragment. Use 0 for full scoring.",
-    )
+    parser.add_argument("--candidate-pool-size", type=int, default=DEFAULT_CANDIDATE_POOL_SIZE, help="Rule-filtered candidate pool size scored by the model per fragment.")
+    parser.add_argument("--candidate-top-n", type=int, default=DEFAULT_CANDIDATE_TOP_N, help="Top-N scored candidates per fragment used by GA.")
+    parser.add_argument("--population-size", type=int, default=DEFAULT_POPULATION_SIZE, help="GA population size.")
+    parser.add_argument("--generations", type=int, default=DEFAULT_GENERATIONS, help="GA generation count.")
+    parser.add_argument("--elite-size", type=int, default=DEFAULT_ELITE_SIZE, help="GA elite size.")
+    parser.add_argument("--tournament-size", type=int, default=DEFAULT_TOURNAMENT_SIZE, help="GA tournament selection size.")
+    parser.add_argument("--mutation-rate", type=float, default=DEFAULT_MUTATION_RATE, help="GA gene mutation rate.")
+    parser.add_argument("--predicted-score-weight", type=float, default=DEFAULT_PREDICTED_SCORE_WEIGHT)
+    parser.add_argument("--rule-score-weight", type=float, default=DEFAULT_RULE_SCORE_WEIGHT)
+    parser.add_argument("--hard-conflict-penalty", type=float, default=DEFAULT_HARD_CONFLICT_PENALTY)
+    parser.add_argument("--teacher-profile-penalty-scale", type=float, default=DEFAULT_TEACHER_PROFILE_PENALTY_SCALE)
+    parser.add_argument("--distribution-penalty-scale", type=float, default=DEFAULT_DISTRIBUTION_PENALTY_SCALE)
+    parser.add_argument("--classroom-stickiness-weight", type=float, default=DEFAULT_CLASSROOM_STICKINESS_WEIGHT)
+    parser.add_argument("--compact-bonus-weight", type=float, default=DEFAULT_COMPACT_BONUS_WEIGHT)
     return parser.parse_args()
 
 
@@ -1046,9 +1101,13 @@ def main() -> None:
         "model_path": str(args.model),
         "schema_path": str(args.schema),
         "variant_count": args.variant_count,
-        "strategy": args.strategy,
-        "top_k": args.top_k,
         "candidate_pool_size": args.candidate_pool_size,
+        "candidate_top_n": args.candidate_top_n,
+        "population_size": args.population_size,
+        "generations": args.generations,
+        "elite_size": args.elite_size,
+        "tournament_size": args.tournament_size,
+        "mutation_rate": args.mutation_rate,
         "policy": args.policy,
         "custom_policy_params": json.loads(args.policy_params) if args.policy_params else None,
         "teacher_penalties_path": str(args.teacher_penalties) if args.teacher_penalties else None,
@@ -1098,23 +1157,31 @@ def main() -> None:
             for task in tasks
         ],
     })
-    teacher_penalties = load_teacher_penalties(args.teacher_penalties) if args.teacher_penalties else fallback_teacher_penalties(teacher_profiles)
-    log_chain("教师画像惩罚由编排层提供" if args.teacher_penalties else "教师画像惩罚使用 Python fallback", summarize_teacher_penalties(teacher_penalties))
+    teacher_penalties = load_teacher_penalties(args.teacher_penalties)
+    log_chain("教师画像惩罚由编排层提供", summarize_teacher_penalties(teacher_penalties))
 
     custom_params = None
     if args.policy_params:
         custom_params = json.loads(args.policy_params)
     policy = load_policy(args.policy, custom_params)
-    log_chain("策略权重生效", {
+    fitness_kwargs = {
+        "predicted_score_weight": args.predicted_score_weight,
+        "rule_score_weight": args.rule_score_weight,
+        "hard_conflict_penalty": args.hard_conflict_penalty,
+        "teacher_profile_penalty_scale": args.teacher_profile_penalty_scale,
+        "distribution_penalty_scale": args.distribution_penalty_scale,
+        "classroom_stickiness_weight": args.classroom_stickiness_weight,
+        "compact_bonus_weight": args.compact_bonus_weight,
+    }
+    log_chain("策略权重与 GA 适应度参数生效", {
         "policy": args.policy,
         "custom_params": custom_params,
         "effective_weights": policy,
-        "candidate_score_formula": "selection_score = predicted_score + rule_score*0.02 - distribution_penalty + compact_bonus + stickiness_bonus - teacher_profile_penalty + random_jitter",
-        "distribution_penalty_formula": "scheme_day_load*weekday_load_penalty + room_day_load*room_day_load_penalty + room_week_load*room_week_load_penalty + task_day_load*task_day_load_penalty + weekend + early + late",
+        "fitness_weights": fitness_kwargs,
     })
 
     if args.variant_count <= 1:
-        rows, _ = generate_scheme(
+        rows, _, metrics = generate_scheme(
             tasks=tasks,
             classrooms=classrooms,
             time_slots=time_slots,
@@ -1122,16 +1189,22 @@ def main() -> None:
             booster=booster,
             schema=schema,
             max_tasks=args.max_tasks,
-            strategy=args.strategy,
-            top_k=args.top_k,
             rng=random.Random(args.random_seed),
             candidate_pool_size=args.candidate_pool_size,
+            candidate_top_n=args.candidate_top_n,
             policy=policy,
             exclude_weekends=args.exclude_weekends,
+            population_size=args.population_size,
+            generations=args.generations,
+            elite_size=args.elite_size,
+            tournament_size=args.tournament_size,
+            mutation_rate=args.mutation_rate,
+            fitness_kwargs=fitness_kwargs,
         )
         write_scheme(rows, args.output)
         write_teacher_penalties(teacher_penalties, args.output.parent / TEACHER_PENALTIES_FILENAME)
-        log_chain("单方案生成完成", {"output_path": str(args.output), **summarize_scheme(rows, tasks, args.max_tasks)})
+        (args.output.parent / "ga_summary.json").write_text(json.dumps(metrics, ensure_ascii=False, indent=2), encoding="utf-8")
+        log_chain("单方案生成完成", {"output_path": str(args.output), **summarize_scheme(rows, tasks, args.max_tasks), "fitness": metrics.get("fitness")})
         print_summary(rows, tasks, args.max_tasks)
         print(f"Output -> {args.output}")
         print(f"Teacher penalties -> {args.output.parent / TEACHER_PENALTIES_FILENAME}")
@@ -1143,7 +1216,7 @@ def main() -> None:
     for scheme_no in range(1, args.variant_count + 1):
         output_path = args.output_dir / f"scheme_{scheme_no:03d}.csv"
         rng = random.Random(args.random_seed + scheme_no)
-        rows, _ = generate_scheme(
+        rows, _, metrics = generate_scheme(
             tasks=tasks,
             classrooms=classrooms,
             time_slots=time_slots,
@@ -1151,21 +1224,29 @@ def main() -> None:
             booster=booster,
             schema=schema,
             max_tasks=args.max_tasks,
-            strategy=args.strategy,
-            top_k=args.top_k,
             rng=rng,
             candidate_pool_size=args.candidate_pool_size,
+            candidate_top_n=args.candidate_top_n,
             policy=policy,
             exclude_weekends=args.exclude_weekends,
+            population_size=args.population_size,
+            generations=args.generations,
+            elite_size=args.elite_size,
+            tournament_size=args.tournament_size,
+            mutation_rate=args.mutation_rate,
+            fitness_kwargs=fitness_kwargs,
         )
         write_scheme(rows, output_path)
         summary = summarize_scheme(rows, tasks, args.max_tasks)
-        summary_rows.append({"scheme_no": scheme_no, "output_path": str(output_path), **summary})
+        summary_rows.append({"scheme_no": scheme_no, "output_path": str(output_path), **summary, "fitness": metrics.get("fitness")})
 
-    write_summary(summary_rows, SUMMARY_PATH)
-    log_chain("多方案生成完成", {"summary_rows": summary_rows, "summary_path": str(SUMMARY_PATH)})
+    summary_path = args.output_dir / "summary.csv"
+    ga_summary_path = args.output_dir / "ga_summary.json"
+    write_summary(summary_rows, summary_path)
+    ga_summary_path.write_text(json.dumps({"schemes": summary_rows}, ensure_ascii=False, indent=2), encoding="utf-8")
+    log_chain("多方案生成完成", {"summary_rows": summary_rows, "summary_path": str(summary_path), "ga_summary_path": str(ga_summary_path)})
     print(f"Generated {len(summary_rows)} scheme variants -> {args.output_dir}")
-    print(f"Summary -> {SUMMARY_PATH}")
+    print(f"Summary -> {summary_path}")
 
 
 if __name__ == "__main__":
