@@ -171,8 +171,11 @@ The backend remains responsible for:
 - scheme persistence
 - final confirmation workflow
 
-## Related Cabinet Notes
+## Related Project Docs
 
-- `AI智能排课-LightGBM训练样本字段表.md`
-- `AI智能排课-模型全权承担方案与说服逻辑.md`
-- `AI智能排课-自训练模型学习方式与LightGBM定位.md`
+Project documentation is maintained in this repository, not in the external vault:
+
+- `docs/README.md`
+- `docs/ml/01-LightGBM训练样本与实施记录.md`
+- `docs/architecture/03-排课方案生成总链路.md`
+- `docs/architecture/04-排课链路待实现清单.md`
