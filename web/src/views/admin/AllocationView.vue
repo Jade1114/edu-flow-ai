@@ -559,7 +559,11 @@ function resetTimetableFilters() {
 }
 
 function itemHasConflict(item) {
-  return item.valid === false || !!item.conflictMessage;
+  return item.valid === false;
+}
+
+function itemHasProfileExplanation(item) {
+  return item.valid !== false && !!item.conflictMessage;
 }
 
 function itemsAtSlot(dayOfWeek, periodIndex) {
@@ -1140,17 +1144,30 @@ onUnmounted(() => {
                         borderRadius: '4px',
                         fontSize: '12px',
                         lineHeight: '1.4',
-                        background: itemHasConflict(item) ? 'var(--el-color-danger-light-9, #fef0f0)' : 'var(--el-color-primary-light-9, #ecf5ff)',
-                        color: itemHasConflict(item) ? 'var(--el-color-danger, #f56c6c)' : 'var(--el-color-primary, #409eff)',
-                        border: itemHasConflict(item) ? '1px solid var(--el-color-danger-light-5, #fab6b6)' : '1px solid transparent',
+                        background: itemHasConflict(item)
+                          ? 'var(--el-color-danger-light-9, #fef0f0)'
+                          : itemHasProfileExplanation(item)
+                            ? 'var(--el-color-warning-light-9, #fdf6ec)'
+                            : 'var(--el-color-primary-light-9, #ecf5ff)',
+                        color: itemHasConflict(item)
+                          ? 'var(--el-color-danger, #f56c6c)'
+                          : itemHasProfileExplanation(item)
+                            ? 'var(--el-color-warning, #e6a23c)'
+                            : 'var(--el-color-primary, #409eff)',
+                        border: itemHasConflict(item)
+                          ? '1px solid var(--el-color-danger-light-5, #fab6b6)'
+                          : itemHasProfileExplanation(item)
+                            ? '1px solid var(--el-color-warning-light-5, #f3d19e)'
+                            : '1px solid transparent',
                         cursor: 'grab',
                       }"
                       @dragstart="onDragStart($event, item)"
                       @click.stop="openSlotDetail(day, period)"
                     >
                       <div style="font-weight: 600">{{ item.courseName }}</div>
-                      <div :style="{ color: itemHasConflict(item) ? '#c45656' : '#666' }">{{ item.classroomName }} · {{ item.teacherName }}</div>
+                      <div :style="{ color: itemHasConflict(item) ? '#c45656' : itemHasProfileExplanation(item) ? '#b88230' : '#666' }">{{ item.classroomName }} · {{ item.teacherName }}</div>
                       <div style="color: #999; font-size: 11px">{{ item.classGroupName }}</div>
+                      <el-tag v-if="itemHasProfileExplanation(item)" type="warning" size="small" effect="plain">画像扣分</el-tag>
                     </div>
                   </div>
                   <div v-else
@@ -1199,10 +1216,16 @@ onUnmounted(() => {
         </el-table-column>
         <el-table-column
           v-if="slotDetail.items.some((i) => i.conflictMessage)"
-          prop="conflictMessage"
-          label="冲突"
+          label="说明"
+          min-width="220"
           show-overflow-tooltip
-        />
+        >
+          <template #default="{ row }">
+            <el-tag v-if="itemHasConflict(row)" type="danger" size="small">冲突</el-tag>
+            <el-tag v-else type="warning" size="small" effect="plain">画像扣分</el-tag>
+            <span style="margin-left: 6px">{{ row.conflictMessage }}</span>
+          </template>
+        </el-table-column>
         <el-table-column label="操作" width="70">
           <template #default="{ row }">
             <el-button type="primary" size="small" @click="openEditDialog(row)">编辑</el-button>

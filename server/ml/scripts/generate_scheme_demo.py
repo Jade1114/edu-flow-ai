@@ -65,6 +65,9 @@ OUTPUT_COLUMNS = [
     "rule_score",
     "has_hard_conflict",
     "reject_reason",
+    "teacher_profile_penalty",
+    "teacher_profile_penalty_explanation",
+    "teacher_profile_penalty_breakdown",
 ]
 
 TEACHER_PENALTIES_FILENAME = "teacher_penalties.json"
@@ -775,6 +778,27 @@ def write_teacher_penalties(penalties: dict[int, dict[str, Any]], output_path: P
     output_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
 
 
+def format_teacher_profile_penalty_explanation(best: dict[str, Any]) -> str:
+    breakdown = best.get("teacher_profile_penalty_breakdown") or []
+    if not breakdown:
+        return ""
+    parts: list[str] = []
+    for item in breakdown:
+        penalty = item.get("penalty")
+        reason = item.get("reason") or "教师画像约束"
+        if item.get("type") == "unavailable_slot":
+            parts.append(
+                f"教师画像扣分 {penalty}：周{item.get('day_of_week')}第{item.get('period_index')}节命中不可用时间；{reason}"
+            )
+        elif item.get("type") == "max_weekly_hours_exceeded":
+            parts.append(
+                f"教师画像扣分 {penalty}：周课时 {item.get('teacher_week_load_before')}+1 超过偏好上限 {item.get('max_weekly_hours')}；{reason}"
+            )
+        else:
+            parts.append(f"教师画像扣分 {penalty}：{reason}")
+    return "；".join(parts)
+
+
 def log_selected_candidate(task: dict[str, Any], fragment_index: int, best: dict[str, Any], candidate_count: int) -> None:
     candidate_stats = best.get("teacher_profile_candidate_stats") or {}
     if int(candidate_stats.get("penalized_candidate_count") or 0) > 0:
@@ -910,6 +934,7 @@ def generate_scheme(
                 period_index=int(best["period_index"]),
             )
             selected_assignments.append(assignment)
+            penalty_breakdown = best.get("teacher_profile_penalty_breakdown") or []
             scheme_rows.append(
                 {
                     "sequence": sequence,
@@ -926,6 +951,9 @@ def generate_scheme(
                     "rule_score": best["rule_score"],
                     "has_hard_conflict": best["has_hard_conflict"],
                     "reject_reason": best["reject_reason"],
+                    "teacher_profile_penalty": best.get("teacher_profile_penalty") or 0.0,
+                    "teacher_profile_penalty_explanation": format_teacher_profile_penalty_explanation(best),
+                    "teacher_profile_penalty_breakdown": json.dumps(penalty_breakdown, ensure_ascii=False),
                 }
             )
             sequence += 1

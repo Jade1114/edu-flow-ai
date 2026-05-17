@@ -123,7 +123,7 @@ public class AllocationSchemeGenerationService {
 			item.setClassroomId(parsedItem.classroomId() != null ? parsedItem.classroomId() : (tt != null ? tt.getClassroomId() : null));
 			item.setTimeSlotId(parsedItem.timeSlotId());
 			item.setValid(true);
-			item.setConflictMessage(null);
+			item.setConflictMessage(parsedItem.conflictMessage());
 			allocationItemMapper.insert(item);
 			items.add(item);
 		}

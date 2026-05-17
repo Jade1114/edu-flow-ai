@@ -390,7 +390,8 @@ public class AllocationMlSchemeService {
 			items.add(new AllocationParsedItem(
 				requireLong(values, headerIndex, "teaching_task_id", schemeFile),
 				requireLong(values, headerIndex, "time_slot_id", schemeFile),
-				requireLong(values, headerIndex, "classroom_id", schemeFile)
+				requireLong(values, headerIndex, "classroom_id", schemeFile),
+				optionalValue(values, headerIndex, "teacher_profile_penalty_explanation")
 			));
 		}
 		return items;
@@ -453,6 +454,14 @@ public class AllocationMlSchemeService {
 		Integer index = headerIndex.get(fieldName);
 		if (index == null || index >= values.size() || values.get(index).isBlank()) {
 			throw new ValidationException("模型方案 " + schemeFile.getFileName() + " 缺少字段：" + fieldName);
+		}
+		return values.get(index).trim();
+	}
+
+	private String optionalValue(List<String> values, Map<String, Integer> headerIndex, String fieldName) {
+		Integer index = headerIndex.get(fieldName);
+		if (index == null || index >= values.size() || values.get(index).isBlank()) {
+			return null;
 		}
 		return values.get(index).trim();
 	}
