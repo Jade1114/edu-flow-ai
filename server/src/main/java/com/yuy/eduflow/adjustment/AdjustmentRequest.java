@@ -11,7 +11,6 @@ public class AdjustmentRequest {
     private Long teacherId;
     private String reason;
     private String preferredTimeText;
-    private String aiSuggestion;
     private AdjustmentStatus status;
     private String reviewNote;
     private LocalDateTime createdAt;

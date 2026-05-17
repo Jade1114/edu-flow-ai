@@ -50,11 +50,7 @@ public class AllocationMlSchemeService {
 		this.feedbackTrainingMapper = feedbackTrainingMapper;
 	}
 
-	public AllocationParsePreview generateParsePreview(Long taskId, Integer topK, String policy) {
-		return generateParsePreview(taskId, topK, policy, null, ignored -> {});
-	}
-
-	public AllocationParsePreview generateParsePreview(Long taskId, Integer topK, String policy, String policyParams, Consumer<GenerationStatus> progressReporter) {
+	public AllocationGenerationPreview generateSchemes(Long taskId, Integer schemeCount, String policy, String policyParams, Consumer<GenerationStatus> progressReporter) {
 		AllocationTask task = allocationTaskMapper.findById(taskId);
 		if (task == null) {
 			throw new ResourceNotFoundException("排课任务不存在");
@@ -75,18 +71,16 @@ public class AllocationMlSchemeService {
 			Files.createDirectories(outputDir);
 			Path teacherPenaltiesPath = outputDir.resolve("teacher_penalties.json");
 			writeTeacherPenalties(teachingTasks, teacherPenaltiesPath);
-			runModelScript(mlDir, outputDir, task, teachingTaskIds, normalizedVariantCount(topK), policy, policyParams, teacherPenaltiesPath, progressReporter);
+			runModelScript(mlDir, outputDir, task, teachingTaskIds, normalizedVariantCount(schemeCount), policy, policyParams, teacherPenaltiesPath, progressReporter);
 			progressReporter.accept(running("eval", "自训练模型评估方案质量...", 62));
 			runEvaluator(mlDir, outputDir);
 			progressReporter.accept(running("parse", "解析评估后的 CSV 方案...", 68));
 			String resolvedPolicy = policyOrDefault(policy);
 			List<AllocationParsedScheme> schemes = parseGeneratedSchemes(outputDir, resolvedPolicy);
-			return new AllocationParsePreview(
+			return new AllocationGenerationPreview(
 				taskId,
 				task.getName(),
-				"Self-trained LightGBM schedule generation: " + outputDir,
-				schemes,
-				List.of()
+				schemes
 			);
 		} catch (IOException exception) {
 			throw new BusinessException(500, "模型方案文件处理失败：" + exception.getMessage(), exception);
@@ -345,11 +339,11 @@ public class AllocationMlSchemeService {
 		return policy != null && !policy.isBlank() ? policy : DEFAULT_POLICY;
 	}
 
-	private int normalizedVariantCount(Integer topK) {
-		if (topK == null || topK <= 0) {
+	private int normalizedVariantCount(Integer schemeCount) {
+		if (schemeCount == null || schemeCount <= 0) {
 			return DEFAULT_VARIANT_COUNT;
 		}
-		return Math.min(Math.max(topK, 1), 5);
+		return Math.min(Math.max(schemeCount, 1), 5);
 	}
 
 	private List<AllocationParsedScheme> parseGeneratedSchemes(Path outputDir, String policy) throws IOException {
@@ -370,7 +364,6 @@ public class AllocationMlSchemeService {
 				schemes.add(new AllocationParsedScheme(
 					"自训练模型方案 " + String.format("%03d", i + 1),
 					summary,
-					"由 LightGBM 候选评分、规则预筛和方案状态惩罚共同生成",
 					items,
 					evaluation != null ? evaluation.schemeScore() : null,
 					evaluation != null ? evaluation.evaluationSummary() : null,

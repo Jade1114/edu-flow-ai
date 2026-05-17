@@ -56,22 +56,20 @@ public class AllocationTaskController {
 	@PostMapping("/{id}/schemes")
 	public ApiResponse<AllocationGenerateResult> generateSchemes(
 		@PathVariable Long id,
-		@RequestParam(required = false) Integer topK,
 		@RequestParam(required = false) Integer schemeCount,
 		@RequestParam(required = false) String policy
 	) {
-		return ApiResponse.success(allocationSchemeGenerationService.generateSchemes(id, resolveSchemeCount(schemeCount, topK), policy));
+		return ApiResponse.success(allocationSchemeGenerationService.generateSchemes(id, schemeCount, policy));
 	}
 
 	@PostMapping("/{id}/generate-async")
 	public ApiResponse<GenerationStatus> generateAsync(
 		@PathVariable Long id,
-		@RequestParam(required = false) Integer topK,
 		@RequestParam(required = false) Integer schemeCount,
 		@RequestParam(required = false) String policy,
 		@RequestParam(required = false) String policyParams
 	) {
-		generationTracker.startGeneration(id, resolveSchemeCount(schemeCount, topK), policy, policyParams);
+		generationTracker.startGeneration(id, schemeCount, policy, policyParams);
 		return ApiResponse.success(generationTracker.getStatus(id));
 	}
 
@@ -107,10 +105,6 @@ public class AllocationTaskController {
 			emitter.complete();
 			return emitter;
 		}
-	}
-
-	private Integer resolveSchemeCount(Integer schemeCount, Integer legacyTopK) {
-		return schemeCount != null ? schemeCount : legacyTopK;
 	}
 
 	@PostMapping

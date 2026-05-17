@@ -168,7 +168,6 @@ async function saveMove() {
       })
     // 标记调课申请为 APPROVED
     await request.post(`/api/adjustment-requests/${currentReq.value.id}/confirm`, {
-      candidateIndex: 0,
       reviewNote: '已通过拖拽调整'
     })
     ElMessage.success('调课成功')

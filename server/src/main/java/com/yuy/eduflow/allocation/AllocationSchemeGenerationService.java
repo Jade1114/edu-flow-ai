@@ -49,14 +49,14 @@ public class AllocationSchemeGenerationService {
 	public AllocationGenerateResult generateSchemes(Long taskId, Integer schemeCount, String policy, String policyParams, Consumer<GenerationStatus> progressReporter) {
 		log.info("=== SchemeGeneration generateSchemes() start === taskId={}, schemeCount={}", taskId, schemeCount);
 		Assert.positiveId(taskId, "分课任务ID");
-		AllocationParsePreview parsePreview = allocationMlSchemeService.generateParsePreview(taskId, schemeCount, policy, policyParams, progressReporter);
+		AllocationGenerationPreview generationPreview = allocationMlSchemeService.generateSchemes(taskId, schemeCount, policy, policyParams, progressReporter);
 		log.info("Parsed {} schemes from self-trained model, rejecting old candidates...",
-			parsePreview.schemes() != null ? parsePreview.schemes().size() : 0);
+			generationPreview.schemes() != null ? generationPreview.schemes().size() : 0);
 		progressReporter.accept(running("persist", "清理旧候选方案，准备入库...", 70));
 		allocationSchemeMapper.rejectCandidatesByTaskId(taskId, SchemeStatus.CANDIDATE.code(), SchemeStatus.REJECTED.code());
 		log.info("Old candidates rejected");
 
-		List<AllocationParsedScheme> parsedSchemes = safeSchemes(parsePreview);
+		List<AllocationParsedScheme> parsedSchemes = safeSchemes(generationPreview);
 		List<AllocationScheme> generatedSchemes = new ArrayList<>();
 		for (int i = 0; i < parsedSchemes.size(); i++) {
 			AllocationParsedScheme parsedScheme = parsedSchemes.get(i);
@@ -80,15 +80,15 @@ public class AllocationSchemeGenerationService {
 		}
 
 		log.info("=== SchemeGeneration generateSchemes() end === totalSchemes={}", generatedSchemes.size());
-		return new AllocationGenerateResult(parsePreview.taskId(), generatedSchemes.size(), generatedSchemes);
+		return new AllocationGenerateResult(generationPreview.taskId(), generatedSchemes.size(), generatedSchemes);
 	}
 
 	private GenerationStatus running(String stage, String message, Integer progress) {
 		return new GenerationStatus("RUNNING", stage, message, progress, null, 0, null);
 	}
 
-	private List<AllocationParsedScheme> safeSchemes(AllocationParsePreview parsePreview) {
-		return parsePreview.schemes() == null ? List.of() : parsePreview.schemes();
+	private List<AllocationParsedScheme> safeSchemes(AllocationGenerationPreview generationPreview) {
+		return generationPreview.schemes() == null ? List.of() : generationPreview.schemes();
 	}
 
 	private AllocationScheme persistScheme(Long taskId, AllocationParsedScheme parsedScheme, String policyParams) {
@@ -102,7 +102,6 @@ public class AllocationSchemeGenerationService {
 		scheme.setPolicy(customPolicy ? "CUSTOM" : parsedScheme.policy());
 		scheme.setPolicyParams(customPolicy ? policyParams : null);
 		scheme.setModelVersion(parsedScheme.modelVersion());
-		scheme.setSatisfiedSummary(parsedScheme.satisfiedSummary());
 		scheme.setConflictSummary(null);
 		scheme.setValid(true);
 		scheme.setStatus(SchemeStatus.CANDIDATE);

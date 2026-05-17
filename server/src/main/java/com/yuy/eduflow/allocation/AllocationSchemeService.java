@@ -59,7 +59,6 @@ public class AllocationSchemeService {
 		scheme.setTaskId(request.taskId());
 		scheme.setSchemeName(request.schemeName().trim());
 		scheme.setSummary(clean(request.summary()));
-		scheme.setSatisfiedSummary(clean(request.satisfiedSummary()));
 		scheme.setConflictSummary(clean(request.conflictSummary()));
 		scheme.setValid(request.valid() != null ? request.valid() : true);
 		scheme.setStatus(StringUtils.hasText(request.status()) ? SchemeStatus.from(request.status().trim()) : SchemeStatus.CANDIDATE);

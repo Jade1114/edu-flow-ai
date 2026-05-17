@@ -56,7 +56,7 @@ public interface MlFeedbackTrainingMapper {
 		<script>
 		SELECT s.id, s.task_id, s.scheme_name, s.summary, s.scheme_score,
 		       s.evaluation_summary, s.policy, s.policy_params, s.model_version,
-		       s.satisfied_summary, s.conflict_summary, s.valid, s.status,
+		       s.conflict_summary, s.valid, s.status,
 		       s.created_at, s.updated_at
 		FROM allocation_scheme s
 		WHERE 1 = 1

@@ -41,7 +41,7 @@ Java 后端：任务编排、教师画像解析、Python 调用、结果入库�
 前端：策略选择、方案展示、画像扣分解释、调整、确认、模型训练中心反馈入口
 ```
 
-LLM 直出课表链路已删除；旧的 Prompt Preview、Generate Preview、LLM Parse Preview、Allocation RAG Context 链路不再恢复。逐片段 greedy/top-k-random 生成入口也已清理，正式生成链路收敛为 GA + LightGBM。
+正式生成链路已收敛为 GA + LightGBM；历史实验入口不再作为当前文档事实源。
 
 ## 药柜迁移说明
 

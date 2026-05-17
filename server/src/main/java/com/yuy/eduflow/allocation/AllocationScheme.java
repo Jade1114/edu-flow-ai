@@ -15,7 +15,6 @@ public class AllocationScheme {
 	private String policy;
 	private String policyParams;
 	private String modelVersion;
-	private String satisfiedSummary;
 	private String conflictSummary;
 	private Boolean valid;
     private SchemeStatus status;

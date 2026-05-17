@@ -15,7 +15,7 @@ public interface AllocationSchemeMapper {
 		<script>
 		SELECT id, task_id, scheme_name, summary, scheme_score,
 		       evaluation_summary, policy, policy_params, model_version,
-		       satisfied_summary, conflict_summary, valid, status, created_at, updated_at
+		       conflict_summary, valid, status, created_at, updated_at
 		FROM allocation_scheme
 		WHERE 1 = 1
 		<if test='taskId != null'>
@@ -32,7 +32,7 @@ public interface AllocationSchemeMapper {
 	@Select("""
 		SELECT id, task_id, scheme_name, summary, scheme_score,
 		       evaluation_summary, policy, policy_params, model_version,
-		       satisfied_summary, conflict_summary, valid, status, created_at, updated_at
+		       conflict_summary, valid, status, created_at, updated_at
 		FROM allocation_scheme
 		WHERE id = #{id}
 		""")
@@ -42,12 +42,12 @@ public interface AllocationSchemeMapper {
 		INSERT INTO allocation_scheme (
 		    task_id, scheme_name, summary, scheme_score,
 		    evaluation_summary, policy, policy_params, model_version,
-		    satisfied_summary, conflict_summary, valid, status
+		    conflict_summary, valid, status
 		)
 		VALUES (
 		    #{taskId}, #{schemeName}, #{summary}, #{schemeScore},
 		    #{evaluationSummary}, #{policy}, #{policyParams}, #{modelVersion},
-		    #{satisfiedSummary}, #{conflictSummary}, #{valid}, #{status}
+		    #{conflictSummary}, #{valid}, #{status}
 		)
 		""")
 	@Options(useGeneratedKeys = true, keyProperty = "id")
@@ -58,7 +58,6 @@ public interface AllocationSchemeMapper {
 		SET task_id = #{taskId},
 		    scheme_name = #{schemeName},
 		    summary = #{summary},
-		    satisfied_summary = #{satisfiedSummary},
 		    conflict_summary = #{conflictSummary},
 		    valid = #{valid},
 		    status = #{status}

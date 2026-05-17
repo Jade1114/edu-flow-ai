@@ -14,7 +14,7 @@ public interface AdjustmentRequestMapper {
 
     @Select("""
         SELECT id, assignment_id, teacher_id, reason, preferred_time_text,
-               ai_suggestion, status, review_note, created_at, updated_at
+               status, review_note, created_at, updated_at
         FROM adjustment_request
         WHERE id = #{id}
         """)
@@ -23,7 +23,7 @@ public interface AdjustmentRequestMapper {
     @Select("""
         <script>
         SELECT id, assignment_id, teacher_id, reason, preferred_time_text,
-               ai_suggestion, status, review_note, created_at, updated_at
+               status, review_note, created_at, updated_at
         FROM adjustment_request
         WHERE 1 = 1
         <if test='status != null and status != ""'>
@@ -46,14 +46,6 @@ public interface AdjustmentRequestMapper {
         """)
     @Options(useGeneratedKeys = true, keyProperty = "id")
     int insert(AdjustmentRequest request);
-
-    @Update("""
-        UPDATE adjustment_request
-        SET ai_suggestion = #{aiSuggestion},
-            status = #{status}
-        WHERE id = #{id}
-        """)
-    int updateSuggestion(@Param("id") Long id, @Param("aiSuggestion") String aiSuggestion, @Param("status") String status);
 
     @Update("""
         UPDATE adjustment_request

@@ -91,7 +91,6 @@ pnpm run build
 - `GET /api/course-assignments` — 正式课表查询
 - `GET /api/teachers/{id}/course-assignments` — 教师课表
 - `GET/POST /api/adjustment-requests` — 调课申请
-- `POST /api/adjustment-requests/{id}/suggestions` — AI 调课建议
 - `POST /api/adjustment-requests/{id}/confirm` — 确认调课
 - `POST /api/adjustment-requests/{id}/reject` — 拒绝调课
 

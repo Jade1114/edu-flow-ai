@@ -38,11 +38,6 @@ public class AdjustmentRequestController {
         return ApiResponse.success(adjustmentRequestService.create(request));
     }
 
-    @PostMapping("/{id}/suggestions")
-    public ApiResponse<AdjustmentRequest> generateSuggestions(@PathVariable Long id) {
-        return ApiResponse.success(adjustmentRequestService.generateSuggestions(id));
-    }
-
     @PostMapping("/{id}/confirm")
     public ApiResponse<Void> confirm(
         @PathVariable Long id,
