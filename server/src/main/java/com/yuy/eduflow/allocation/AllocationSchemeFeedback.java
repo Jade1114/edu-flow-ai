@@ -9,8 +9,6 @@ public class AllocationSchemeFeedback {
 	private Long schemeId;
 	private Long taskId;
 	private String feedbackType;
-	private Integer score;
-	private String comment;
 	private Integer adjustmentCount;
 	private String createdBy;
 	private LocalDateTime createdAt;

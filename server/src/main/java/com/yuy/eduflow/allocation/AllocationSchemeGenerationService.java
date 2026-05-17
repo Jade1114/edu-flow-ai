@@ -42,14 +42,14 @@ public class AllocationSchemeGenerationService {
 		this.teachingTaskMapper = teachingTaskMapper;
 	}
 
-	public AllocationGenerateResult generateSchemes(Long taskId, Integer topK, String policy) {
-		return generateSchemes(taskId, topK, policy, null, ignored -> {});
+	public AllocationGenerateResult generateSchemes(Long taskId, Integer schemeCount, String policy) {
+		return generateSchemes(taskId, schemeCount, policy, null, ignored -> {});
 	}
 
-	public AllocationGenerateResult generateSchemes(Long taskId, Integer topK, String policy, String policyParams, Consumer<GenerationStatus> progressReporter) {
-		log.info("=== SchemeGeneration generateSchemes() start === taskId={}, topK={}", taskId, topK);
+	public AllocationGenerateResult generateSchemes(Long taskId, Integer schemeCount, String policy, String policyParams, Consumer<GenerationStatus> progressReporter) {
+		log.info("=== SchemeGeneration generateSchemes() start === taskId={}, schemeCount={}", taskId, schemeCount);
 		Assert.positiveId(taskId, "分课任务ID");
-		AllocationParsePreview parsePreview = allocationMlSchemeService.generateParsePreview(taskId, topK, policy, policyParams, progressReporter);
+		AllocationParsePreview parsePreview = allocationMlSchemeService.generateParsePreview(taskId, schemeCount, policy, policyParams, progressReporter);
 		log.info("Parsed {} schemes from self-trained model, rejecting old candidates...",
 			parsePreview.schemes() != null ? parsePreview.schemes().size() : 0);
 		progressReporter.accept(running("persist", "清理旧候选方案，准备入库...", 70));
@@ -63,7 +63,7 @@ public class AllocationSchemeGenerationService {
 			int baseProgress = 75 + Math.round((i * 15f) / Math.max(parsedSchemes.size(), 1));
 			progressReporter.accept(running("persist", "保存候选方案 " + (i + 1) + "/" + parsedSchemes.size() + "...", baseProgress));
 			log.info("Persisting scheme [{}]...", parsedScheme.schemeName());
-			AllocationScheme scheme = persistScheme(taskId, parsedScheme);
+			AllocationScheme scheme = persistScheme(taskId, parsedScheme, policyParams);
 			log.info("Scheme persisted: id={}, name={}", scheme.getId(), scheme.getSchemeName());
 			List<AllocationItem> items = persistItems(scheme.getId(), parsedScheme.items());
 			log.info("Persisted {} items for scheme id={}", items.size(), scheme.getId());
@@ -91,16 +91,16 @@ public class AllocationSchemeGenerationService {
 		return parsePreview.schemes() == null ? List.of() : parsePreview.schemes();
 	}
 
-	private AllocationScheme persistScheme(Long taskId, AllocationParsedScheme parsedScheme) {
+	private AllocationScheme persistScheme(Long taskId, AllocationParsedScheme parsedScheme, String policyParams) {
 		AllocationScheme scheme = new AllocationScheme();
 		scheme.setTaskId(taskId);
 		scheme.setSchemeName(parsedScheme.schemeName());
 		scheme.setSummary(parsedScheme.summary());
-		scheme.setScore(parsedScheme.schemeScore() != null ? (int) Math.round(parsedScheme.schemeScore()) : null);
 		scheme.setSchemeScore(parsedScheme.schemeScore());
 		scheme.setEvaluationSummary(parsedScheme.evaluationSummary());
-		scheme.setPolicy(parsedScheme.policy());
-		scheme.setPolicyParams(null);
+		boolean customPolicy = policyParams != null && !policyParams.isBlank();
+		scheme.setPolicy(customPolicy ? "CUSTOM" : parsedScheme.policy());
+		scheme.setPolicyParams(customPolicy ? policyParams : null);
 		scheme.setModelVersion(parsedScheme.modelVersion());
 		scheme.setSatisfiedSummary(parsedScheme.satisfiedSummary());
 		scheme.setConflictSummary(null);

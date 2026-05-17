@@ -17,6 +17,7 @@ public class AllocationItemService {
 	private final AllocationItemMapper allocationItemMapper;
 	private final AllocationSchemeConflictDetector conflictDetector;
 	private final AllocationSchemeMapper allocationSchemeMapper;
+	private final AllocationItemAdjustmentLogMapper adjustmentLogMapper;
 	private final ClassroomService classroomService;
 	private final TimeSlotService timeSlotService;
 
@@ -24,12 +25,14 @@ public class AllocationItemService {
 		AllocationItemMapper allocationItemMapper,
 		AllocationSchemeConflictDetector conflictDetector,
 		AllocationSchemeMapper allocationSchemeMapper,
+		AllocationItemAdjustmentLogMapper adjustmentLogMapper,
 		ClassroomService classroomService,
 		TimeSlotService timeSlotService
 	) {
 		this.allocationItemMapper = allocationItemMapper;
 		this.conflictDetector = conflictDetector;
 		this.allocationSchemeMapper = allocationSchemeMapper;
+		this.adjustmentLogMapper = adjustmentLogMapper;
 		this.classroomService = classroomService;
 		this.timeSlotService = timeSlotService;
 	}
@@ -45,11 +48,50 @@ public class AllocationItemService {
 			throw new ValidationException("该明细不属于此方案");
 		}
 
+		Long fromClassroomId = item.getClassroomId();
+		Long fromTimeSlotId = item.getTimeSlotId();
 		item.setClassroomId(request.classroomId());
 		item.setTimeSlotId(request.timeSlotId());
 		allocationItemMapper.update(item);
+		recordAdjustment(item, fromClassroomId, fromTimeSlotId, request);
 
 		return recheckScheme(schemeId);
+	}
+
+	private void recordAdjustment(
+		AllocationItem item,
+		Long fromClassroomId,
+		Long fromTimeSlotId,
+		AllocationItemMoveRequest request
+	) {
+		boolean timeChanged = !fromTimeSlotId.equals(request.timeSlotId());
+		boolean classroomChanged = !fromClassroomId.equals(request.classroomId());
+		if (!timeChanged && !classroomChanged) {
+			return;
+		}
+		AllocationItemAdjustmentLog log = new AllocationItemAdjustmentLog();
+		log.setSchemeId(item.getSchemeId());
+		log.setItemId(item.getId());
+		log.setTeachingTaskId(item.getTeachingTaskId());
+		log.setFromTimeSlotId(fromTimeSlotId);
+		log.setToTimeSlotId(request.timeSlotId());
+		log.setFromClassroomId(fromClassroomId);
+		log.setToClassroomId(request.classroomId());
+		log.setReason(resolveAdjustmentReason(request.reason(), timeChanged, classroomChanged));
+		adjustmentLogMapper.insert(log);
+	}
+
+	private String resolveAdjustmentReason(String reason, boolean timeChanged, boolean classroomChanged) {
+		if (StringUtils.hasText(reason)) {
+			return reason.trim();
+		}
+		if (timeChanged && classroomChanged) {
+			return "修改时间片+教室";
+		}
+		if (timeChanged) {
+			return "修改时间片";
+		}
+		return "修改教室";
 	}
 
 	public List<AllocationItemView> recheckScheme(Long schemeId) {

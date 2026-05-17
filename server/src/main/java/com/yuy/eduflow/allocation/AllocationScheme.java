@@ -10,7 +10,6 @@ public class AllocationScheme {
 	private Long taskId;
 	private String schemeName;
 	private String summary;
-	private Integer score;
 	private Double schemeScore;
 	private String evaluationSummary;
 	private String policy;

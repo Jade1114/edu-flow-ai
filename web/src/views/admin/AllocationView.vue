@@ -24,14 +24,9 @@ const genStatus = ref(null);
 const genProgress = ref(0);
 let pollTimer = null;
 let generationSource = null;
-const topK = ref(5);
+const schemeCount = ref(3);
 const policy = ref('BALANCED');
 
-// === 反馈训练 ===
-const feedbackStats = ref(null);
-const feedbackLoading = ref(false);
-const training = ref(false);
-const trainResult = ref(null);
 
 const policyOptions = [
   { value: 'BALANCED', label: '综合平衡', desc: '均衡所有维度的默认策略' },
@@ -40,6 +35,10 @@ const policyOptions = [
   { value: 'ROOM_EFFICIENT', label: '教室利用', desc: '最大化教室使用效率，减少空闲' },
   { value: 'COMPACT', label: '紧凑排课', desc: '压缩到更少天数，留出整块空闲' },
 ];
+const policyLabelMap = {
+  ...Object.fromEntries(policyOptions.map((item) => [item.value, item.label])),
+  CUSTOM: '自定义',
+};
 
 // === 预设权重（与 Python POLICY_PROFILES 保持一致）===
 const PRESET_WEIGHTS = {
@@ -98,12 +97,25 @@ const weightDescs = {
   room_day_load_penalty: '同一教室单日过度使用的惩罚',
   room_week_load_penalty: '同一教室整周过度使用的惩罚',
   task_day_load_penalty: '同一教学任务集中在同一天的惩罚',
-  early_period_penalty: '安排在早课（第1-2节）的惩罚',
-  late_period_penalty: '安排在晚课（第4-5节）的惩罚',
+  early_period_penalty: '安排在早课（第1-2节）的惩罚，强避免可拉高到 0.1+',
+  late_period_penalty: '安排在晚课（第4-5节）的惩罚，强避免可拉高到 0.08+',
   compact_bonus_weight: '压缩在更少天数完成的奖励',
   random_jitter: '随机扰动，打破重复模式的微小噪声',
   classroom_stickiness_bonus: '同一教学任务保持在同教室的奖励，越大越不换教室',
-  weekend_penalty: '周六/周日排课的惩罚，越大越避免周末排课',
+  weekend_penalty: '周六/周日排课的惩罚；不希望周末可用 0.18~0.28，强禁止可到 0.35',
+};
+
+const weightMax = {
+  weekday_load_penalty: 0.05,
+  room_day_load_penalty: 0.06,
+  room_week_load_penalty: 0.03,
+  task_day_load_penalty: 0.08,
+  early_period_penalty: 0.15,
+  late_period_penalty: 0.12,
+  compact_bonus_weight: 0.05,
+  random_jitter: 0.01,
+  classroom_stickiness_bonus: 0.05,
+  weekend_penalty: 0.35,
 };
 
 // === 策略弹窗 ===
@@ -120,44 +132,13 @@ const teachingTasks = ref([]);
 
 async function loadTasks() {
   tasks.value = await request.get("/api/allocation-tasks");
+  restoreRunningGeneration();
 }
 
 async function loadTeachingTasks() {
   teachingTasks.value = await request.get(
     `/api/teaching-tasks?status=${ActiveStatus.ACTIVE}`,
   );
-}
-
-async function loadFeedbackStats(taskId) {
-  feedbackLoading.value = true;
-  try {
-    const params = taskId ? `?taskId=${taskId}` : '';
-    feedbackStats.value = await request.get(`/api/ml/feedback/export${params}`);
-  } catch (e) {
-    ElMessage.error('加载反馈数据失败');
-  } finally {
-    feedbackLoading.value = false;
-  }
-}
-
-async function triggerRetrain(taskId) {
-  training.value = true;
-  trainResult.value = { status: 'RUNNING', message: '正在导出反馈数据...' };
-  try {
-    const params = taskId ? `?taskId=${taskId}` : '';
-    const result = await request.post(`/api/ml/feedback/train${params}`);
-    trainResult.value = result;
-    if (result.status === 'SUCCEEDED') {
-      ElMessage.success(`训练完成！${result.sampleCount || 0} 条样本已生成`);
-    } else {
-      ElMessage.error(`训练失败: ${result.message}`);
-    }
-  } catch (e) {
-    trainResult.value = { status: 'FAILED', message: e.message || '请求失败' };
-    ElMessage.error('重训请求失败');
-  } finally {
-    training.value = false;
-  }
 }
 
 function openTaskDialog(row) {
@@ -237,6 +218,23 @@ async function saveTask() {
   loadTasks();
 }
 
+async function deleteTask(row) {
+  await ElMessageBox.confirm(
+    `确认删除分课任务「${row.name}」？相关候选方案、排课明细、正式课表、反馈数据、调整日志和冲突记录都会一起删除。`,
+    '删除分课任务',
+    { type: 'warning', confirmButtonText: '删除', cancelButtonText: '取消' },
+  );
+  await request.delete(`/api/allocation-tasks/${row.id}`);
+  ElMessage.success('删除成功');
+  if (currentTaskId.value === row.id) {
+    currentTaskId.value = null;
+    schemes.value = [];
+    schemeVisible.value = false;
+    detailVisible.value = false;
+  }
+  loadTasks();
+}
+
 async function viewSchemes(taskId) {
   currentTaskId.value = taskId;
   schemes.value = await request.get(`/api/allocation-tasks/${taskId}/schemes`);
@@ -250,7 +248,7 @@ async function generateSchemes(taskId) {
   genStatus.value = { stage: "running", status: "RUNNING", message: "开始生成..." };
   currentTaskId.value = taskId;
 
-  const params = new URLSearchParams({ topK: topK.value, policy: policy.value });
+  const params = new URLSearchParams({ schemeCount: schemeCount.value, policy: policy.value });
   if (customWeights.value) {
     params.append('policyParams', JSON.stringify(customWeights.value));
   }
@@ -290,9 +288,17 @@ function selectPreset(preset) {
   resetEditableWeights(PRESET_WEIGHTS[preset]);
 }
 
+function containsIndividualPolicyRequirement(text) {
+  return /(老师|教师|同学|学生|班|课程|[\u4e00-\u9fa5]{2,4}(老师|教师))/.test(text || '');
+}
+
 async function translatePolicy() {
   if (!customRequirement.value.trim()) {
     ElMessage.warning('请输入排课需求描述');
+    return;
+  }
+  if (containsIndividualPolicyRequirement(customRequirement.value)) {
+    ElMessage.warning('全局权重只处理整体偏好；某位教师/班级/课程的特殊要求请维护到教师画像或基础数据中');
     return;
   }
   translating.value = true;
@@ -330,6 +336,25 @@ function displayedWeights() {
   return editableWeights.value;
 }
 
+function safeJsonParse(value) {
+  if (!value) return null;
+  if (typeof value === 'object') return value;
+  try {
+    return JSON.parse(value);
+  } catch {
+    return null;
+  }
+}
+
+function isCustomPolicy(row) {
+  return !!safeJsonParse(row.policyParams);
+}
+
+function schemePolicyLabel(row) {
+  if (row.policy === 'CUSTOM' || isCustomPolicy(row)) return '自定义';
+  return policyLabelMap[row.policy] || row.policy || '-';
+}
+
 function confirmGenerate() {
   policy.value = activePolicy.value;
   customWeights.value = policyMode.value === 'custom' ? { ...editableWeights.value } : null;
@@ -352,6 +377,31 @@ function stageLabel(stage) {
     error: '生成失败',
   };
   return labels[stage] || '生成中...';
+}
+
+function isRunningGeneration(status) {
+  return status?.status === "RUNNING";
+}
+
+function isGeneratingTask(taskId) {
+  return generating.value && currentTaskId.value === taskId;
+}
+
+async function restoreRunningGeneration() {
+  if (generating.value || !tasks.value.length) return;
+  for (const task of tasks.value) {
+    try {
+      const status = await request.get(`/api/allocation-tasks/${task.id}/generation-status`);
+      if (!isRunningGeneration(status)) continue;
+      currentTaskId.value = task.id;
+      generating.value = true;
+      applyGenerationStatus(task.id, status);
+      startSse(task.id);
+      return;
+    } catch {
+      // 单个任务状态恢复失败不影响列表展示
+    }
+  }
 }
 
 function applyGenerationStatus(taskId, status) {
@@ -451,13 +501,66 @@ const schemeScores = computed(() => {
 });
 const currentWeek = ref(1);
 const dayNames = ["周一", "周二", "周三", "周四", "周五", "周六", "周日"];
+const timetableFilters = ref({ teacherId: null, classGroupName: '', teachingTaskId: null });
+
+const timetableTeacherOptions = computed(() => uniqueOptions(
+  schemeDetail.value?.items || [],
+  'teacherId',
+  'teacherName',
+));
+
+const timetableClassGroupOptions = computed(() => {
+  const names = new Set();
+  for (const item of schemeDetail.value?.items || []) {
+    String(item.classGroupName || '')
+      .split(',')
+      .map((name) => name.trim())
+      .filter(Boolean)
+      .forEach((name) => names.add(name));
+  }
+  return [...names].sort();
+});
+
+const timetableTeachingTaskOptions = computed(() => uniqueOptions(
+  schemeDetail.value?.items || [],
+  'teachingTaskId',
+  'courseName',
+));
 
 const weekItems = computed(() => {
   if (!schemeDetail.value?.items) return [];
   return schemeDetail.value.items.filter(
-    (item) => item.weekNumber === currentWeek.value,
+    (item) => item.weekNumber === currentWeek.value && matchTimetableFilters(item),
   );
 });
+
+function uniqueOptions(items, valueKey, labelKey) {
+  const map = new Map();
+  for (const item of items) {
+    const value = item[valueKey];
+    if (value == null || map.has(value)) continue;
+    map.set(value, item[labelKey] || String(value));
+  }
+  return [...map.entries()]
+    .map(([value, label]) => ({ value, label }))
+    .sort((a, b) => String(a.label).localeCompare(String(b.label), 'zh-Hans-CN'));
+}
+
+function matchTimetableFilters(item) {
+  const filters = timetableFilters.value;
+  if (filters.teacherId && item.teacherId !== filters.teacherId) return false;
+  if (filters.teachingTaskId && item.teachingTaskId !== filters.teachingTaskId) return false;
+  if (filters.classGroupName && !String(item.classGroupName || '').includes(filters.classGroupName)) return false;
+  return true;
+}
+
+function resetTimetableFilters() {
+  timetableFilters.value = { teacherId: null, classGroupName: '', teachingTaskId: null };
+}
+
+function itemHasConflict(item) {
+  return item.valid === false || !!item.conflictMessage;
+}
 
 function itemsAtSlot(dayOfWeek, periodIndex) {
   return weekItems.value.filter(
@@ -493,10 +596,7 @@ async function loadTimeSlots() {
   timeSlots.value = await request.get('/api/time-slots');
 }
 
-const oldItem = ref(null);
-
 function openEditDialog(item) {
-  oldItem.value = { ...item };
   editingItem.value = { ...item };
   editDialog.value = true;
   loadClassrooms();
@@ -519,18 +619,7 @@ async function saveItemMove() {
       classroomId: item.classroomId,
       timeSlotId: item.timeSlotId,
     });
-    // Log adjustment
-    const adjPayload2 = {
-      itemId: item.id,
-      teachingTaskId: item.teachingTaskId,
-      fromTimeSlotId: oldItem.timeSlotId,
-      toTimeSlotId: item.timeSlotId,
-      fromClassroomId: oldItem.classroomId,
-      toClassroomId: item.classroomId,
-      reason: '手动编辑',
-    };
-    request.post(`/api/allocation-schemes/${schemeDetail.value.id}/adjustment-log`, adjPayload2).catch(() => {});
-    ElMessage.success('修改成功，已重新检测冲突');
+    ElMessage.success('修改成功，已记录调整并重新检测冲突');
     editDialog.value = false;
     // 刷新 schemeDetail 完整数据（含 conflictSummary）+ items
     const [detail, items] = await Promise.all([
@@ -606,7 +695,7 @@ async function onDrop(e, day, period) {
       classroomId: item.classroomId,
       timeSlotId: targetTimeSlotId,
     });
-    ElMessage.success('已移动');
+    ElMessage.success('已移动，调整日志已记录');
     // 刷新 scheme 完整数据（含 conflictSummary）+ items
     const [detail, items] = await Promise.all([
       request.get(`/api/allocation-schemes/${schemeDetail.value.id}`),
@@ -632,6 +721,7 @@ async function viewSchemeDetail(schemeId) {
   buildTimeSlotMap(allTimeSlots);
   schemeDetail.value = { ...detail, items, taskStartWeek: task?.startWeek || 1, taskEndWeek: task?.endWeek || 18 };
   currentWeek.value = task?.startWeek || 1;
+  resetTimetableFilters();
   detailVisible.value = true;
 }
 
@@ -650,11 +740,6 @@ onUnmounted(() => {
     <h2>分课任务管理</h2>
     <div style="margin: 16px 0; display: flex; gap: 12px; align-items: center">
       <el-button type="primary" @click="openTaskDialog()">新建任务</el-button>
-      <span style="color: #909399; font-size: 13px">策略：</span>
-      <el-select v-model="policy" size="small" style="width: 110px">
-        <el-option v-for="p in policyOptions" :key="p.value" :label="p.label" :value="p.value" />
-      </el-select>
-      <span style="color: #909399; font-size: 13px">TopK：</span>
       <div v-if="generating" style="flex: 1; max-width: 300px">
         <el-progress
           :percentage="genProgress"
@@ -665,49 +750,6 @@ onUnmounted(() => {
           <span>{{ genStatus?.message || '' }}</span>
         </el-progress>
       </div>
-      <el-input-number
-        v-model="topK"
-        :min="1"
-        :max="20"
-        size="small"
-        style="width: 100px"
-      />
-    </div>
-
-    <!-- 反馈训练面板 -->
-    <div style="margin: 12px 0; padding: 12px 16px; border: 1px solid var(--el-border-color-light, #dcdfe6); border-radius: 8px; background: var(--el-fill-color-lighter, #fafafa); display: flex; gap: 16px; align-items: center; flex-wrap: wrap">
-      <span style="font-weight: 600; font-size: 14px; color: #303133">🔄 反馈训练</span>
-      <el-button size="small" @click="loadFeedbackStats(currentTaskId)" :loading="feedbackLoading">
-        查看反馈数据
-      </el-button>
-      <el-button
-        size="small"
-        type="warning"
-        @click="triggerRetrain(currentTaskId)"
-        :loading="training"
-        :disabled="training"
-      >
-        重训模型
-      </el-button>
-      <template v-if="feedbackStats">
-        <el-divider direction="vertical" />
-        <div style="display: flex; gap: 14px; font-size: 13px; flex-wrap: wrap">
-          <span>方案 <strong>{{ feedbackStats.schemeCount }}</strong></span>
-          <span>明细 <strong>{{ feedbackStats.itemCount }}</strong></span>
-          <span>反馈 <strong>{{ feedbackStats.feedbackCount }}</strong></span>
-          <span>调整 <strong>{{ feedbackStats.adjustmentCount }}</strong></span>
-          <span>冲突 <strong>{{ feedbackStats.conflictCount }}</strong></span>
-        </div>
-      </template>
-      <template v-if="trainResult">
-        <el-divider direction="vertical" />
-        <el-tag
-          :type="trainResult.status === 'SUCCEEDED' ? 'success' : trainResult.status === 'FAILED' ? 'danger' : 'warning'"
-          size="small"
-        >
-          {{ trainResult.status === 'RUNNING' ? '训练中...' : trainResult.status === 'SUCCEEDED' ? `训练完成 · ${trainResult.sampleCount || 0} 样本` : `失败: ${trainResult.message}` }}
-        </el-tag>
-      </template>
     </div>
 
     <el-table :data="tasks" border size="small">
@@ -725,7 +767,7 @@ onUnmounted(() => {
       </el-table-column>
       <el-table-column prop="status" label="状态" width="100" />
       <el-table-column prop="createdBy" label="创建人" width="100" />
-      <el-table-column label="操作" width="280">
+      <el-table-column label="操作" width="340">
         <template #default="{ row }">
           <el-button type="primary" size="small" @click="openTaskDialog(row)"
             >编辑</el-button
@@ -736,10 +778,13 @@ onUnmounted(() => {
             :disabled="generating"
             @click="openPolicyDialog(row.id)"
           >
-            {{ generating ? (genStatus?.stage ? stageLabel(genStatus.stage) : '生成中...') : '生成方案' }}
+            {{ isGeneratingTask(row.id) ? (genStatus?.stage ? stageLabel(genStatus.stage) : '生成中...') : '生成方案' }}
           </el-button>
           <el-button type="info" size="small" @click="viewSchemes(row.id)"
             >查看方案</el-button
+          >
+          <el-button type="danger" size="small" :disabled="generating" @click="deleteTask(row)"
+            >删除</el-button
           >
         </template>
       </el-table-column>
@@ -752,6 +797,18 @@ onUnmounted(() => {
       width="680px"
       :close-on-click-modal="false"
     >
+      <div style="margin-bottom: 16px">
+        <div style="font-weight: 600; margin-bottom: 10px; color: #303133">生成方案个数</div>
+        <el-input-number
+          v-model="schemeCount"
+          :min="1"
+          :max="20"
+          size="small"
+          style="width: 140px"
+        />
+        <span style="margin-left: 8px; color: #909399; font-size: 12px">一次生成多个候选方案，方便横向比较</span>
+      </div>
+
       <!-- 预设选择 -->
       <div style="margin-bottom: 16px">
         <div style="font-weight: 600; margin-bottom: 10px; color: #303133">预设策略</div>
@@ -775,7 +832,7 @@ onUnmounted(() => {
       <div style="display: flex; gap: 8px; margin-bottom: 8px">
         <el-input
           v-model="customRequirement"
-          placeholder="如：减少上午排课，实验课集中周三周四，张明老师不要周五下午"
+          placeholder="如：减少上午排课、尽量不排周末、课表更紧凑"
           :disabled="translating"
           style="flex: 1"
           @keyup.enter="translatePolicy"
@@ -783,6 +840,9 @@ onUnmounted(() => {
         <el-button type="primary" :loading="translating" @click="translatePolicy">
           翻译
         </el-button>
+      </div>
+      <div style="font-size: 12px; color: #909399; margin: -2px 0 12px">
+        这里只调整全局排课风格；某位教师的特殊时间、工作量或偏好请到教师画像中维护。
       </div>
       <div v-if="policyMode === 'custom'" style="display: flex; align-items: center; gap: 8px; margin-bottom: 12px">
         <el-tag type="warning" size="small">LLM 自定义权重</el-tag>
@@ -805,7 +865,7 @@ onUnmounted(() => {
             <el-input-number
               v-model="editableWeights[key]"
               :min="0"
-              :max="1"
+              :max="weightMax[key] || 1"
               :step="0.001"
               :precision="3"
               controls-position="right"
@@ -898,9 +958,11 @@ onUnmounted(() => {
             <span v-else>-</span>
           </template>
         </el-table-column>
-        <el-table-column prop="policy" label="策略" width="100">
+        <el-table-column prop="policy" label="策略" width="110">
           <template #default="{ row }">
-            <el-tag v-if="row.policy" size="small" type="info">{{ row.policy }}</el-tag>
+            <el-tag v-if="row.policy" size="small" :type="isCustomPolicy(row) ? 'warning' : 'info'">
+              {{ schemePolicyLabel(row) }}
+            </el-tag>
             <span v-else>-</span>
           </template>
         </el-table-column>
@@ -967,8 +1029,8 @@ onUnmounted(() => {
           </div>
         </div>
 
-        <!-- 周次分页 -->
-        <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 12px">
+        <!-- 周次分页 & 筛选 -->
+        <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 12px; flex-wrap: wrap">
           <el-button
             :disabled="currentWeek <= 1"
             size="small"
@@ -985,8 +1047,19 @@ onUnmounted(() => {
             >下一周 ›</el-button
           >
           <span style="color: #909399; font-size: 13px; margin-left: 8px">
-            （本周 {{ weekItems.length }} 个排课片段）
+            （当前视图 {{ weekItems.length }} 个排课片段）
           </span>
+          <div style="flex: 1"></div>
+          <el-select v-model="timetableFilters.teacherId" clearable filterable size="small" placeholder="按教师" style="width: 150px">
+            <el-option v-for="teacher in timetableTeacherOptions" :key="teacher.value" :label="teacher.label" :value="teacher.value" />
+          </el-select>
+          <el-select v-model="timetableFilters.classGroupName" clearable filterable size="small" placeholder="按班级" style="width: 160px">
+            <el-option v-for="name in timetableClassGroupOptions" :key="name" :label="name" :value="name" />
+          </el-select>
+          <el-select v-model="timetableFilters.teachingTaskId" clearable filterable size="small" placeholder="按教学任务" style="width: 180px">
+            <el-option v-for="task in timetableTeachingTaskOptions" :key="task.value" :label="task.label" :value="task.value" />
+          </el-select>
+          <el-button size="small" @click="resetTimetableFilters">重置</el-button>
         </div>
 
         <!-- 课程表表格 -->
@@ -1067,15 +1140,16 @@ onUnmounted(() => {
                         borderRadius: '4px',
                         fontSize: '12px',
                         lineHeight: '1.4',
-                        background: item.valid === false ? 'var(--el-color-danger-light-9, #fef0f0)' : 'var(--el-color-primary-light-9, #ecf5ff)',
-                        color: item.valid === false ? 'var(--el-color-danger, #f56c6c)' : 'var(--el-color-primary, #409eff)',
+                        background: itemHasConflict(item) ? 'var(--el-color-danger-light-9, #fef0f0)' : 'var(--el-color-primary-light-9, #ecf5ff)',
+                        color: itemHasConflict(item) ? 'var(--el-color-danger, #f56c6c)' : 'var(--el-color-primary, #409eff)',
+                        border: itemHasConflict(item) ? '1px solid var(--el-color-danger-light-5, #fab6b6)' : '1px solid transparent',
                         cursor: 'grab',
-                      }""
+                      }"
                       @dragstart="onDragStart($event, item)"
                       @click.stop="openSlotDetail(day, period)"
                     >
                       <div style="font-weight: 600">{{ item.courseName }}</div>
-                      <div :style="{ color: item.valid === false ? '#c45656' : '#666' }">{{ item.classroomName }} · {{ item.teacherName }}</div>
+                      <div :style="{ color: itemHasConflict(item) ? '#c45656' : '#666' }">{{ item.classroomName }} · {{ item.teacherName }}</div>
                       <div style="color: #999; font-size: 11px">{{ item.classGroupName }}</div>
                     </div>
                   </div>
@@ -1149,8 +1223,15 @@ onUnmounted(() => {
         <el-form-item label="班级">
           <el-input :model-value="editingItem.classGroupName" disabled />
         </el-form-item>
-        <el-form-item label="当前教室">
-          <el-input :model-value="editingItem.classroomName" disabled />
+        <el-form-item label="教室">
+          <el-select v-model="editingItem.classroomId" filterable placeholder="选择教室" style="width: 100%">
+            <el-option
+              v-for="room in classrooms"
+              :key="room.id"
+              :label="`${room.name || room.classroomName || room.id} · ${room.classroomType || room.type || '普通教室'} · ${room.capacity || 0}人`"
+              :value="room.id"
+            />
+          </el-select>
         </el-form-item>
         <el-form-item label="时间段">
           <el-select v-model="editingItem.timeSlotId" filterable placeholder="选择时间段" style="width: 100%">

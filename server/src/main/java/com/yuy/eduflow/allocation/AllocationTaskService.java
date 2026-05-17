@@ -104,8 +104,15 @@ public class AllocationTaskService {
     @Transactional
 	public void delete(Long id) {
 		findById(id);
+		allocationTaskMapper.deleteAdjustmentRequestsByTaskId(id);
+		allocationTaskMapper.deleteCourseAssignmentsByTaskId(id);
+		allocationTaskMapper.deleteConflictsByTaskId(id);
+		allocationTaskMapper.deleteAdjustmentLogsByTaskId(id);
+		allocationTaskMapper.deleteFeedbackByTaskId(id);
+		allocationTaskMapper.deleteItemsByTaskId(id);
+		allocationTaskMapper.deleteSchemesByTaskId(id);
         allocationTaskMapper.deleteTeachingTasks(id);
-		allocationTaskMapper.cancel(id, TaskStatus.REJECTED.code());
+		allocationTaskMapper.deleteById(id);
 	}
 
     private void bindTeachingTasks(Long taskId, List<Long> teachingTaskIds) {

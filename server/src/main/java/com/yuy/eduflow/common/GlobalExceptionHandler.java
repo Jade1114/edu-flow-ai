@@ -2,6 +2,8 @@ package com.yuy.eduflow.common;
 
 import com.yuy.eduflow.common.exception.BusinessException;
 import jakarta.servlet.http.HttpServletResponse;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.converter.HttpMessageNotReadableException;
@@ -14,6 +16,7 @@ import org.springframework.web.method.annotation.MethodArgumentTypeMismatchExcep
 
 @RestControllerAdvice
 public class GlobalExceptionHandler {
+    private static final Logger log = LoggerFactory.getLogger(GlobalExceptionHandler.class);
 
     // --- 自定义业务异常：从 BusinessException 中读取 httpStatus ---
     @ExceptionHandler(BusinessException.class)
@@ -76,6 +79,7 @@ public class GlobalExceptionHandler {
         if (MediaType.TEXT_EVENT_STREAM_VALUE.equals(response.getContentType())) {
             return null;
         }
+        log.error("Unhandled server exception", exception);
         prepareJsonResponse(response);
         // 不把内部异常信息暴露给前端
         return ApiResponse.error(500, "服务器内部错误");

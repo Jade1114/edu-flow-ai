@@ -11,7 +11,7 @@ import org.apache.ibatis.annotations.Select;
 public interface AllocationSchemeFeedbackMapper {
 
 	@Select("""
-		SELECT id, scheme_id, task_id, feedback_type, score, comment,
+		SELECT id, scheme_id, task_id, feedback_type,
 		       adjustment_count, created_by, created_at
 		FROM allocation_scheme_feedback
 		WHERE scheme_id = #{schemeId}
@@ -20,7 +20,7 @@ public interface AllocationSchemeFeedbackMapper {
 	List<AllocationSchemeFeedback> findBySchemeId(Long schemeId);
 
 	@Select("""
-		SELECT id, scheme_id, task_id, feedback_type, score, comment,
+		SELECT id, scheme_id, task_id, feedback_type,
 		       adjustment_count, created_by, created_at
 		FROM allocation_scheme_feedback
 		WHERE task_id = #{taskId}
@@ -30,10 +30,10 @@ public interface AllocationSchemeFeedbackMapper {
 
 	@Insert("""
 		INSERT INTO allocation_scheme_feedback (
-		    scheme_id, task_id, feedback_type, score, comment,
+		    scheme_id, task_id, feedback_type,
 		    adjustment_count, created_by
 		) VALUES (
-		    #{schemeId}, #{taskId}, #{feedbackType}, #{score}, #{comment},
+		    #{schemeId}, #{taskId}, #{feedbackType},
 		    #{adjustmentCount}, #{createdBy}
 		)
 		""")

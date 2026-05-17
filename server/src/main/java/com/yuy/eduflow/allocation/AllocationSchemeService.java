@@ -56,13 +56,9 @@ public class AllocationSchemeService {
 		if (!StringUtils.hasText(request.schemeName())) {
 			throw new ValidationException("分课方案名称不能为空");
 		}
-		if (request.score() != null && (request.score() < 0 || request.score() > 100)) {
-			throw new ValidationException("分课方案评分必须在0到100之间");
-		}
 		scheme.setTaskId(request.taskId());
 		scheme.setSchemeName(request.schemeName().trim());
 		scheme.setSummary(clean(request.summary()));
-		scheme.setScore(request.score());
 		scheme.setSatisfiedSummary(clean(request.satisfiedSummary()));
 		scheme.setConflictSummary(clean(request.conflictSummary()));
 		scheme.setValid(request.valid() != null ? request.valid() : true);

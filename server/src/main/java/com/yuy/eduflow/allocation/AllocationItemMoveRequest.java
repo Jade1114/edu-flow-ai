@@ -2,6 +2,7 @@ package com.yuy.eduflow.allocation;
 
 public record AllocationItemMoveRequest(
     Long classroomId,
-    Long timeSlotId
+    Long timeSlotId,
+    String reason
 ) {
 }

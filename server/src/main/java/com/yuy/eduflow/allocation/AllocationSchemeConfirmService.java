@@ -25,19 +25,22 @@ public class AllocationSchemeConfirmService {
 	private final AllocationTaskMapper allocationTaskMapper;
 	private final CourseAssignmentMapper courseAssignmentMapper;
 	private final AllocationSchemeFeedbackMapper feedbackMapper;
+	private final AllocationItemAdjustmentLogMapper adjustmentLogMapper;
 
 	public AllocationSchemeConfirmService(
 		AllocationSchemeMapper allocationSchemeMapper,
 		AllocationItemMapper allocationItemMapper,
 		AllocationTaskMapper allocationTaskMapper,
 		CourseAssignmentMapper courseAssignmentMapper,
-		AllocationSchemeFeedbackMapper feedbackMapper
+		AllocationSchemeFeedbackMapper feedbackMapper,
+		AllocationItemAdjustmentLogMapper adjustmentLogMapper
 	) {
 		this.allocationSchemeMapper = allocationSchemeMapper;
 		this.allocationItemMapper = allocationItemMapper;
 		this.allocationTaskMapper = allocationTaskMapper;
 		this.courseAssignmentMapper = courseAssignmentMapper;
 		this.feedbackMapper = feedbackMapper;
+		this.adjustmentLogMapper = adjustmentLogMapper;
 	}
 
 	@Transactional
@@ -96,8 +99,7 @@ public class AllocationSchemeConfirmService {
 		feedback.setSchemeId(schemeId);
 		feedback.setTaskId(scheme.getTaskId());
 		feedback.setFeedbackType("CONFIRMED");
-		feedback.setComment(null);
-		feedback.setAdjustmentCount(0);
+		feedback.setAdjustmentCount(adjustmentLogMapper.countBySchemeId(schemeId));
 		feedback.setCreatedBy(null);
 		feedbackMapper.insert(feedback);
 

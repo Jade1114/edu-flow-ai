@@ -57,19 +57,21 @@ public class AllocationTaskController {
 	public ApiResponse<AllocationGenerateResult> generateSchemes(
 		@PathVariable Long id,
 		@RequestParam(required = false) Integer topK,
+		@RequestParam(required = false) Integer schemeCount,
 		@RequestParam(required = false) String policy
 	) {
-		return ApiResponse.success(allocationSchemeGenerationService.generateSchemes(id, topK, policy));
+		return ApiResponse.success(allocationSchemeGenerationService.generateSchemes(id, resolveSchemeCount(schemeCount, topK), policy));
 	}
 
 	@PostMapping("/{id}/generate-async")
 	public ApiResponse<GenerationStatus> generateAsync(
 		@PathVariable Long id,
 		@RequestParam(required = false) Integer topK,
+		@RequestParam(required = false) Integer schemeCount,
 		@RequestParam(required = false) String policy,
 		@RequestParam(required = false) String policyParams
 	) {
-		generationTracker.startGeneration(id, topK, policy, policyParams);
+		generationTracker.startGeneration(id, resolveSchemeCount(schemeCount, topK), policy, policyParams);
 		return ApiResponse.success(generationTracker.getStatus(id));
 	}
 
@@ -107,6 +109,10 @@ public class AllocationTaskController {
 		}
 	}
 
+	private Integer resolveSchemeCount(Integer schemeCount, Integer legacyTopK) {
+		return schemeCount != null ? schemeCount : legacyTopK;
+	}
+
 	@PostMapping
 	public ApiResponse<AllocationTask> create(@RequestBody AllocationTaskRequest request) {
 		return ApiResponse.success(allocationTaskService.create(request));
@@ -120,6 +126,7 @@ public class AllocationTaskController {
 	@DeleteMapping("/{id}")
 	public ApiResponse<Void> delete(@PathVariable Long id) {
 		allocationTaskService.delete(id);
+		generationTracker.clear(id);
 		return ApiResponse.success();
 	}
 }

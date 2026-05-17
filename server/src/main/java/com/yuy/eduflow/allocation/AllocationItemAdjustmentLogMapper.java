@@ -11,6 +11,13 @@ import org.apache.ibatis.annotations.Select;
 public interface AllocationItemAdjustmentLogMapper {
 
 	@Select("""
+		SELECT COUNT(*)
+		FROM allocation_item_adjustment_log
+		WHERE scheme_id = #{schemeId}
+		""")
+	int countBySchemeId(Long schemeId);
+
+	@Select("""
 		SELECT id, scheme_id, item_id, teaching_task_id,
 		       from_time_slot_id, to_time_slot_id,
 		       from_classroom_id, to_classroom_id,

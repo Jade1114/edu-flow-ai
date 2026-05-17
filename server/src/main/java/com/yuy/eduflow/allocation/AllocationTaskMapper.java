@@ -54,6 +54,66 @@ public interface AllocationTaskMapper {
 		""")
 	int updateStatus(@Param("id") Long id, @Param("status") String status);
 
+	@Delete("""
+		DELETE ar
+		FROM adjustment_request ar
+		JOIN course_assignment ca ON ca.id = ar.assignment_id
+		JOIN allocation_scheme s ON s.id = ca.source_scheme_id
+		WHERE s.task_id = #{taskId}
+		""")
+	int deleteAdjustmentRequestsByTaskId(Long taskId);
+
+	@Delete("""
+		DELETE ca
+		FROM course_assignment ca
+		JOIN allocation_scheme s ON s.id = ca.source_scheme_id
+		WHERE s.task_id = #{taskId}
+		""")
+	int deleteCourseAssignmentsByTaskId(Long taskId);
+
+	@Delete("""
+		DELETE c
+		FROM conflict_check_result c
+		JOIN allocation_item i ON c.biz_type = 'ALLOCATION_ITEM' AND c.biz_id = i.id
+		JOIN allocation_scheme s ON s.id = i.scheme_id
+		WHERE s.task_id = #{taskId}
+		""")
+	int deleteConflictsByTaskId(Long taskId);
+
+	@Delete("""
+		DELETE l
+		FROM allocation_item_adjustment_log l
+		JOIN allocation_scheme s ON s.id = l.scheme_id
+		WHERE s.task_id = #{taskId}
+		""")
+	int deleteAdjustmentLogsByTaskId(Long taskId);
+
+	@Delete("""
+		DELETE FROM allocation_scheme_feedback
+		WHERE task_id = #{taskId}
+		""")
+	int deleteFeedbackByTaskId(Long taskId);
+
+	@Delete("""
+		DELETE i
+		FROM allocation_item i
+		JOIN allocation_scheme s ON s.id = i.scheme_id
+		WHERE s.task_id = #{taskId}
+		""")
+	int deleteItemsByTaskId(Long taskId);
+
+	@Delete("""
+		DELETE FROM allocation_scheme
+		WHERE task_id = #{taskId}
+		""")
+	int deleteSchemesByTaskId(Long taskId);
+
+	@Delete("""
+		DELETE FROM allocation_task
+		WHERE id = #{id}
+		""")
+	int deleteById(Long id);
+
 	// === 排课任务与教学任务关联 ===
 	@Insert("""
 		INSERT INTO allocation_task_teaching_task (allocation_task_id, teaching_task_id)
