@@ -3,6 +3,7 @@ package com.yuy.eduflow.allocation;
 import com.yuy.eduflow.common.exception.BusinessException;
 import com.yuy.eduflow.common.exception.ResourceNotFoundException;
 import com.yuy.eduflow.common.exception.ValidationException;
+import com.yuy.eduflow.ml.MlFeedbackTrainingMapper;
 import java.io.BufferedReader;
 import java.io.IOException;
 import java.math.BigDecimal;
@@ -35,10 +36,19 @@ public class AllocationMlSchemeService {
 
 	private final AllocationTaskMapper allocationTaskMapper;
 	private final ObjectMapper objectMapper;
+	private final TeacherPenaltyResolver teacherPenaltyResolver;
+	private final MlFeedbackTrainingMapper feedbackTrainingMapper;
 
-	public AllocationMlSchemeService(AllocationTaskMapper allocationTaskMapper, ObjectMapper objectMapper) {
+	public AllocationMlSchemeService(
+		AllocationTaskMapper allocationTaskMapper,
+		ObjectMapper objectMapper,
+		TeacherPenaltyResolver teacherPenaltyResolver,
+		MlFeedbackTrainingMapper feedbackTrainingMapper
+	) {
 		this.allocationTaskMapper = allocationTaskMapper;
 		this.objectMapper = objectMapper;
+		this.teacherPenaltyResolver = teacherPenaltyResolver;
+		this.feedbackTrainingMapper = feedbackTrainingMapper;
 	}
 
 	public AllocationParsePreview generateParsePreview(Long taskId, Integer topK, String policy) {
@@ -64,7 +74,9 @@ public class AllocationMlSchemeService {
 
 		try {
 			Files.createDirectories(outputDir);
-			runModelScript(mlDir, outputDir, task, teachingTaskIds, normalizedVariantCount(topK), policy, policyParams, progressReporter);
+			Path teacherPenaltiesPath = outputDir.resolve("teacher_penalties.json");
+			writeTeacherPenalties(teachingTasks, teacherPenaltiesPath);
+			runModelScript(mlDir, outputDir, task, teachingTaskIds, normalizedVariantCount(topK), policy, policyParams, teacherPenaltiesPath, progressReporter);
 			progressReporter.accept(running("eval", "自训练模型评估方案质量...", 62));
 			runEvaluator(mlDir, outputDir);
 			progressReporter.accept(running("parse", "解析评估后的 CSV 方案...", 68));
@@ -90,11 +102,19 @@ public class AllocationMlSchemeService {
 		int variantCount,
 		String policy,
 		String policyParams,
+		Path teacherPenaltiesPath,
 		Consumer<GenerationStatus> progressReporter
 	) {
 		List<String> command = new ArrayList<>();
 		command.add(resolvePythonExecutable(mlDir));
 		command.add("scripts/generate_scheme_demo.py");
+		ModelArtifacts artifacts = preferredModelArtifacts(mlDir);
+		Path modelPath = artifacts.modelPath();
+		Path schemaPath = artifacts.schemaPath();
+		command.add("--model");
+		command.add(modelPath.toString());
+		command.add("--schema");
+		command.add(schemaPath.toString());
 		command.add("--variant-count");
 		command.add(String.valueOf(variantCount));
 		command.add("--strategy");
@@ -113,6 +133,8 @@ public class AllocationMlSchemeService {
 		command.add(String.join(",", teachingTaskIds));
 		command.add("--output-dir");
 		command.add(outputDir.toString());
+		command.add("--teacher-penalties");
+		command.add(teacherPenaltiesPath.toString());
 		command.add("--random-seed");
 		command.add(String.valueOf(System.currentTimeMillis() % 1_000_000));
 		if (task.getStartWeek() != null) {
@@ -127,7 +149,7 @@ public class AllocationMlSchemeService {
 		ProcessBuilder builder = new ProcessBuilder(command);
 		builder.directory(mlDir.toFile());
 		builder.redirectErrorStream(true);
-		log.info("ML scheme generator starting: taskId={}, policy={}, variantCount={}, topK={}, outputDir={}", task.getId(), policyOrDefault(policy), variantCount, DEFAULT_TOP_K, outputDir);
+		log.info("ML scheme generator starting: taskId={}, policy={}, variantCount={}, topK={}, model={}, schema={}, teacherPenalties={}, outputDir={}", task.getId(), policyOrDefault(policy), variantCount, DEFAULT_TOP_K, modelPath, schemaPath, teacherPenaltiesPath, outputDir);
 		if (policyParams != null && !policyParams.isBlank()) {
 			log.info("ML scheme generator custom policyParams={}", policyParams);
 		}
@@ -155,6 +177,78 @@ public class AllocationMlSchemeService {
 			throw new BusinessException(500, "自训练模型生成被中断", exception);
 		}
 	}
+
+	private void writeTeacherPenalties(List<AllocationTaskTeachingTaskResult> teachingTasks, Path outputPath) throws IOException {
+		Map<String, Object> payload = teacherPenaltyResolver.resolve(teachingTasks);
+		String payloadJson = objectMapper.writeValueAsString(payload);
+		Files.createDirectories(outputPath.getParent());
+		Files.writeString(outputPath, payloadJson, StandardCharsets.UTF_8);
+		log.info("Teacher penalties prepared by Java: path={}, json={}", outputPath, payloadJson);
+	}
+
+	private ModelArtifacts preferredModelArtifacts(Path mlDir) {
+		Map<String, Object> latestTraining = feedbackTrainingMapper.findLatestTrainingLog();
+		ModelArtifacts trainedArtifacts = resolveLatestTrainingArtifacts(latestTraining);
+		if (trainedArtifacts != null) {
+			log.info("ML model artifacts selected from latest successful training: model={}, schema={}", trainedArtifacts.modelPath(), trainedArtifacts.schemaPath());
+			return trainedArtifacts;
+		}
+		Path fallbackModel = mlDir.resolve("models/schedule_ranker_v1.txt");
+		Path fallbackSchema = mlDir.resolve("data/feature_schema.json");
+		log.info("ML model artifacts selected from initial model fallback: model={}, schema={}", fallbackModel, fallbackSchema);
+		return new ModelArtifacts(fallbackModel, fallbackSchema);
+	}
+
+	private ModelArtifacts resolveLatestTrainingArtifacts(Map<String, Object> latestTraining) {
+		if (latestTraining == null || latestTraining.isEmpty()) {
+			return null;
+		}
+		Object modelPathValue = latestTraining.get("modelPath");
+		if (modelPathValue == null) {
+			return null;
+		}
+		Path modelPath = Path.of(String.valueOf(modelPathValue));
+		Path schemaPath = resolveSchemaPathFromTraining(latestTraining, modelPath);
+		if (Files.exists(modelPath) && schemaPath != null && Files.exists(schemaPath)) {
+			return new ModelArtifacts(modelPath, schemaPath);
+		}
+		log.warn("Latest successful training artifacts missing, fallback to initial model: model={}, schema={}", modelPath, schemaPath);
+		return null;
+	}
+
+	private Path resolveSchemaPathFromTraining(Map<String, Object> latestTraining, Path modelPath) {
+		String metricsJson = latestTraining.get("metricsJson") == null ? null : String.valueOf(latestTraining.get("metricsJson"));
+		Path schemaFromMetrics = schemaPathFromMetrics(metricsJson);
+		if (schemaFromMetrics != null) {
+			return schemaFromMetrics;
+		}
+		String modelFileName = modelPath.getFileName().toString();
+		if (modelFileName.startsWith("schedule_ranker_feedback_") && modelFileName.endsWith(".txt")) {
+			String suffix = modelFileName.substring("schedule_ranker_feedback_".length(), modelFileName.length() - ".txt".length());
+			Path dataDir = modelPath.getParent().getParent().resolve("data");
+			return dataDir.resolve("feedback_feature_schema_" + suffix + ".json");
+		}
+		return modelPath.getParent().getParent().resolve("data/feedback_feature_schema.json");
+	}
+
+	@SuppressWarnings("unchecked")
+	private Path schemaPathFromMetrics(String metricsJson) {
+		if (metricsJson == null || metricsJson.isBlank()) {
+			return null;
+		}
+		try {
+			Map<String, Object> payload = objectMapper.readValue(metricsJson, Map.class);
+			Object schemaPath = payload.get("schema_path");
+			if (schemaPath != null) {
+				return Path.of(String.valueOf(schemaPath));
+			}
+		} catch (Exception ex) {
+			log.warn("Failed to parse latest training metrics JSON for schema path: {}", ex.getMessage());
+		}
+		return null;
+	}
+
+	private record ModelArtifacts(Path modelPath, Path schemaPath) {}
 
 	private Path resolveMlDir() {
 		Path cwd = Path.of("").toAbsolutePath();

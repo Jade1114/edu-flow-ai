@@ -308,6 +308,8 @@ def build_features(rows: list[dict[str, Any]], schema: dict[str, Any]) -> pd.Dat
     frame = pd.DataFrame(rows)
     feature_columns = schema["feature_columns"]
     categorical_columns = schema["categorical_columns"]
+    if "sample_weight" in feature_columns and "sample_weight" not in frame.columns:
+        frame["sample_weight"] = 1.0
     missing_columns = [column for column in feature_columns if column not in frame.columns]
     if missing_columns:
         raise ValueError(f"Candidate rows are missing required feature columns: {missing_columns}")
@@ -378,8 +380,9 @@ def apply_selection_scores(
             if candidate_room == task_classroom_id:
                 stickiness_bonus = float(policy.get("classroom_stickiness_bonus", 0.0))
 
-        # Teacher profile penalty: unavailable time → -0.05, preferred → +0.01
+        # Teacher profile penalty: teacher-specific constraints from Java orchestration.
         teacher_profile_penalty = 0.0
+        teacher_profile_penalty_breakdown: list[dict[str, Any]] = []
         if teacher_id is not None and teacher_profiles is not None:
             profile = teacher_profiles.get(teacher_id)
             if profile is not None:
@@ -388,13 +391,28 @@ def apply_selection_scores(
                 period = int(candidate.get("period_index", 0))
                 normalized_slots = {tuple(slot) for slot in normalize_unavailable_slots(unavailable_slots)}
                 if (day, period) in normalized_slots:
-                    teacher_profile_penalty = float(profile.get("penalty_weight") or 0.05)
-                # Workload penalty: exceed preferred max → -0.03
+                    penalty = float(profile.get("penalty_weight") or 0.05)
+                    teacher_profile_penalty += penalty
+                    teacher_profile_penalty_breakdown.append({
+                        "type": "unavailable_slot",
+                        "penalty": round(penalty, 4),
+                        "day_of_week": day,
+                        "period_index": period,
+                        "reason": profile.get("reason") or "teacher unavailable slot",
+                    })
                 preferred_max = profile.get("max_weekly_hours")
                 if preferred_max is not None:
                     current_week_hours = int(candidate.get("teacher_week_load", 0))
                     if current_week_hours + 1 > int(preferred_max):
-                        teacher_profile_penalty += 0.03
+                        penalty = 0.03
+                        teacher_profile_penalty += penalty
+                        teacher_profile_penalty_breakdown.append({
+                            "type": "max_weekly_hours_exceeded",
+                            "penalty": round(penalty, 4),
+                            "teacher_week_load_before": current_week_hours,
+                            "max_weekly_hours": int(preferred_max),
+                            "reason": profile.get("reason") or "teacher preferred max weekly hours exceeded",
+                        })
 
         random_jitter = rng.random() * policy["random_jitter"]
         candidate["distribution_penalty"] = round(distribution_penalty + weekend_penalty + early_penalty + late_penalty, 6)
@@ -410,6 +428,7 @@ def apply_selection_scores(
         candidate["compact_bonus"] = round(compact_bonus, 6)
         candidate["stickiness_bonus"] = round(stickiness_bonus, 6)
         candidate["teacher_profile_penalty"] = round(teacher_profile_penalty, 4)
+        candidate["teacher_profile_penalty_breakdown"] = teacher_profile_penalty_breakdown
         candidate["random_jitter_value"] = round(random_jitter, 6)
         candidate["selection_score_formula"] = "predicted_score + rule_score*0.02 - distribution_penalty + compact_bonus + stickiness_bonus - teacher_profile_penalty + random_jitter"
         candidate["selection_score"] = max(
@@ -422,6 +441,49 @@ def apply_selection_scores(
             - teacher_profile_penalty
             + random_jitter,
         )
+
+
+def summarize_teacher_profile_penalty_candidates(candidates: list[dict[str, Any]]) -> dict[str, Any]:
+    penalized = [candidate for candidate in candidates if float(candidate.get("teacher_profile_penalty") or 0.0) > 0.0]
+    if not penalized:
+        return {
+            "candidate_count": len(candidates),
+            "penalized_candidate_count": 0,
+            "legal_penalized_candidate_count": 0,
+            "max_penalty": 0.0,
+            "penalty_type_counts": {},
+            "examples": [],
+        }
+    type_counts = Counter(
+        item.get("type") or "unknown"
+        for candidate in penalized
+        for item in candidate.get("teacher_profile_penalty_breakdown", [])
+    )
+    examples = sorted(
+        penalized,
+        key=lambda row: float(row.get("teacher_profile_penalty") or 0.0),
+        reverse=True,
+    )[:5]
+    return {
+        "candidate_count": len(candidates),
+        "penalized_candidate_count": len(penalized),
+        "legal_penalized_candidate_count": sum(1 for candidate in penalized if int(candidate.get("has_hard_conflict") or 0) == 0),
+        "max_penalty": round(max(float(candidate.get("teacher_profile_penalty") or 0.0) for candidate in penalized), 4),
+        "penalty_type_counts": dict(type_counts),
+        "examples": [
+            {
+                "classroom_id": candidate.get("candidate_classroom_id"),
+                "time_slot_id": candidate.get("candidate_time_slot_id"),
+                "week_number": candidate.get("week_number"),
+                "day_of_week": candidate.get("day_of_week"),
+                "period_index": candidate.get("period_index"),
+                "has_hard_conflict": candidate.get("has_hard_conflict"),
+                "teacher_profile_penalty": candidate.get("teacher_profile_penalty"),
+                "breakdown": candidate.get("teacher_profile_penalty_breakdown") or [],
+            }
+            for candidate in examples
+        ],
+    }
 
 
 def rank_candidates(
@@ -479,12 +541,17 @@ def choose_candidate(
     )
     if not ranked:
         return None
+    penalty_stats = summarize_teacher_profile_penalty_candidates(ranked)
     if strategy == "greedy":
-        return ranked[0]
+        selected = ranked[0]
+        selected["teacher_profile_candidate_stats"] = penalty_stats
+        return selected
     if strategy == "top-k-random":
         legal_ranked = [candidate for candidate in ranked if int(candidate["has_hard_conflict"]) == 0]
         pool = legal_ranked if legal_ranked else ranked
-        return rng.choice(pool[: max(1, min(top_k, len(pool)))])
+        selected = rng.choice(pool[: max(1, min(top_k, len(pool)))])
+        selected["teacher_profile_candidate_stats"] = penalty_stats
+        return selected
     raise ValueError(f"Unsupported selection strategy: {strategy}")
 
 
@@ -697,6 +764,11 @@ def summarize_teacher_penalties(penalties: dict[int, dict[str, Any]]) -> dict[st
     }
 
 
+def load_teacher_penalties(path: Path) -> dict[int, dict[str, Any]]:
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    return normalize_teacher_penalties(payload)
+
+
 def write_teacher_penalties(penalties: dict[int, dict[str, Any]], output_path: Path) -> None:
     output_path.parent.mkdir(parents=True, exist_ok=True)
     payload = {"teacher_penalties": {str(key): value for key, value in sorted(penalties.items())}}
@@ -704,6 +776,33 @@ def write_teacher_penalties(penalties: dict[int, dict[str, Any]], output_path: P
 
 
 def log_selected_candidate(task: dict[str, Any], fragment_index: int, best: dict[str, Any], candidate_count: int) -> None:
+    candidate_stats = best.get("teacher_profile_candidate_stats") or {}
+    if int(candidate_stats.get("penalized_candidate_count") or 0) > 0:
+        log_chain("教师画像候选惩罚统计", {
+            "teaching_task_id": task.get("teaching_task_id"),
+            "teacher_id": task.get("teacher_id"),
+            "teacher_name": task.get("teacher_name") or "",
+            "fragment_index": fragment_index,
+            "selected_penalty": best.get("teacher_profile_penalty"),
+            "selected_penalty_breakdown": best.get("teacher_profile_penalty_breakdown") or [],
+            **candidate_stats,
+        })
+    penalty_breakdown = best.get("teacher_profile_penalty_breakdown") or []
+    if penalty_breakdown:
+        log_chain("教师画像惩罚命中", {
+            "teaching_task_id": task.get("teaching_task_id"),
+            "teacher_id": task.get("teacher_id"),
+            "teacher_name": task.get("teacher_name") or "",
+            "fragment_index": fragment_index,
+            "chosen_time": {
+                "time_slot_id": best.get("candidate_time_slot_id"),
+                "week_number": best.get("week_number"),
+                "day_of_week": best.get("day_of_week"),
+                "period_index": best.get("period_index"),
+            },
+            "total_penalty": best.get("teacher_profile_penalty"),
+            "breakdown": penalty_breakdown,
+        })
     log_chain("模型选择排课片段", {
         "teaching_task_id": task.get("teaching_task_id"),
         "teacher_id": task.get("teacher_id"),
@@ -727,6 +826,8 @@ def log_selected_candidate(task: dict[str, Any], fragment_index: int, best: dict
             "distribution_penalty": best.get("distribution_penalty"),
             "distribution_penalty_breakdown": best.get("distribution_penalty_breakdown"),
             "teacher_profile_penalty": best.get("teacher_profile_penalty"),
+            "teacher_profile_penalty_breakdown": best.get("teacher_profile_penalty_breakdown") or [],
+            "teacher_profile_candidate_stats": best.get("teacher_profile_candidate_stats") or {},
             "compact_bonus": best.get("compact_bonus"),
             "stickiness_bonus": best.get("stickiness_bonus"),
             "random_jitter": best.get("random_jitter_value"),
@@ -888,6 +989,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--random-seed", type=int, default=42, help="Base random seed for variant generation.")
     parser.add_argument("--policy", default=DEFAULT_POLICY, choices=list(POLICY_PROFILES.keys()), help="Generation policy profile.")
     parser.add_argument("--policy-params", default=None, help="JSON string of custom policy weights to override preset values.")
+    parser.add_argument("--teacher-penalties", type=Path, default=None, help="Teacher penalty JSON prepared by Java orchestration.")
     parser.add_argument("--teaching-task-ids", default=None, help="Comma-separated teaching task IDs to schedule.")
     parser.add_argument("--start-week", type=int, default=None, help="Optional minimum week number.")
     parser.add_argument("--end-week", type=int, default=None, help="Optional maximum week number.")
@@ -915,6 +1017,7 @@ def main() -> None:
         "candidate_pool_size": args.candidate_pool_size,
         "policy": args.policy,
         "custom_policy_params": json.loads(args.policy_params) if args.policy_params else None,
+        "teacher_penalties_path": str(args.teacher_penalties) if args.teacher_penalties else None,
         "teaching_task_ids": args.teaching_task_ids,
         "start_week": args.start_week,
         "end_week": args.end_week,
@@ -952,7 +1055,8 @@ def main() -> None:
             for task in tasks
         ],
     })
-    teacher_penalties = resolve_teacher_penalties(tasks, teacher_profiles)
+    teacher_penalties = load_teacher_penalties(args.teacher_penalties) if args.teacher_penalties else fallback_teacher_penalties(teacher_profiles)
+    log_chain("教师画像惩罚由编排层提供" if args.teacher_penalties else "教师画像惩罚使用 Python fallback", summarize_teacher_penalties(teacher_penalties))
 
     custom_params = None
     if args.policy_params:

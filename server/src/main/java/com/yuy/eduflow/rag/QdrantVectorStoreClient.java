@@ -43,19 +43,19 @@ public class QdrantVectorStoreClient {
 	}
 
 	public List<VectorSearchResult> search(List<Double> vector, int topK, String status) {
+		return search(vector, topK, status, List.of());
+	}
+
+	public List<VectorSearchResult> search(List<Double> vector, int topK, String status, List<Long> teacherIds) {
 		validateVector(vector);
 		Map<String, Object> body = new LinkedHashMap<>();
 		body.put("vector", vector);
 		body.put("limit", topK);
 		body.put("with_payload", true);
 		body.put("with_vector", false);
-		if (StringUtils.hasText(status)) {
-			body.put("filter", Map.of(
-				"must", List.of(Map.of(
-					"key", "status",
-					"match", Map.of("value", status)
-				))
-			));
+		Map<String, Object> filter = buildFilter(status, teacherIds);
+		if (!filter.isEmpty()) {
+			body.put("filter", filter);
 		}
 
 		Map<String, Object> response = client()
@@ -65,6 +65,23 @@ public class QdrantVectorStoreClient {
 			.retrieve()
 			.body(Map.class);
 		return extractResults(response);
+	}
+
+	private Map<String, Object> buildFilter(String status, List<Long> teacherIds) {
+		List<Map<String, Object>> must = new ArrayList<>();
+		if (StringUtils.hasText(status)) {
+			must.add(Map.of(
+				"key", "status",
+				"match", Map.of("value", status)
+			));
+		}
+		if (teacherIds != null && !teacherIds.isEmpty()) {
+			must.add(Map.of(
+				"key", "teacherId",
+				"match", Map.of("any", teacherIds)
+			));
+		}
+		return must.isEmpty() ? Map.of() : Map.of("must", must);
 	}
 
 	private RestClient client() {
