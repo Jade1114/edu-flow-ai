@@ -1,6 +1,6 @@
 # LightGBM 训练样本与实施记录
 
-> 更新时间：2026-05-16  
+> 更新时间：2026-05-18  
 > 来源：由药柜 `projects/edu-flow-ai/features/02-训练样本字段表.md` 迁移并按当前代码状态更新。
 
 ## 模型定位
@@ -11,7 +11,7 @@
 教学任务 + 候选时间片 + 候选教室 + 当前课表状态 → 合理性分数 score
 ```
 
-Java/Python 生成候选组合，LightGBM 对候选评分，系统逐步选择高分候选形成完整候选方案。正式课表只在教务确认方案后写入 `course_assignment`。
+Java/Python 生成候选组合，LightGBM 对候选片段评分；下一阶段由遗传算法在完整方案层面搜索全局更优组合。正式课表只在教务确认方案后写入 `course_assignment`。
 
 ## 样本含义
 
@@ -69,7 +69,8 @@ server/ml/
     ├── train_lightgbm.py
     ├── predict_demo.py
     ├── evaluate_model.py
-    ├── generate_scheme_demo.py
+    ├── generate_scheme_demo.py      # 过渡入口，待 GA 替换后清理
+    ├── generate_scheme_ga.py        # 目标主生成入口（待实现）
     ├── evaluate_scheme_demo.py
     └── build_feedback_training_samples.py
 ```
@@ -82,7 +83,8 @@ server/ml/
 | `train_lightgbm.py` | 训练 LightGBM 排课评分模型 | ✅ |
 | `predict_demo.py` | 加载模型并预测候选片段分数 | ✅ |
 | `evaluate_model.py` | 评估模型指标和特征重要性 | ✅ |
-| `generate_scheme_demo.py` | 逐片段生成多套候选排课方案 | ✅ |
+| `generate_scheme_demo.py` | 逐片段 greedy/top-k-random 生成方案，过渡入口 | ⚠️ 待替换 |
+| `generate_scheme_ga.py` | 遗传算法全局搜索完整方案，目标主入口 | ⏳ |
 | `evaluate_scheme_demo.py` | 评估方案级质量和教师画像满意度 | ✅ |
 | `build_feedback_training_samples.py` | 将反馈 JSON 转为训练 CSV | ✅ |
 
@@ -102,6 +104,8 @@ server/ml/
 
 ## 方案生成链路
 
+当前过渡链路仍是逐片段选择：
+
 ```text
 教学任务列表
 ↓
@@ -109,19 +113,29 @@ server/ml/
 ↓
 LightGBM 预测分
 ↓
-叠加策略权重 policyParams
+叠加策略权重 / 教师画像惩罚 / 教室粘性 / 随机扰动
 ↓
-叠加教师画像惩罚 teacher_penalties
-↓
-叠加教室粘性/紧凑度/随机扰动
-↓
-选择最高分候选
+选择当前片段候选
 ↓
 更新临时课表状态
 ↓
 重复直到任务片段排完
+```
+
+目标链路会改为 GA 全局搜索：
+
+```text
+教学任务片段列表
 ↓
-输出 scheme_001~N.csv + teacher_penalties.json
+每个片段构造 top-N 候选池
+↓
+LightGBM 对候选片段评分
+↓
+遗传算法组合完整方案
+↓
+fitness 综合硬约束、教师画像、分布均衡、策略权重
+↓
+输出 scheme_001~N.csv + teacher_penalties.json + ga_summary.json
 ```
 
 ## 教师画像惩罚
@@ -142,10 +156,12 @@ teacher_penalties.json
 生成器评分阶段扣分 + 评估器满意度计算
 ```
 
-相关 prompt：
+相关 prompt 当前归 Java 资源目录管理：
 
-- `server/ml/prompts/teacher-penalty-system.md`
-- `server/ml/prompts/teacher-penalty-user-template.md`
+- `server/src/main/resources/prompts/teacher-penalty-system.md`
+- `server/src/main/resources/prompts/teacher-penalty-user-template.md`
+
+`server/ml/prompts/teacher-penalty-*.md` 是 Python 旧画像 RAG 链路残留，GA 切换时应删除。
 
 需要的环境变量包括：`OPENAI_API_KEY`、`OPENAI_BASE_URL`、`OPENAI_EMBEDDING_MODEL`、`OPENAI_CHAT_API_KEY`、`OPENAI_CHAT_BASE_URL`、`OPENAI_CHAT_MODEL`、`QDRANT_URL`、`QDRANT_API_KEY`、`QDRANT_COLLECTION`。
 
@@ -173,7 +189,11 @@ cd server/ml
 source .venv/bin/activate
 python scripts/generate_training_samples.py
 python scripts/train_lightgbm.py
-python scripts/generate_scheme_demo.py --variant-count 5 --policy BALANCED
+# 当前过渡入口
+python scripts/generate_scheme_demo.py --variant-count 5 --policy BALANCED --exclude-weekends
+
+# 目标主入口（实现 GA 后替换 Java 调用）
+python scripts/generate_scheme_ga.py --variant-count 5 --policy BALANCED --exclude-weekends --population-size 80 --generations 80
 python scripts/evaluate_scheme_demo.py --scheme-dir data/generated_schemes --json --teacher-penalties data/generated_schemes/teacher_penalties.json
 ```
 

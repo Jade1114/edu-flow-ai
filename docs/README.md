@@ -1,6 +1,6 @@
 # Edu-Flow-AI 文档索引
 
-> 更新时间：2026-05-16  
+> 更新时间：2026-05-18  
 > 原则：项目文档统一维护在本仓库 `docs/` 下；药柜中的旧笔记仅作为历史来源，不再作为项目当前文档入口。
 
 ## 文档结构
@@ -33,14 +33,15 @@ docs/
 ## 当前架构边界
 
 ```text
-LLM：自然语言策略翻译 + 教师画像结构化
-LightGBM：候选时间片 × 教室评分，主导排课决策
-规则引擎：硬约束冲突检测与兜底
-Java 后端：任务编排、Python 调用、结果入库、确认发布
-前端：策略选择、方案展示、调整、确认、模型训练中心反馈入口
+LLM：自然语言策略翻译 + 教师画像结构化，不直接生成课表
+LightGBM：候选时间片 × 教室的局部片段评分器
+遗传算法：完整课表方案层面的全局搜索器
+规则引擎：硬约束冲突检测、周末硬过滤与兜底校验
+Java 后端：任务编排、教师画像解析、Python 调用、结果入库、确认发布
+前端：策略选择、方案展示、画像扣分解释、调整、确认、模型训练中心反馈入口
 ```
 
-LLM 不再直接生成课表；旧的 Prompt Preview、Generate Preview、LLM Parse Preview、Allocation RAG Context 链路已删除。
+LLM 直出课表链路已删除；旧的 Prompt Preview、Generate Preview、LLM Parse Preview、Allocation RAG Context 链路不再恢复。下一阶段主线是清理逐片段 greedy/top-k-random 生成入口，将正式生成链路收敛到 GA + LightGBM。
 
 ## 药柜迁移说明
 
