@@ -102,7 +102,7 @@ const weightDescs = {
   compact_bonus_weight: '压缩在更少天数完成的奖励',
   random_jitter: '随机扰动，打破重复模式的微小噪声',
   classroom_stickiness_bonus: '同一教学任务保持在同教室的奖励，越大越不换教室',
-  weekend_penalty: '周六/周日排课的惩罚；不希望周末可用 0.18~0.28，强禁止可到 0.35',
+  weekend_penalty: '仅在允许周末排课时生效；当前生成链路默认硬过滤周六/周日，调这个不是强制开关',
 };
 
 const weightMax = {

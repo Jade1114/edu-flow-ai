@@ -182,6 +182,7 @@ def build_candidate_rows(
     classrooms: list[dict[str, Any]],
     time_slots: list[dict[str, Any]],
     selected_assignments: list[PseudoAssignment],
+    exclude_weekends: bool = False,
 ) -> list[dict[str, Any]]:
     indexes = build_occupied_indexes(selected_assignments)
     scheme_day_load = Counter((assignment.week_number, assignment.day_of_week) for assignment in selected_assignments)
@@ -209,6 +210,8 @@ def build_candidate_rows(
         is_afternoon = int(period_index in (3, 4))
         is_evening = int(period_index >= 5)
         is_weekend = int(day_of_week >= 6)
+        if exclude_weekends and is_weekend:
+            continue
         is_early_period = int(period_index == 1)
         is_late_period = int(period_index >= 5)
 
@@ -873,6 +876,7 @@ def generate_scheme(
     rng: random.Random,
     candidate_pool_size: int,
     policy: dict[str, float],
+    exclude_weekends: bool = False,
 ) -> tuple[list[dict[str, Any]], list[PseudoAssignment]]:
     scheme_rows: list[dict[str, Any]] = []
     selected_assignments: list[PseudoAssignment] = []
@@ -893,6 +897,7 @@ def generate_scheme(
                 classrooms=classrooms,
                 time_slots=time_slots,
                 selected_assignments=selected_assignments,
+                exclude_weekends=exclude_weekends,
             )
             best = choose_candidate(
                 booster=booster,
@@ -1021,6 +1026,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--teaching-task-ids", default=None, help="Comma-separated teaching task IDs to schedule.")
     parser.add_argument("--start-week", type=int, default=None, help="Optional minimum week number.")
     parser.add_argument("--end-week", type=int, default=None, help="Optional maximum week number.")
+    parser.add_argument("--exclude-weekends", action="store_true", help="Hard filter Saturday/Sunday time slots before model scoring.")
     parser.add_argument(
         "--candidate-pool-size",
         type=int,
@@ -1049,6 +1055,7 @@ def main() -> None:
         "teaching_task_ids": args.teaching_task_ids,
         "start_week": args.start_week,
         "end_week": args.end_week,
+        "exclude_weekends": args.exclude_weekends,
     })
 
     db_config = load_db_config()
@@ -1060,6 +1067,14 @@ def main() -> None:
 
     tasks = filter_tasks(tasks, parse_teaching_task_ids(args.teaching_task_ids))
     time_slots = filter_time_slots(time_slots, args.start_week, args.end_week)
+    if args.exclude_weekends:
+        before_count = len(time_slots)
+        time_slots = [slot for slot in time_slots if int(slot["day_of_week"]) < 6]
+        log_chain("周末硬约束生效：已排除周六周日时间片", {
+            "before_time_slot_count": before_count,
+            "after_time_slot_count": len(time_slots),
+            "removed_time_slot_count": before_count - len(time_slots),
+        })
     if not tasks:
         raise ValueError("No teaching tasks available for scheme generation.")
     if not time_slots:
@@ -1112,6 +1127,7 @@ def main() -> None:
             rng=random.Random(args.random_seed),
             candidate_pool_size=args.candidate_pool_size,
             policy=policy,
+            exclude_weekends=args.exclude_weekends,
         )
         write_scheme(rows, args.output)
         write_teacher_penalties(teacher_penalties, args.output.parent / TEACHER_PENALTIES_FILENAME)
@@ -1140,6 +1156,7 @@ def main() -> None:
             rng=rng,
             candidate_pool_size=args.candidate_pool_size,
             policy=policy,
+            exclude_weekends=args.exclude_weekends,
         )
         write_scheme(rows, output_path)
         summary = summarize_scheme(rows, tasks, args.max_tasks)

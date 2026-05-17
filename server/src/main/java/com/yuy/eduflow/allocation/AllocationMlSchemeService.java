@@ -123,6 +123,7 @@ public class AllocationMlSchemeService {
 		command.add(String.valueOf(DEFAULT_TOP_K));
 		command.add("--candidate-pool-size");
 		command.add(String.valueOf(DEFAULT_CANDIDATE_POOL_SIZE));
+		command.add("--exclude-weekends");
 		command.add("--policy");
 		command.add(policyOrDefault(policy));
 		if (policyParams != null && !policyParams.isBlank()) {
