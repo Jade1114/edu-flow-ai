@@ -15,3 +15,4 @@ server/ml/data/generated_schemes/
 server/ml/data/feedback_exports/
 server/ml/models/*.txt
 server/ml/models/*.pkl
+server/ml/models/feedback_versions/

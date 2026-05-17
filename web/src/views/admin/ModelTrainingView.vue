@@ -8,13 +8,26 @@ import { Cpu, DataAnalysis, Refresh, TrendCharts, Finished, VideoPlay, CircleChe
 const feedbackStats = ref(null)
 const feedbackLoading = ref(false)
 
-async function loadFeedbackStats(taskId) {
+async function loadLatestFeedbackJson(taskId) {
+  feedbackLoading.value = true
+  try {
+    const params = taskId ? `?taskId=${taskId}` : ''
+    feedbackStats.value = await request.get(`/api/ml/feedback/latest-export${params}`)
+  } catch (e) {
+    feedbackStats.value = null
+  } finally {
+    feedbackLoading.value = false
+  }
+}
+
+async function generateFeedbackJson(taskId) {
   feedbackLoading.value = true
   try {
     const params = taskId ? `?taskId=${taskId}` : ''
     feedbackStats.value = await request.get(`/api/ml/feedback/export${params}`)
+    ElMessage.success('反馈 JSON 已生成')
   } catch (e) {
-    ElMessage.error('加载反馈数据失败')
+    ElMessage.error('生成反馈 JSON 失败')
   } finally {
     feedbackLoading.value = false
   }
@@ -26,7 +39,7 @@ const trainResult = ref(null)
 
 async function triggerRetrain(taskId) {
   training.value = true
-  trainResult.value = { status: 'RUNNING', message: '正在导出反馈数据...' }
+  trainResult.value = { status: 'RUNNING', message: '正在将最新反馈 JSON 转为训练样本...' }
   try {
     const params = taskId ? `?taskId=${taskId}` : ''
     const result = await request.post(`/api/ml/feedback/train${params}`)
@@ -72,15 +85,53 @@ const positiveRate = computed(() => {
 const statsCards = computed(() => {
   const last = trainingLogs.value[0]
   if (!last) return []
+  const metrics = trainingMetrics(last)
   return [
     { label: '模型版本', value: last.modelVersion || '-', icon: Cpu },
     { label: '训练类型', value: typeLabel(last.trainingType), icon: VideoPlay },
     { label: '样本总数', value: last.sampleCount || 0, icon: DataAnalysis },
     { label: '正样本率', value: positiveRate.value + '%', icon: CircleCheck },
-    { label: '训练准确率', value: last.trainAccuracy != null ? (last.trainAccuracy * 100).toFixed(1) + '%' : '-', icon: TrendCharts },
-    { label: '训练 AUC', value: last.trainAuc != null ? last.trainAuc.toFixed(3) : '-', icon: Finished },
+    { label: 'R²', value: metrics?.r2 != null ? metrics.r2.toFixed(4) : '-', icon: TrendCharts },
+    { label: 'RMSE', value: metrics?.rmse != null ? metrics.rmse.toFixed(4) : '-', icon: Finished },
   ]
 })
+
+function parseMetricsJson(row) {
+  if (!row?.metricsJson) return null
+  try {
+    return JSON.parse(row.metricsJson)
+  } catch (e) {
+    return null
+  }
+}
+
+function trainingMetrics(row) {
+  return parseMetricsJson(row)?.metrics || null
+}
+
+function modelParams(row) {
+  const payload = parseMetricsJson(row)
+  if (!payload?.model_params) return '-'
+  return Object.entries(payload.model_params)
+    .map(([key, value]) => `${key}=${value}`)
+    .join(', ')
+}
+
+function comparisonLabel(row) {
+  const comparison = parseMetricsJson(row)?.comparison
+  if (!comparison) return '-'
+  return comparison.baseline_type === 'PREVIOUS_FEEDBACK' ? '上次反馈模型' : '初始模型'
+}
+
+function previousModelPath(row) {
+  return parseMetricsJson(row)?.comparison?.previous_model_path || ''
+}
+
+function shortPath(path) {
+  if (!path) return '-'
+  const index = path.indexOf('/server/')
+  return index >= 0 ? path.substring(index + 1) : path
+}
 
 function typeLabel(type) {
   const map = { INITIAL: '初始训练', FEEDBACK: '反馈重训', FULL: '全量训练' }
@@ -103,8 +154,8 @@ function fmtTime(t) {
 }
 
 onMounted(() => {
+  loadLatestFeedbackJson()
   loadTrainingLogs()
-  loadFeedbackStats()
 })
 </script>
 
@@ -119,11 +170,11 @@ onMounted(() => {
         </p>
       </div>
       <div style="display: flex; gap: 8px">
-        <el-button :icon="Refresh" @click="loadFeedbackStats()" :loading="feedbackLoading">
-          刷新数据
+        <el-button :icon="Refresh" @click="generateFeedbackJson()" :loading="feedbackLoading">
+          生成反馈 JSON
         </el-button>
-        <el-button type="warning" @click="triggerRetrain()" :loading="training" :disabled="training">
-          {{ training ? '训练中...' : '开始重训' }}
+        <el-button type="warning" @click="triggerRetrain()" :loading="training" :disabled="training || !feedbackStats?.exportPath">
+          {{ training ? '训练中...' : '重训模型' }}
         </el-button>
       </div>
     </div>
@@ -195,7 +246,7 @@ onMounted(() => {
             </div>
           </div>
           <div v-else style="text-align: center; padding: 32px; color: #909399">
-            点击"刷新数据"查看当前可用于训练的反馈数据
+            点击“生成反馈 JSON”后查看本次导出的反馈数据统计
           </div>
 
           <!-- 标签策略说明 -->
@@ -264,15 +315,26 @@ onMounted(() => {
         <el-table-column prop="sampleCount" label="样本" width="70" />
         <el-table-column prop="positiveCount" label="正样本" width="70" />
         <el-table-column prop="negativeCount" label="负样本" width="70" />
-        <el-table-column prop="trainAccuracy" label="准确率" width="80">
+        <el-table-column label="R²" width="80">
           <template #default="{ row }">
-            {{ row.trainAccuracy != null ? (row.trainAccuracy * 100).toFixed(1) + '%' : '-' }}
+            {{ trainingMetrics(row)?.r2 != null ? trainingMetrics(row).r2.toFixed(4) : '-' }}
           </template>
         </el-table-column>
-        <el-table-column prop="trainAuc" label="AUC" width="80">
+        <el-table-column label="RMSE" width="90">
           <template #default="{ row }">
-            {{ row.trainAuc != null ? row.trainAuc.toFixed(3) : '-' }}
+            {{ trainingMetrics(row)?.rmse != null ? trainingMetrics(row).rmse.toFixed(4) : '-' }}
           </template>
+        </el-table-column>
+        <el-table-column label="对比基线" width="120" show-overflow-tooltip>
+          <template #default="{ row }">
+            <span :title="shortPath(previousModelPath(row))">{{ comparisonLabel(row) }}</span>
+          </template>
+        </el-table-column>
+        <el-table-column label="模型文件" width="180" show-overflow-tooltip>
+          <template #default="{ row }">{{ shortPath(row.modelPath) }}</template>
+        </el-table-column>
+        <el-table-column label="训练参数" width="220" show-overflow-tooltip>
+          <template #default="{ row }">{{ modelParams(row) }}</template>
         </el-table-column>
         <el-table-column prop="schemeCount" label="方案" width="60" />
         <el-table-column prop="feedbackCount" label="反馈" width="60" />

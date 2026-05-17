@@ -33,6 +33,7 @@ EXCLUDED_COLUMNS = {
     "candidate_classroom_id",
     "candidate_time_slot_id",
     "reject_reason",
+    "sample_weight",
     TARGET_COLUMN,
 }
 CATEGORICAL_COLUMNS = [
@@ -43,6 +44,22 @@ CATEGORICAL_COLUMNS = [
     "room_type",
     "room_building",
 ]
+MODEL_PARAMS = {
+    "objective": "regression",
+    "n_estimators": 300,
+    "learning_rate": 0.05,
+    "num_leaves": 31,
+    "max_depth": -1,
+    "min_child_samples": 20,
+    "subsample": 0.9,
+    "colsample_bytree": 0.9,
+    "random_state": 42,
+    "n_jobs": -1,
+}
+TRAIN_TEST_SPLIT = {
+    "test_size": 0.2,
+    "random_state": 42,
+}
 
 
 def load_dataset(data_path: Path) -> pd.DataFrame:
@@ -59,7 +76,7 @@ def load_dataset(data_path: Path) -> pd.DataFrame:
     return dataset
 
 
-def build_feature_frame(dataset: pd.DataFrame) -> tuple[pd.DataFrame, pd.Series, list[str], list[str]]:
+def build_feature_frame(dataset: pd.DataFrame) -> tuple[pd.DataFrame, pd.Series, pd.Series, list[str], list[str]]:
     feature_columns = [column for column in dataset.columns if column not in EXCLUDED_COLUMNS]
     categorical_columns = [column for column in CATEGORICAL_COLUMNS if column in feature_columns]
     features = dataset[feature_columns].copy()
@@ -75,32 +92,24 @@ def build_feature_frame(dataset: pd.DataFrame) -> tuple[pd.DataFrame, pd.Series,
     if target.isna().any():
         raise ValueError(f"Target column `{TARGET_COLUMN}` contains non-numeric values")
 
-    return features, target, feature_columns, categorical_columns
+    sample_weight = pd.to_numeric(dataset.get("sample_weight", 1.0), errors="coerce").fillna(1.0)
+
+    return features, target, sample_weight, feature_columns, categorical_columns
 
 
-def train_model(features: pd.DataFrame, target: pd.Series, categorical_columns: list[str]) -> tuple[lgb.LGBMRegressor, dict[str, float]]:
-    x_train, x_test, y_train, y_test = train_test_split(
+def train_model(features: pd.DataFrame, target: pd.Series, sample_weight: pd.Series, categorical_columns: list[str]) -> tuple[lgb.LGBMRegressor, dict[str, float]]:
+    x_train, x_test, y_train, y_test, weight_train, _ = train_test_split(
         features,
         target,
-        test_size=0.2,
-        random_state=42,
+        sample_weight,
+        **TRAIN_TEST_SPLIT,
     )
 
-    model = lgb.LGBMRegressor(
-        objective="regression",
-        n_estimators=300,
-        learning_rate=0.05,
-        num_leaves=31,
-        max_depth=-1,
-        min_child_samples=20,
-        subsample=0.9,
-        colsample_bytree=0.9,
-        random_state=42,
-        n_jobs=-1,
-    )
+    model = lgb.LGBMRegressor(**MODEL_PARAMS)
     model.fit(
         x_train,
         y_train,
+        sample_weight=weight_train,
         categorical_feature=categorical_columns,
         eval_set=[(x_test, y_test)],
         eval_metric="l2",
@@ -150,6 +159,8 @@ def save_artifacts(
         "target_column": TARGET_COLUMN,
         "data_path": str(data_path),
         "model_path": str(model_path),
+        "model_params": MODEL_PARAMS,
+        "train_test_split": TRAIN_TEST_SPLIT,
         "feature_columns": feature_columns,
         "categorical_columns": categorical_columns,
         "excluded_columns": sorted(EXCLUDED_COLUMNS),
@@ -170,8 +181,8 @@ def parse_args() -> argparse.Namespace:
 def main() -> None:
     args = parse_args()
     dataset = load_dataset(args.data)
-    features, target, feature_columns, categorical_columns = build_feature_frame(dataset)
-    model, metrics = train_model(features, target, categorical_columns)
+    features, target, sample_weight, feature_columns, categorical_columns = build_feature_frame(dataset)
+    model, metrics = train_model(features, target, sample_weight, categorical_columns)
     save_artifacts(
         model,
         metrics=metrics,

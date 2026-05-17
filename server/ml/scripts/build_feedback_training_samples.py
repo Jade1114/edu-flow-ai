@@ -111,7 +111,8 @@ def build_scheme_feedback(feedback_rows: list[dict[str, Any]]) -> dict[int, set[
 def conflict_item_ids(conflicts: list[dict[str, Any]]) -> set[int]:
     ids: set[int] = set()
     for conflict in conflicts:
-        if str(normalize_key(conflict, "biz_type") or "") == "SCHEDULE_SEGMENT" and not truthy(normalize_key(conflict, "resolved")):
+        biz_type = str(normalize_key(conflict, "biz_type") or "")
+        if biz_type in {"ALLOCATION_ITEM", "SCHEDULE_SEGMENT"} and not truthy(normalize_key(conflict, "resolved")):
             ids.add(as_int(normalize_key(conflict, "biz_id")))
     return ids
 

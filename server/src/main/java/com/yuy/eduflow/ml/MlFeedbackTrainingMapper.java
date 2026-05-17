@@ -2,16 +2,59 @@ package com.yuy.eduflow.ml;
 
 import java.util.List;
 import java.util.Map;
+import org.apache.ibatis.annotations.Insert;
 import org.apache.ibatis.annotations.Mapper;
+import org.apache.ibatis.annotations.Options;
 import org.apache.ibatis.annotations.Param;
 import org.apache.ibatis.annotations.Select;
+import org.apache.ibatis.annotations.Update;
 
 @Mapper
 public interface MlFeedbackTrainingMapper {
 
+	@Insert("""
+		INSERT INTO model_training_log (
+			model_version, training_type, scheme_count, item_count, feedback_count,
+			adjustment_count, conflict_count, sample_count, positive_count, negative_count,
+			train_accuracy, train_auc, eval_accuracy, eval_auc, model_path, sample_path,
+			metrics_json, status, error_message, train_started_at, train_finished_at
+		) VALUES (
+			#{modelVersion}, #{trainingType}, #{schemeCount}, #{itemCount}, #{feedbackCount},
+			#{adjustmentCount}, #{conflictCount}, #{sampleCount}, #{positiveCount}, #{negativeCount},
+			#{trainAccuracy}, #{trainAuc}, #{evalAccuracy}, #{evalAuc}, #{modelPath}, #{samplePath},
+			#{metricsJson}, #{status}, #{errorMessage}, #{trainStartedAt}, #{trainFinishedAt}
+		)
+		""")
+	@Options(useGeneratedKeys = true, keyProperty = "id")
+	int insertTrainingLog(MlTrainingLog trainingLog);
+
+	@Update("""
+		UPDATE model_training_log
+		SET scheme_count = #{schemeCount},
+		    item_count = #{itemCount},
+		    feedback_count = #{feedbackCount},
+		    adjustment_count = #{adjustmentCount},
+		    conflict_count = #{conflictCount},
+		    sample_count = #{sampleCount},
+		    positive_count = #{positiveCount},
+		    negative_count = #{negativeCount},
+		    train_accuracy = #{trainAccuracy},
+		    train_auc = #{trainAuc},
+		    eval_accuracy = #{evalAccuracy},
+		    eval_auc = #{evalAuc},
+		    model_path = #{modelPath},
+		    sample_path = #{samplePath},
+		    metrics_json = #{metricsJson},
+		    status = #{status},
+		    error_message = #{errorMessage},
+		    train_finished_at = #{trainFinishedAt}
+		WHERE id = #{id}
+		""")
+	int updateTrainingLog(MlTrainingLog trainingLog);
+
 	@Select("""
 		<script>
-		SELECT s.id, s.task_id, s.scheme_name, s.summary, s.score, s.scheme_score,
+		SELECT s.id, s.task_id, s.scheme_name, s.summary, s.scheme_score,
 		       s.evaluation_summary, s.policy, s.policy_params, s.model_version,
 		       s.satisfied_summary, s.conflict_summary, s.valid, s.status,
 		       s.created_at, s.updated_at
@@ -64,7 +107,7 @@ public interface MlFeedbackTrainingMapper {
 
 	@Select("""
 		<script>
-		SELECT f.id, f.scheme_id, f.task_id, f.feedback_type, f.score, f.comment,
+		SELECT f.id, f.scheme_id, f.task_id, f.feedback_type,
 		       f.adjustment_count, f.created_by, f.created_at
 		FROM allocation_scheme_feedback f
 		WHERE 1 = 1
@@ -112,12 +155,28 @@ public interface MlFeedbackTrainingMapper {
 	List<Map<String, Object>> findConflicts(@Param("taskId") Long taskId);
 
 	@Select("""
-		SELECT id, model_version, training_type, scheme_count, item_count,
-		       feedback_count, adjustment_count, conflict_count, sample_count,
-		       positive_count, negative_count,
-		       train_accuracy, train_auc, eval_accuracy, eval_auc,
-		       model_path, sample_path, status, error_message,
-		       train_started_at, train_finished_at
+		SELECT id,
+		       model_version AS modelVersion,
+		       training_type AS trainingType,
+		       scheme_count AS schemeCount,
+		       item_count AS itemCount,
+		       feedback_count AS feedbackCount,
+		       adjustment_count AS adjustmentCount,
+		       conflict_count AS conflictCount,
+		       sample_count AS sampleCount,
+		       positive_count AS positiveCount,
+		       negative_count AS negativeCount,
+		       train_accuracy AS trainAccuracy,
+		       train_auc AS trainAuc,
+		       eval_accuracy AS evalAccuracy,
+		       eval_auc AS evalAuc,
+		       model_path AS modelPath,
+		       sample_path AS samplePath,
+		       metrics_json AS metricsJson,
+		       status,
+		       error_message AS errorMessage,
+		       train_started_at AS trainStartedAt,
+		       train_finished_at AS trainFinishedAt
 		FROM model_training_log
 		ORDER BY train_started_at DESC
 		LIMIT #{limit}
@@ -125,12 +184,28 @@ public interface MlFeedbackTrainingMapper {
 	List<Map<String, Object>> findTrainingLogs(@Param("limit") int limit);
 
 	@Select("""
-		SELECT id, model_version, training_type, scheme_count, item_count,
-		       feedback_count, adjustment_count, conflict_count, sample_count,
-		       positive_count, negative_count,
-		       train_accuracy, train_auc, eval_accuracy, eval_auc,
-		       model_path, sample_path, status, error_message,
-		       train_started_at, train_finished_at
+		SELECT id,
+		       model_version AS modelVersion,
+		       training_type AS trainingType,
+		       scheme_count AS schemeCount,
+		       item_count AS itemCount,
+		       feedback_count AS feedbackCount,
+		       adjustment_count AS adjustmentCount,
+		       conflict_count AS conflictCount,
+		       sample_count AS sampleCount,
+		       positive_count AS positiveCount,
+		       negative_count AS negativeCount,
+		       train_accuracy AS trainAccuracy,
+		       train_auc AS trainAuc,
+		       eval_accuracy AS evalAccuracy,
+		       eval_auc AS evalAuc,
+		       model_path AS modelPath,
+		       sample_path AS samplePath,
+		       metrics_json AS metricsJson,
+		       status,
+		       error_message AS errorMessage,
+		       train_started_at AS trainStartedAt,
+		       train_finished_at AS trainFinishedAt
 		FROM model_training_log
 		WHERE status = 'SUCCEEDED'
 		ORDER BY train_started_at DESC

@@ -25,6 +25,11 @@ public class MlFeedbackTrainingController {
         return ApiResponse.success(feedbackTrainingService.exportFeedback(taskId));
     }
 
+    @GetMapping("/latest-export")
+    public ApiResponse<MlFeedbackExportResult> latestFeedbackExport(@RequestParam(required = false) Long taskId) {
+        return ApiResponse.success(feedbackTrainingService.latestFeedbackExport(taskId));
+    }
+
     @PostMapping("/train")
     public ApiResponse<MlTrainingStatusResult> train(@RequestParam(required = false) Long taskId) {
         return ApiResponse.success(feedbackTrainingService.train(taskId));
