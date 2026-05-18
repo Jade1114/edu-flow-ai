@@ -21,8 +21,6 @@ import org.springframework.web.client.RestClient;
 public class MlApiClient {
 
 	private static final int POLL_INTERVAL_MS = 3000;
-	/** Total max wait for a GA job (~15 min). */
-	private static final long MAX_WAIT_MS = 15 * 60 * 1000L;
 
 	private final MlApiProperties properties;
 	private final RestClient restClient;
@@ -98,14 +96,14 @@ public class MlApiClient {
 
 	/**
 	 * Poll the task status endpoint until the job completes or fails.
+	 * No hard timeout — GA runs as long as it needs.
 	 */
 	@SuppressWarnings("unchecked")
 	public Map<String, Object> pollForResult(String taskId) {
-		long deadline = System.currentTimeMillis() + MAX_WAIT_MS;
 		String statusUri = "/api/ml/generate-scheme/" + taskId;
 
 		int attempt = 0;
-		while (System.currentTimeMillis() < deadline) {
+		while (true) {
 			attempt++;
 			Map<String, Object> status = restClient.get()
 				.uri(statusUri)
@@ -144,7 +142,6 @@ public class MlApiClient {
 			}
 		}
 
-		throw new BusinessException(500, "ML API task timed out after " + (MAX_WAIT_MS / 1000) + "s: taskId=" + taskId);
 	}
 
 	/**
