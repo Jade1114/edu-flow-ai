@@ -238,12 +238,14 @@ def fetch_time_slots(connection) -> list[dict[str, Any]]:
 
 
 def fetch_teacher_profiles(connection) -> dict[int, dict[str, object]]:
-    """Return {teacher_id: {unavailable_slots, max_weekly_hours}}."""
+    """Return {teacher_id: {unavailable_slots, max_weekly_hours, vector_text, ...}}."""
     rows = fetch_all(
         connection,
         """
         SELECT p.teacher_id, p.unavailable_time_text, p.workload_requirement,
-               t.max_weekly_hours
+               p.vector_text, p.special_note,
+               t.max_weekly_hours, t.name AS teacher_name,
+               t.department
         FROM teacher_profile p
         JOIN teacher t ON t.id = p.teacher_id
         WHERE t.status = 'ACTIVE'
@@ -258,9 +260,23 @@ def fetch_teacher_profiles(connection) -> dict[int, dict[str, object]]:
         if max_hours is None:
             db_max = row.get("max_weekly_hours")
             max_hours = int(db_max) if db_max is not None else None
+        # Build raw text for LLM parsing (prefer vector_text, fallback to manual concat)
+        raw_text = (row.get("vector_text") or "").strip()
+        if not raw_text:
+            parts = [
+                f"教师: {row.get('teacher_name') or tid}",
+                f"部门: {row.get('department') or '未知'}",
+                f"不可用时间: {row.get('unavailable_time_text') or '无'}",
+                f"工作量要求: {row.get('workload_requirement') or '无'}",
+                f"特殊备注: {row.get('special_note') or '无'}",
+            ]
+            raw_text = "\n".join(parts)
         profiles[tid] = {
             "unavailable_slots": unavailable,
             "max_weekly_hours": max_hours,
+            "vector_text": raw_text,
+            "teacher_name": row.get("teacher_name") or "",
+            "department": row.get("department") or "",
         }
     return profiles
 
