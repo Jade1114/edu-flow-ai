@@ -22,7 +22,10 @@ from typing import Any, Optional
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 import ml_logger
 
-import lightgbm as lgb
+try:
+    import lightgbm as lgb
+except ImportError:
+    lgb = None
 import numpy as np
 import pandas as pd
 
@@ -45,6 +48,8 @@ from generate_training_samples import (
 
 
 ROOT_DIR = Path(__file__).resolve().parents[1]
+PROJECT_ROOT = ROOT_DIR.parents[1]
+PROJECT_LOG_DIR = PROJECT_ROOT / "logs"
 MODEL_PATH = ROOT_DIR / "models" / "schedule_ranker_v1.txt"
 FEATURE_SCHEMA_PATH = ROOT_DIR / "data" / "feature_schema.json"
 OUTPUT_PATH = ROOT_DIR / "data" / "generated_scheme_ga.csv"
@@ -219,7 +224,10 @@ def load_schema(schema_path: Path) -> dict[str, Any]:
     return json.loads(schema_path.read_text(encoding="utf-8"))
 
 
-def load_optional_lightgbm(model_path: Path, schema_path: Path) -> tuple[Optional[lgb.Booster], Optional[dict[str, Any]], str]:
+def load_optional_lightgbm(model_path: Path, schema_path: Path) -> tuple[Optional[Any], Optional[dict[str, Any]], str]:
+    if lgb is None:
+        log_chain("LightGBM 未安装，GA 将仅使用规则软评分排序候选", {"fallback": "rule_score_fallback"})
+        return None, None, "rule_score_fallback"
     if model_path.exists() and schema_path.exists():
         return lgb.Booster(model_file=str(model_path)), load_schema(schema_path), "lightgbm"
     missing = []
@@ -1831,9 +1839,75 @@ def run_ga_pipeline_by_task(
         distribution_penalty_scale=5.0,
         classroom_stickiness_weight=5.0,
         compact_bonus_weight=0.0,
-        log_file=output_dir / "python-ga.log",
+        log_file=PROJECT_LOG_DIR / f"python-ga-{output_dir.name}.log",
     )
-    return run_ga_pipeline(args)
+    result = run_ga_pipeline(args)
+
+    # Persist schemes + detect conflicts directly to MySQL
+    try:
+        from persist_scheme import (
+            reject_old_candidates, insert_scheme, insert_item,
+            insert_conflict, update_scheme_conflict_state,
+            detect_conflicts, summarize_violations,
+        )
+
+        from generate_training_samples import connect, load_db_config
+        with connect(load_db_config()) as conn:
+            reject_old_candidates(conn, task_id)
+            log_chain("DB: 旧候选方案已标记为 REJECTED")
+
+            schemes_data = result.get("schemes", [])
+            all_item_rows = result.get("item_rows", [])
+            for idx, (scheme_info, item_rows) in enumerate(zip(schemes_data, all_item_rows)):
+                scheme_db = {
+                    "scheme_name": scheme_info.get("scheme_name", f"方案 {idx + 1:03d}"),
+                    "summary": summarize_scheme(item_rows, [], None),
+                    "scheme_score": None,
+                    "evaluation_summary": None,
+                    "policy": DEFAULT_POLICY,
+                    "model_version": "v1",
+                    "conflict_summary": None,
+                    "valid": True,
+                }
+                scheme_id = insert_scheme(conn, task_id, scheme_db)
+                log_chain("DB: 方案已落库", {"scheme_id": scheme_id, "name": scheme_db["scheme_name"]})
+
+                # Insert items
+                item_ids: list[int] = []
+                for row in item_rows:
+                    item_data = {
+                        "teaching_task_id": int(row["teaching_task_id"]),
+                        "classroom_id": int(row["classroom_id"]),
+                        "time_slot_id": int(row["time_slot_id"]),
+                        "valid": True,
+                        "conflict_message": row.get("reject_reason") or None,
+                    }
+                    item_id = insert_item(conn, scheme_id, item_data)
+                    item_ids.append(item_id)
+
+                # Detect conflicts from inserted items
+                item_records = [
+                    {"id": iid, "teaching_task_id": int(r["teaching_task_id"]),
+                     "classroom_id": int(r["classroom_id"]), "time_slot_id": int(r["time_slot_id"])}
+                    for iid, r in zip(item_ids, item_rows)
+                ]
+                violations = detect_conflicts(item_records, conn)
+                for v in violations:
+                    insert_conflict(conn, v)
+
+                conflict_summary = summarize_violations(violations)
+                valid = len(violations) == 0
+                update_scheme_conflict_state(conn, scheme_id, valid, conflict_summary)
+                log_chain("DB: 方案冲突检测完成",
+                          {"scheme_id": scheme_id, "valid": valid, "violations": len(violations)})
+
+        log_chain("DB: 全部方案持久化完成", {"task_id": task_id, "scheme_count": len(schemes_data)})
+    except Exception as exc:
+        import traceback as _tb
+        log_chain("DB: 方案持久化失败（不影响 CSV 产物）",
+                  {"error": str(exc), "traceback": _tb.format_exc()})
+
+    return result
 
 
 def _build_generation_config_json(raw_config: dict[str, Any]) -> str:
@@ -2056,12 +2130,14 @@ def run_ga_pipeline(args: argparse.Namespace) -> dict[str, Any]:
             "output_dir": str(args.output.parent),
             "scheme_count": 1,
             "schemes": [{"scheme_no": 1, "output_path": str(args.output), **summarize_scheme(rows, tasks, args.max_tasks), **summarize_metrics(metrics)}],
+            "item_rows": [rows],  # one scheme's item rows
             "ga_summary_path": str(ga_summary_path),
             "candidate_diagnostics_path": str(args.output.parent / "candidate_diagnostics.json"),
             "timings_ms": dict(RUN_TIMINGS),
         }
 
     summary_rows: list[dict[str, Any]] = []
+    all_item_rows: list[list[dict[str, Any]]] = []
     args.output_dir.mkdir(parents=True, exist_ok=True)
     write_teacher_penalties(teacher_penalties, args.output_dir / TEACHER_PENALTIES_FILENAME)
     for scheme_no in range(1, args.variant_count + 1):
@@ -2090,6 +2166,7 @@ def run_ga_pipeline(args: argparse.Namespace) -> dict[str, Any]:
         write_scheme(rows, output_path)
         summary = summarize_scheme(rows, tasks, args.max_tasks)
         summary_rows.append({"scheme_no": scheme_no, "output_path": str(output_path), **summary, **summarize_metrics(metrics)})
+        all_item_rows.append(rows)
 
     summary_path = args.output_dir / "summary.csv"
     ga_summary_path = args.output_dir / "ga_summary.json"
@@ -2103,6 +2180,7 @@ def run_ga_pipeline(args: argparse.Namespace) -> dict[str, Any]:
         "output_dir": str(args.output_dir),
         "scheme_count": len(summary_rows),
         "schemes": summary_rows,
+        "item_rows": all_item_rows,
         "ga_summary_path": str(ga_summary_path),
         "candidate_diagnostics_path": str(args.output_dir / "candidate_diagnostics.json"),
         "timings_ms": dict(RUN_TIMINGS),
