@@ -6,6 +6,7 @@ Called from run_ga_pipeline_by_task() after GA completes.
 
 from __future__ import annotations
 
+import json
 from datetime import datetime
 from typing import Any, Optional
 
@@ -236,6 +237,13 @@ def _append_summary(parts: list, counts: dict, ctype: str, label: str) -> None:
 
 # ── Persistence ───────────────────────────────────────────────────────
 
+def _db_text(value: Any) -> Any:
+    """Convert structured values to DB-safe TEXT payloads."""
+    if isinstance(value, (dict, list, tuple)):
+        return json.dumps(value, ensure_ascii=False, default=str)
+    return value
+
+
 def reject_old_candidates(connection, task_id: int) -> None:
     """Mark existing CANDIDATE schemes as REJECTED."""
     with connection.cursor() as cursor:
@@ -256,12 +264,12 @@ def insert_scheme(connection, task_id: int, scheme_data: dict) -> int:
             (
                 task_id,
                 scheme_data.get("scheme_name", ""),
-                scheme_data.get("summary"),
+                _db_text(scheme_data.get("summary")),
                 scheme_data.get("scheme_score"),
-                scheme_data.get("evaluation_summary"),
+                _db_text(scheme_data.get("evaluation_summary")),
                 scheme_data.get("policy"),
                 scheme_data.get("model_version"),
-                scheme_data.get("conflict_summary"),
+                _db_text(scheme_data.get("conflict_summary")),
                 scheme_data.get("valid", True),
                 STATUS_CANDIDATE,
             ),
