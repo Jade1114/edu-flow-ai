@@ -22,7 +22,7 @@ from ..schemas import GenerateSchemeRequest, TaskInfo, TaskStatusResponse
 router = APIRouter(tags=["ga"])
 
 
-def _run_pipeline_by_task(task_id: int, output_dir_str: str, ml_dir: Path) -> dict[str, Any]:
+def _run_pipeline_by_task(task_id: int, ml_dir: Path) -> dict[str, Any]:
     """Blocking wrapper — imports GA module, runs by task_id."""
     scripts_dir = str(ml_dir / "scripts")
     if scripts_dir not in sys.path:
@@ -31,7 +31,6 @@ def _run_pipeline_by_task(task_id: int, output_dir_str: str, ml_dir: Path) -> di
 
     return generate_scheme_ga.run_ga_pipeline_by_task(
         task_id=task_id,
-        output_dir=Path(output_dir_str),
     )
 
 
@@ -46,8 +45,6 @@ async def submit_generate_scheme(
     Returns immediately with a task_id; poll GET /api/ml/generate-scheme/{task_id}.
     """
     ml_dir: Path = request.app.state.ml_dir
-    output_dir = Path(req.output_dir)
-    output_dir.mkdir(parents=True, exist_ok=True)
 
     # Create async task
     task_id = task_store.create(
@@ -56,8 +53,8 @@ async def submit_generate_scheme(
     )
 
     ml_logger.service.info(
-        "GA task submitted: task_id=%s allocation_task_id=%d output_dir=%s",
-        task_id, req.task_id, req.output_dir,
+        "GA task submitted: task_id=%s allocation_task_id=%d",
+        task_id, req.task_id,
     )
 
     # Fire & forget in thread pool
@@ -65,7 +62,6 @@ async def submit_generate_scheme(
         task_id,
         _run_pipeline_by_task,
         req.task_id,
-        req.output_dir,
         ml_dir,
     ))
 

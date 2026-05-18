@@ -9,9 +9,8 @@ from pydantic import BaseModel, Field
 # ── Request Models ──────────────────────────────────────────────────
 
 class GenerateSchemeRequest(BaseModel):
-    """Simple request — Python reads everything from DB via task_id."""
+    """Minimal request — just task_id, Python reads everything from DB."""
     task_id: int
-    output_dir: str  # absolute path to write scheme CSVs / diagnostics
 
 
 class TrainRequest(BaseModel):

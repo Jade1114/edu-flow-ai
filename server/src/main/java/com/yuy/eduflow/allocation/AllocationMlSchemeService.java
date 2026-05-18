@@ -68,17 +68,8 @@ public class AllocationMlSchemeService {
 		}
 
 		progressReporter.accept(running("ml", "调用自训练排课模型生成候选方案...", 15));
-		Path mlDir = resolveMlDir();
-		Path outputDir = mlDir.resolve("data/generated_schemes/task_" + taskId + "_" + RUN_ID_FORMATTER.format(LocalDateTime.now()));
-
-		try {
-			Files.createDirectories(outputDir);
-		} catch (IOException exception) {
-			throw new BusinessException(500, "创建输出目录失败：" + exception.getMessage(), exception);
-		}
-		// Python reads task details, generation config, teacher penalties from DB directly
-		// Java only sends task_id + output_dir
-		runModelScript(outputDir, task, progressReporter);
+		// Python reads everything from DB and generates output_dir internally
+		Path outputDir = runModelScript(task, progressReporter);
 		progressReporter.accept(running("eval", "自训练模型评估方案质量...", 62));
 		runEvaluator(mlDir, outputDir);
 		progressReporter.accept(running("parse", "解析评估后的 CSV 方案...", 68));
@@ -96,26 +87,35 @@ public class AllocationMlSchemeService {
 		);
 	}
 
-	private void runModelScript(
-		Path outputDir,
+	/**
+	 * Call Python FastAPI to generate schemes. Returns the output_dir from the response
+	 * so the caller can read generated CSV files.
+	 */
+	@SuppressWarnings("unchecked")
+	private Path runModelScript(
 		AllocationTask task,
 		Consumer<GenerationStatus> progressReporter
 	) {
 		// Build minimal request — Python reads everything from DB via task_id
 		Map<String, Object> requestBody = new LinkedHashMap<>();
 		requestBody.put("task_id", task.getId());
-		requestBody.put("output_dir", outputDir.toString());
 
-		log.info("ML GA scheme generator starting (HTTP): taskId={}, taskName={}, outputDir={}",
-			task.getId(), task.getName(), outputDir);
+		log.info("ML GA scheme generator starting (HTTP): taskId={}, taskName={}",
+			task.getId(), task.getName());
 
 		progressReporter.accept(running("ml", "调用自训练排课模型生成候选方案...", 15));
 
 		try {
 			Map<String, Object> response = mlApiClient.generateSchemes(requestBody);
+			String outputDirStr = (String) response.get("output_dir");
+			if (outputDirStr == null || outputDirStr.isBlank()) {
+				throw new BusinessException(500, "ML API 响应缺少 output_dir");
+			}
+			Path outputDir = Path.of(outputDirStr);
 			log.info("ML scheme generator HTTP call succeeded: outputDir={}, schemeCount={}, timingsMs={}",
-				response.get("output_dir"), response.get("scheme_count"), response.get("timings_ms"));
+				outputDir, response.get("scheme_count"), response.get("timings_ms"));
 			progressReporter.accept(running("ml", "自训练模型生成完成，准备入库...", 60));
+			return outputDir;
 		} catch (Exception e) {
 			throw new BusinessException(500, "自训练模型 HTTP 调用失败：" + e.getMessage(), e);
 		}

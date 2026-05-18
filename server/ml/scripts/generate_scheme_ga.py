@@ -1547,7 +1547,6 @@ def write_candidate_diagnostics(output_path: Path) -> None:
 
 def run_ga_pipeline_by_task(
     task_id: int,
-    output_dir: Path,
     db_config: dict[str, str] | None = None,
     *,
     model_path: Path = MODEL_PATH,
@@ -1580,6 +1579,11 @@ def run_ga_pipeline_by_task(
         fetch_teacher_profiles,
         load_db_config,
     )
+
+    from datetime import datetime as _dt
+    ROOT_DIR = Path(__file__).resolve().parents[1]
+    timestamp = _dt.now().strftime("%Y%m%d%H%M%S%f")[:-3]
+    output_dir = ROOT_DIR / "data" / "generated_schemes" / f"task_{task_id}_{timestamp}"
 
     effective_db = db_config or load_db_config()
     with connect(effective_db) as connection:
