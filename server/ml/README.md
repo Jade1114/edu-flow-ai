@@ -25,6 +25,18 @@ TeachingTask + candidate TimeSlot + candidate Classroom + current schedule state
 
 The GA optimizer first tries to combine rule-legal fragments into complete hard-feasible timetable schemes. LightGBM does not replace constraints; when available, it guides GA evolution (within fitness soft_score) and ranks final Top-K schemes by learned preference.
 
+## Quick Start
+
+```bash
+# 启动 FastAPI ML 服务（独立进程，与 Java Spring Boot 解耦）
+cd server/ml && .venv/bin/python -m uvicorn api.main:app --host 127.0.0.1 --port 8089 --log-level warning
+
+# 开发模式（自动重载）
+cd server/ml && .venv/bin/python -m uvicorn api.main:app --host 127.0.0.1 --port 8089 --reload
+```
+
+Java 通过 `app.ml.api.url` 配置连接地址（默认 `http://127.0.0.1:8089`）。
+
 ## Directory Layout
 
 ```text
