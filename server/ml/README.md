@@ -2,18 +2,17 @@
 
 This directory contains the Python-side intelligent scheduling pipeline for Edu-Flow-AI.
 
-The model layer does not directly write the official timetable. Java orchestrates business data, teacher profile parsing, process state, conflict checks, and persistence. Python focuses on candidate generation, LightGBM local scoring, and GA global optimization.
+The model layer does not directly write the official timetable. Java orchestrates business data, teacher profile parsing, process state, conflict checks, and persistence. Python focuses on rule-safe candidate generation, GA hard-feasible global search, and optional LightGBM preference scoring.
 
 ## Current Direction
 
 The project now uses a clean GA + LightGBM architecture:
 
 ```text
-Database / feedback data
-→ candidate scheduling samples
-→ LightGBM training
-→ candidate fragment scoring
-→ GA global schedule optimization
+Database / task data
+→ rule-safe candidate pools
+→ GA hard-feasible schedule search
+→ optional LightGBM preference scoring / soft ranking (in-GA + final re-rank)
 → scheme_*.csv outputs
 → Java persistence and validation
 ```
@@ -24,7 +23,7 @@ A single LightGBM training sample still represents:
 TeachingTask + candidate TimeSlot + candidate Classroom + current schedule state → score
 ```
 
-The GA optimizer combines many scored fragments into complete timetable schemes.
+The GA optimizer first tries to combine rule-legal fragments into complete hard-feasible timetable schemes. LightGBM does not replace constraints; when available, it guides GA evolution (within fitness soft_score) and ranks final Top-K schemes by learned preference.
 
 ## Directory Layout
 
@@ -129,9 +128,9 @@ python scripts/evaluate_model.py --top 10
 
 Main scheme generator. Responsibilities:
 
-- build candidate pools per teaching-task fragment;
-- score candidates with LightGBM;
-- run GA global optimization;
+- build hard-legal candidate pools per teaching-task fragment;
+- score legal candidates with LightGBM when model artifacts exist, otherwise fall back to rule score;
+- run GA global optimization with repair to reduce teacher / room / class slot conflicts;
 - write `scheme_001.csv` ~ `scheme_N.csv`;
 - preserve teacher-profile penalty explanation columns;
 - write `summary.csv` and `ga_summary.json`.
@@ -170,9 +169,9 @@ Java:
   SSE progress
 
 Python:
-  candidate construction
-  LightGBM scoring
-  GA optimization
+  hard-legal candidate construction
+  GA hard-feasible schedule search
+  optional LightGBM soft preference scoring
   CSV / summary output
 ```
 

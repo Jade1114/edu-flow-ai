@@ -105,13 +105,15 @@ server/ml/
 ```text
 教学任务片段列表
 ↓
-每个片段构造 top-N 候选池
+Constraint Engine 裁剪硬非法 DNA
 ↓
-LightGBM 对候选片段评分
+每个片段构造硬合法候选池
 ↓
-遗传算法组合完整方案
+遗传算法组合完整方案，并执行 repair / validate
 ↓
-fitness 综合硬约束、教师画像、分布均衡、策略权重
+Top-K 硬合法候选课表
+↓
+LightGBM 对合法候选或完整方案做偏好重排
 ↓
 输出 scheme_001~N.csv + teacher_penalties.json + ga_summary.json
 ```

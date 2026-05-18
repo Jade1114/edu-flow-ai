@@ -92,7 +92,10 @@ def build_feature_frame(dataset: pd.DataFrame) -> tuple[pd.DataFrame, pd.Series,
     if target.isna().any():
         raise ValueError(f"Target column `{TARGET_COLUMN}` contains non-numeric values")
 
-    sample_weight = pd.to_numeric(dataset.get("sample_weight", 1.0), errors="coerce").fillna(1.0)
+    if "sample_weight" in dataset.columns:
+        sample_weight = pd.to_numeric(dataset["sample_weight"], errors="coerce").fillna(1.0)
+    else:
+        sample_weight = pd.Series(np.ones(len(dataset)), index=dataset.index)
 
     return features, target, sample_weight, feature_columns, categorical_columns
 
