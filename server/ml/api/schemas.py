@@ -98,6 +98,33 @@ class GenerateSchemeResponse(BaseModel):
     error: Optional[str] = None
 
 
+# ── Async Task Models ──────────────────────────────────────────────
+
+class TaskInfo(BaseModel):
+    task_id: str
+    name: str
+    status: str
+    progress: int
+    result: Optional[Any] = None
+    error: Optional[str] = None
+    created_at: Optional[str] = None
+    started_at: Optional[str] = None
+    completed_at: Optional[str] = None
+
+
+class TaskStatusResponse(BaseModel):
+    task_id: str
+    status: str
+    progress: int = 0
+    error: Optional[str] = None
+    result: Optional[Any] = None
+    created_at: Optional[str] = None
+    started_at: Optional[str] = None
+    completed_at: Optional[str] = None
+
+
+# ── Other Service Models ────────────────────────────────────────────
+
 class HealthResponse(BaseModel):
     status: str
     lightgbm_available: bool

@@ -1,19 +1,22 @@
-"""GA scheme generation endpoint.
+"""GA scheme generation endpoints — async task pattern.
 
-Replicates generate_scheme_ga.main() logic but receives params via HTTP body.
-Teacher penalties arrive inline as JSON, no need for a pre-written file.
+POST  /api/ml/generate-scheme   → 202 Accepted + task_id (background GA run)
+GET   /api/ml/generate-scheme/{task_id}  → task status + result when done
 """
 
 from __future__ import annotations
 
+import asyncio
 import sys
 from argparse import Namespace
 from pathlib import Path
 from typing import Any
 
 from fastapi import APIRouter, HTTPException, Request
+from fastapi.responses import JSONResponse
 
-from ..schemas import GenerateSchemeRequest, GenerateSchemeResponse, SchemeInfo
+from .. import task_store
+from ..schemas import GenerateSchemeRequest, TaskInfo, TaskStatusResponse
 
 router = APIRouter(tags=["ga"])
 
@@ -28,32 +31,23 @@ def _import_ga() -> Any:
     return generate_scheme_ga
 
 
-def _write_teacher_penalties(penalties_json: str, output_path: Path) -> None:
-    """Write teacher penalties JSON to disk for load_teacher_penalties()."""
-    output_path.parent.mkdir(parents=True, exist_ok=True)
-    output_path.write_text(penalties_json, encoding="utf-8")
-
-
-@router.post("/generate-scheme", response_model=GenerateSchemeResponse)
-async def generate_scheme(req: GenerateSchemeRequest, _request: Request) -> GenerateSchemeResponse:
-    ga = _import_ga()
-
-    # Resolve paths
-    ml_dir = Path(_request.app.state.ml_dir)
-    output_dir = Path(req.output_dir)
-    output_dir.mkdir(parents=True, exist_ok=True)
-
+def _build_args(
+    req: GenerateSchemeRequest,
+    ml_dir: Path,
+    output_dir: Path,
+) -> Namespace:
+    """Build argparse Namespace mirroring generate_scheme_ga.py CLI args."""
     model_path = Path(req.model_path) if req.model_path else ml_dir / "models" / "schedule_ranker_v1.txt"
     schema_path = Path(req.schema_path) if req.schema_path else ml_dir / "data" / "feature_schema.json"
     teacher_penalties_path = output_dir / "teacher_penalties.json"
     log_file = Path(req.log_file) if req.log_file else output_dir / "python-ga.log"
 
-    # Write teacher penalties to disk (the pipeline expects a file path)
-    _write_teacher_penalties(req.teacher_penalties_json, teacher_penalties_path)
+    # Write teacher penalties to disk
+    teacher_penalties_path.parent.mkdir(parents=True, exist_ok=True)
+    teacher_penalties_path.write_text(req.teacher_penalties_json, encoding="utf-8")
 
-    # Build a namespace that mirrors argparse output
     random_seed = req.random_seed if req.random_seed is not None else 42
-    args = Namespace(
+    return Namespace(
         model=model_path,
         schema=schema_path,
         output=output_dir / "scheme_001.csv",
@@ -86,42 +80,63 @@ async def generate_scheme(req: GenerateSchemeRequest, _request: Request) -> Gene
         log_file=log_file,
     )
 
-    # Run the pipeline
+
+def _run_pipeline(args: Namespace) -> dict[str, Any]:
+    """Blocking wrapper — runs GA pipeline, called in thread pool."""
+    ga = _import_ga()
+    return ga.run_ga_pipeline(args)
+
+
+@router.post("/generate-scheme", status_code=202)
+async def submit_generate_scheme(
+    req: GenerateSchemeRequest,
+    request: Request,
+) -> JSONResponse:
+    """Submit a GA scheme generation task. Returns immediately with a task_id.
+
+    Poll GET /api/ml/generate-scheme/{task_id} for the result.
+    """
+    ml_dir: Path = request.app.state.ml_dir
+    output_dir = Path(req.output_dir)
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    args = _build_args(req, ml_dir, output_dir)
+
+    # Create async task
+    task_id = task_store.create(
+        name=f"GA scheme generation → {output_dir.name}",
+        total_steps=100,
+    )
+
+    # Fire & forget in thread pool (non-blocking for FastAPI event loop)
+    asyncio.create_task(task_store.run_blocking(task_id, _run_pipeline, args))
+
+    return JSONResponse(
+        content={
+            "task_id": task_id,
+            "status_url": f"/api/ml/generate-scheme/{task_id}",
+            "status": task_store.get(task_id)["status"],
+            "message": "GA generation submitted, poll status_url for result",
+        },
+        status_code=202,
+    )
+
+
+@router.get("/generate-scheme/{task_id}", response_model=TaskStatusResponse)
+async def get_generate_scheme_status(task_id: str) -> TaskStatusResponse:
+    """Poll task status. Returns result once the GA pipeline finishes."""
     try:
-        result = ga.run_ga_pipeline(args)
-    except Exception as exc:
-        raise HTTPException(status_code=500, detail=f"GA pipeline failed: {exc}") from exc
+        task = task_store.get(task_id)
+    except KeyError:
+        raise HTTPException(status_code=404, detail=f"Task {task_id} not found")
 
-    # Convert result dict to response model
-    schemes = []
-    for s in result.get("schemes", []):
-        schemes.append(SchemeInfo(
-            scheme_no=s.get("scheme_no", 0),
-            output_path=str(s.get("output_path", "")),
-            tasks=s.get("tasks", 0),
-            expected_fragments=s.get("expected_fragments", 0),
-            generated_fragments=s.get("generated_fragments", 0),
-            hard_conflict_fragments=s.get("hard_conflict_fragments", 0),
-            avg_predicted_score=s.get("avg_predicted_score", 0.0),
-            avg_rule_score=s.get("avg_rule_score", 0.0),
-            fitness=s.get("fitness"),
-            hard_conflict_count=s.get("hard_conflict_count"),
-            candidate_hard_conflict_count=s.get("candidate_hard_conflict_count"),
-            teacher_slot_conflict_count=s.get("teacher_slot_conflict_count"),
-            room_slot_conflict_count=s.get("room_slot_conflict_count"),
-            class_slot_conflict_count=s.get("class_slot_conflict_count"),
-            teacher_profile_penalty_total=s.get("teacher_profile_penalty_total"),
-            distribution_penalty=s.get("distribution_penalty"),
-            classroom_switches=s.get("classroom_switches"),
-            candidate_pool_count=s.get("candidate_pool_count"),
-        ))
-
-    return GenerateSchemeResponse(
-        success=True,
-        output_dir=result.get("output_dir", str(output_dir)),
-        scheme_count=result.get("scheme_count", 0),
-        schemes=schemes,
-        ga_summary_path=result.get("ga_summary_path", ""),
-        candidate_diagnostics_path=result.get("candidate_diagnostics_path", ""),
-        timings_ms=result.get("timings_ms", {}),
+    return TaskStatusResponse(
+        task_id=task["task_id"],
+        status=task["status"],
+        progress=task["progress"],
+        error=task.get("error"),
+        result=task.get("result"),
+        created_at=task.get("created_at"),
+        started_at=task.get("started_at"),
+        completed_at=task.get("completed_at"),
     )
