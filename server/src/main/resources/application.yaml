@@ -22,6 +22,10 @@ server:
   port: ${SERVER_PORT:8080}
 
 app:
+  ml:
+    api:
+      url: ${ML_API_URL:http://127.0.0.1:8089}
+      ml-dir: ${ML_DIR:}
   embedding:
     openai:
       api-key: ${OPENAI_API_KEY:}
