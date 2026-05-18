@@ -59,6 +59,8 @@ const periodOptions = [
 const schemes = ref([]);
 const schemeVisible = ref(false);
 const currentTaskId = ref(null);
+const generateConfirmVisible = ref(false);
+const generateTargetTask = ref(null);
 
 const generating = ref(false);
 const genStatus = ref(null);
@@ -385,6 +387,18 @@ async function viewSchemes(taskId) {
   schemeVisible.value = true;
 }
 
+function openGenerateConfirm(row) {
+  generateTargetTask.value = row;
+  generateConfirmVisible.value = true;
+}
+
+async function confirmGenerateTask() {
+  const row = generateTargetTask.value;
+  if (!row) return;
+  generateConfirmVisible.value = false;
+  await generateSchemes(row.id);
+}
+
 async function generateSchemes(taskId) {
   stopGenerationListeners();
   generating.value = true;
@@ -395,6 +409,7 @@ async function generateSchemes(taskId) {
   try {
     await request.post(`/api/allocation-tasks/${taskId}/generate-async`);
     startSse(taskId);
+    loadTasks();
   } catch (e) {
     generating.value = false;
     genStatus.value = { stage: "error", status: "FAILED", message: e.message };
@@ -920,7 +935,7 @@ onUnmounted(() => {
             type="success"
             size="small"
             :disabled="generating"
-            @click="generateSchemes(row.id)"
+            @click="openGenerateConfirm(row)"
           >
             {{ isGeneratingTask(row.id) ? (genStatus?.stage ? stageLabel(genStatus.stage) : '生成中...') : '生成方案' }}
           </el-button>
@@ -933,6 +948,37 @@ onUnmounted(() => {
         </template>
       </el-table-column>
     </el-table>
+
+    <el-dialog
+      v-model="generateConfirmVisible"
+      title="确认生成方案"
+      width="460px"
+      :close-on-click-modal="false"
+    >
+      <div v-if="generateTargetTask">
+        <p style="margin-top: 0">
+          即将为任务「{{ generateTargetTask.name }}」生成候选排课方案。
+        </p>
+        <el-alert
+          type="warning"
+          show-icon
+          :closable="false"
+          title="生成过程可能耗时较久，开始后请不要重复点击生成。"
+          style="margin-bottom: 16px"
+        />
+        <div style="color: #606266; font-size: 13px">
+          本次将按任务配置表中的生成方案数执行：
+          <strong>{{ normalizeGenerationConfig(generateTargetTask.generationConfig).schemeCount }}</strong> 个。
+          如需调整，请先编辑任务的生成配置。
+        </div>
+      </div>
+      <template #footer>
+        <el-button @click="generateConfirmVisible = false">取消</el-button>
+        <el-button type="primary" :disabled="generating" @click="confirmGenerateTask">
+          确认生成
+        </el-button>
+      </template>
+    </el-dialog>
 
     <!-- Policy Dialog -->
     <el-dialog

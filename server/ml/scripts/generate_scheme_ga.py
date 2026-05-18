@@ -1781,6 +1781,8 @@ def run_ga_pipeline_by_task(
 
     # Build generation config JSON (mirrors Java's toGenerationConfigJson)
     generation_config_json = _build_generation_config_json(raw_config) if raw_config else None
+    if raw_config and raw_config.get("scheme_count") is not None:
+        variant_count = int(raw_config.get("scheme_count"))
 
     # Filter to task's teaching tasks
     teaching_task_ids_str = ",".join(str(tid) for tid in teaching_task_ids)
