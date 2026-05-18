@@ -3,6 +3,7 @@ package com.yuy.eduflow.allocation;
 import com.yuy.eduflow.common.exception.BusinessException;
 import com.yuy.eduflow.common.exception.ResourceNotFoundException;
 import com.yuy.eduflow.common.exception.ValidationException;
+import com.yuy.eduflow.ml.MlApiClient;
 import com.yuy.eduflow.ml.MlFeedbackTrainingMapper;
 import java.io.BufferedReader;
 import java.io.IOException;
@@ -34,20 +35,26 @@ public class AllocationMlSchemeService {
 	private static final DateTimeFormatter RUN_ID_FORMATTER = DateTimeFormatter.ofPattern("yyyyMMddHHmmssSSS");
 
 	private final AllocationTaskMapper allocationTaskMapper;
+	private final AllocationTaskGenerationConfigMapper generationConfigMapper;
 	private final ObjectMapper objectMapper;
 	private final TeacherPenaltyResolver teacherPenaltyResolver;
 	private final MlFeedbackTrainingMapper feedbackTrainingMapper;
+	private final MlApiClient mlApiClient;
 
 	public AllocationMlSchemeService(
 		AllocationTaskMapper allocationTaskMapper,
+		AllocationTaskGenerationConfigMapper generationConfigMapper,
 		ObjectMapper objectMapper,
 		TeacherPenaltyResolver teacherPenaltyResolver,
-		MlFeedbackTrainingMapper feedbackTrainingMapper
+		MlFeedbackTrainingMapper feedbackTrainingMapper,
+		MlApiClient mlApiClient
 	) {
 		this.allocationTaskMapper = allocationTaskMapper;
+		this.generationConfigMapper = generationConfigMapper;
 		this.objectMapper = objectMapper;
 		this.teacherPenaltyResolver = teacherPenaltyResolver;
 		this.feedbackTrainingMapper = feedbackTrainingMapper;
+		this.mlApiClient = mlApiClient;
 	}
 
 	public AllocationGenerationPreview generateSchemes(Long taskId, Integer schemeCount, String policy, String policyParams, Consumer<GenerationStatus> progressReporter) {
@@ -69,22 +76,32 @@ public class AllocationMlSchemeService {
 
 		try {
 			Files.createDirectories(outputDir);
-			Path teacherPenaltiesPath = outputDir.resolve("teacher_penalties.json");
-			writeTeacherPenalties(teachingTasks, teacherPenaltiesPath);
-			runModelScript(mlDir, outputDir, task, teachingTaskIds, normalizedVariantCount(schemeCount), policy, policyParams, teacherPenaltiesPath, progressReporter);
-			progressReporter.accept(running("eval", "自训练模型评估方案质量...", 62));
-			runEvaluator(mlDir, outputDir);
-			progressReporter.accept(running("parse", "解析评估后的 CSV 方案...", 68));
-			String resolvedPolicy = policyOrDefault(policy);
-			List<AllocationParsedScheme> schemes = parseGeneratedSchemes(outputDir, resolvedPolicy);
-			return new AllocationGenerationPreview(
-				taskId,
-				task.getName(),
-				schemes
-			);
 		} catch (IOException exception) {
-			throw new BusinessException(500, "模型方案文件处理失败：" + exception.getMessage(), exception);
+			throw new BusinessException(500, "创建输出目录失败：" + exception.getMessage(), exception);
 		}
+		Path teacherPenaltiesPath = outputDir.resolve("teacher_penalties.json");
+		try {
+			writeTeacherPenalties(teachingTasks, teacherPenaltiesPath);
+		} catch (IOException exception) {
+			throw new BusinessException(500, "写入教师画像惩罚文件失败：" + exception.getMessage(), exception);
+		}
+		AllocationTaskGenerationConfig generationConfig = resolveGenerationConfig(task.getId(), schemeCount);
+		runModelScript(mlDir, outputDir, task, teachingTaskIds, generationConfig, policy, policyParams, teacherPenaltiesPath, progressReporter);
+		progressReporter.accept(running("eval", "自训练模型评估方案质量...", 62));
+		runEvaluator(mlDir, outputDir);
+		progressReporter.accept(running("parse", "解析评估后的 CSV 方案...", 68));
+		String resolvedPolicy = policyOrDefault(policy);
+		List<AllocationParsedScheme> schemes;
+		try {
+			schemes = parseGeneratedSchemes(outputDir, resolvedPolicy);
+		} catch (IOException exception) {
+			throw new BusinessException(500, "解析模型方案 CSV 文件失败：" + exception.getMessage(), exception);
+		}
+		return new AllocationGenerationPreview(
+			taskId,
+			task.getName(),
+			schemes
+		);
 	}
 
 	private void runModelScript(
@@ -92,91 +109,109 @@ public class AllocationMlSchemeService {
 		Path outputDir,
 		AllocationTask task,
 		List<String> teachingTaskIds,
-		int variantCount,
+		AllocationTaskGenerationConfig generationConfig,
 		String policy,
 		String policyParams,
 		Path teacherPenaltiesPath,
 		Consumer<GenerationStatus> progressReporter
 	) {
-		List<String> command = new ArrayList<>();
-		command.add(resolvePythonExecutable(mlDir));
-		command.add("scripts/generate_scheme_ga.py");
+		// Resolve model artifacts
 		ModelArtifacts artifacts = preferredModelArtifacts(mlDir);
-		Path modelPath = artifacts.modelPath();
-		Path schemaPath = artifacts.schemaPath();
-		command.add("--model");
-		command.add(modelPath.toString());
-		command.add("--schema");
-		command.add(schemaPath.toString());
-		command.add("--variant-count");
-		command.add(String.valueOf(variantCount));
-		command.add("--candidate-pool-size");
-		command.add(String.valueOf(DEFAULT_CANDIDATE_POOL_SIZE));
-		command.add("--candidate-top-n");
-		command.add("30");
-		command.add("--population-size");
-		command.add("80");
-		command.add("--generations");
-		command.add("80");
-		command.add("--elite-size");
-		command.add("8");
-		command.add("--tournament-size");
-		command.add("4");
-		command.add("--mutation-rate");
-		command.add("0.08");
-		command.add("--exclude-weekends");
-		command.add("--policy");
-		command.add(policyOrDefault(policy));
-		if (policyParams != null && !policyParams.isBlank()) {
-			command.add("--policy-params");
-			command.add(policyParams);
-		}
-		command.add("--teaching-task-ids");
-		command.add(String.join(",", teachingTaskIds));
-		command.add("--output-dir");
-		command.add(outputDir.toString());
-		command.add("--teacher-penalties");
-		command.add(teacherPenaltiesPath.toString());
-		command.add("--random-seed");
-		command.add(String.valueOf(System.currentTimeMillis() % 1_000_000));
-		if (task.getStartWeek() != null) {
-			command.add("--start-week");
-			command.add(String.valueOf(task.getStartWeek()));
-		}
-		if (task.getEndWeek() != null) {
-			command.add("--end-week");
-			command.add(String.valueOf(task.getEndWeek()));
+		int effectiveVariantCount = normalizedVariantCount(generationConfig.getSchemeCount());
+		String generationConfigJson = toGenerationConfigJson(generationConfig);
+
+		// Read teacher penalties JSON to inline in the request
+		String teacherPenaltiesJson;
+		try {
+			teacherPenaltiesJson = Files.readString(teacherPenaltiesPath, StandardCharsets.UTF_8);
+		} catch (IOException e) {
+			throw new BusinessException(500, "读取教师画像惩罚文件失败：" + e.getMessage(), e);
 		}
 
-		ProcessBuilder builder = new ProcessBuilder(command);
-		builder.directory(mlDir.toFile());
-		builder.redirectErrorStream(true);
-		log.info("ML GA scheme generator starting: taskId={}, policy={}, variantCount={}, candidatePoolSize={}, model={}, schema={}, teacherPenalties={}, outputDir={}", task.getId(), policyOrDefault(policy), variantCount, DEFAULT_CANDIDATE_POOL_SIZE, modelPath, schemaPath, teacherPenaltiesPath, outputDir);
+		// Build request body matching FastAPI's GenerateSchemeRequest
+		Map<String, Object> requestBody = new LinkedHashMap<>();
+		requestBody.put("output_dir", outputDir.toString());
+		requestBody.put("teaching_task_ids", String.join(",", teachingTaskIds));
+		requestBody.put("variant_count", effectiveVariantCount);
+		requestBody.put("candidate_pool_size", DEFAULT_CANDIDATE_POOL_SIZE);
+		requestBody.put("candidate_top_n", 100);
+		requestBody.put("population_size", 160);
+		requestBody.put("generations", 200);
+		requestBody.put("elite_size", 16);
+		requestBody.put("tournament_size", 6);
+		requestBody.put("mutation_rate", 0.12);
+		requestBody.put("model_path", artifacts.modelPath().toString());
+		requestBody.put("schema_path", artifacts.schemaPath().toString());
+		requestBody.put("policy", policyOrDefault(policy));
+		requestBody.put("generation_config", generationConfigJson);
 		if (policyParams != null && !policyParams.isBlank()) {
-			log.info("ML scheme generator custom policyParams={}", policyParams);
+			requestBody.put("policy_params", policyParams);
 		}
-		log.info("ML scheme generator command: {}", String.join(" ", command));
+		requestBody.put("hard_conflict_penalty", 100000.0);
+		requestBody.put("teacher_profile_penalty_scale", generationConfig.getTeacherProfilePenaltyScale().doubleValue());
+		requestBody.put("distribution_penalty_scale", generationConfig.getDistributionPenaltyScale().doubleValue());
+		requestBody.put("classroom_stickiness_weight", generationConfig.getClassroomStickinessWeight().doubleValue());
+		requestBody.put("compact_bonus_weight", generationConfig.getCompactBonusWeight().doubleValue());
+		requestBody.put("random_seed", System.currentTimeMillis() % 1_000_000);
+		requestBody.put("log_file", outputDir.resolve("python-ga.log").toString());
+		requestBody.put("teacher_penalties_json", teacherPenaltiesJson);
+
+		log.info("ML GA scheme generator starting (HTTP): taskId={}, taskName={}, teachingTaskCount={}, policy={}, variantCount={}, outputDir={}",
+			task.getId(), task.getName(), teachingTaskIds.size(), policyOrDefault(policy), effectiveVariantCount, outputDir);
+		log.info("ML scheme generator request: variantCount={}, candidatePoolSize={}, populationSize={}, generations={}, generationConfig={}",
+			effectiveVariantCount, DEFAULT_CANDIDATE_POOL_SIZE, 160, 200, generationConfigJson);
+
+		progressReporter.accept(running("ml", "调用自训练排课模型生成候选方案...", 15));
 
 		try {
-			Process process = builder.start();
-			String output;
-			try (BufferedReader reader = process.inputReader(StandardCharsets.UTF_8)) {
-				output = reader.lines().collect(Collectors.joining("\n"));
-			}
-			int exitCode = process.waitFor();
-			log.info("ML scheme generator done: exitCode={}", exitCode);
-			if (!output.isBlank()) {
-				log.info("ML scheme generator output:\n{}", output);
-			}
-			if (exitCode != 0) {
-				throw new BusinessException(500, "自训练模型生成失败：" + output);
-			}
+			Map<String, Object> response = mlApiClient.generateSchemes(requestBody);
+			log.info("ML scheme generator HTTP call succeeded: outputDir={}, schemeCount={}, timingsMs={}",
+				response.get("output_dir"), response.get("scheme_count"), response.get("timings_ms"));
 			progressReporter.accept(running("ml", "自训练模型生成完成，准备入库...", 60));
-		} catch (IOException exception) {
-			throw new BusinessException(500, "启动自训练模型脚本失败：" + exception.getMessage(), exception);
-		} catch (InterruptedException exception) {
-			Thread.currentThread().interrupt();
-			throw new BusinessException(500, "自训练模型生成被中断", exception);
+		} catch (Exception e) {
+			throw new BusinessException(500, "自训练模型 HTTP 调用失败：" + e.getMessage(), e);
+		}
+	}
+
+	private AllocationTaskGenerationConfig resolveGenerationConfig(Long taskId, Integer requestSchemeCount) {
+		AllocationTaskGenerationConfig config = generationConfigMapper.findByTaskId(taskId);
+		if (config == null) {
+			config = defaultGenerationConfig(taskId);
+		}
+		if (requestSchemeCount != null && requestSchemeCount > 0) {
+			config.setSchemeCount(normalizedVariantCount(requestSchemeCount));
+		}
+		return config;
+	}
+
+	private AllocationTaskGenerationConfig defaultGenerationConfig(Long taskId) {
+		AllocationTaskGenerationConfig config = new AllocationTaskGenerationConfig();
+		config.setTaskId(taskId);
+		config.setAllowedWeeks("1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18");
+		config.setAllowedWeekdays("1,2,3,4,5");
+		config.setAllowedPeriods("1,2,3,4");
+		config.setSchemeCount(DEFAULT_VARIANT_COUNT);
+		config.setTeacherProfilePenaltyScale(new BigDecimal("50.0000"));
+		config.setDistributionPenaltyScale(new BigDecimal("5.0000"));
+		config.setClassroomStickinessWeight(new BigDecimal("5.0000"));
+		config.setCompactBonusWeight(new BigDecimal("0.0000"));
+		config.setWeekdayLoadPenalty(new BigDecimal("0.008000"));
+		config.setRoomDayLoadPenalty(new BigDecimal("0.005000"));
+		config.setRoomWeekLoadPenalty(new BigDecimal("0.002000"));
+		config.setTaskDayLoadPenalty(new BigDecimal("0.012000"));
+		config.setEarlyPeriodPenalty(new BigDecimal("0.012000"));
+		config.setLatePeriodPenalty(new BigDecimal("0.008000"));
+		config.setRandomJitter(new BigDecimal("0.002000"));
+		config.setClassroomStickinessBonus(new BigDecimal("0.006000"));
+		config.setWeekendPenalty(new BigDecimal("0.010000"));
+		return config;
+	}
+
+	private String toGenerationConfigJson(AllocationTaskGenerationConfig config) {
+		try {
+			return objectMapper.writeValueAsString(config);
+		} catch (Exception exception) {
+			throw new BusinessException(500, "生成配置序列化失败：" + exception.getMessage(), exception);
 		}
 	}
 
@@ -197,7 +232,11 @@ public class AllocationMlSchemeService {
 		}
 		Path fallbackModel = mlDir.resolve("models/schedule_ranker_v1.txt");
 		Path fallbackSchema = mlDir.resolve("data/feature_schema.json");
-		log.info("ML model artifacts selected from initial model fallback: model={}, schema={}", fallbackModel, fallbackSchema);
+		if (Files.exists(fallbackModel) && Files.exists(fallbackSchema)) {
+			log.info("ML model artifacts selected from initial model fallback: model={}, schema={}", fallbackModel, fallbackSchema);
+		} else {
+			log.info("No LightGBM model artifacts found, GA will generate hard-feasible schemes with rule-score fallback: model={}, schema={}", fallbackModel, fallbackSchema);
+		}
 		return new ModelArtifacts(fallbackModel, fallbackSchema);
 	}
 
@@ -225,12 +264,19 @@ public class AllocationMlSchemeService {
 			return schemaFromMetrics;
 		}
 		String modelFileName = modelPath.getFileName().toString();
+		Path modelDir = modelPath.getParent();
+		Path mlDir = "feedback_versions".equals(modelDir.getFileName().toString())
+			? modelDir.getParent().getParent()
+			: modelDir.getParent();
+		Path dataDir = mlDir.resolve("data");
+		Path feedbackTrainingDir = dataDir.resolve("feedback_training");
 		if (modelFileName.startsWith("schedule_ranker_feedback_") && modelFileName.endsWith(".txt")) {
 			String suffix = modelFileName.substring("schedule_ranker_feedback_".length(), modelFileName.length() - ".txt".length());
-			Path dataDir = modelPath.getParent().getParent().resolve("data");
-			return dataDir.resolve("feedback_feature_schema_" + suffix + ".json");
+			Path nestedSchema = feedbackTrainingDir.resolve("feedback_feature_schema_" + suffix + ".json");
+			return Files.exists(nestedSchema) ? nestedSchema : dataDir.resolve("feedback_feature_schema_" + suffix + ".json");
 		}
-		return modelPath.getParent().getParent().resolve("data/feedback_feature_schema.json");
+		Path nestedActiveSchema = feedbackTrainingDir.resolve("feedback_feature_schema.json");
+		return Files.exists(nestedActiveSchema) ? nestedActiveSchema : dataDir.resolve("feedback_feature_schema.json");
 	}
 
 	@SuppressWarnings("unchecked")
@@ -355,12 +401,14 @@ public class AllocationMlSchemeService {
 			if (schemeFiles.isEmpty()) {
 				throw new ValidationException("自训练模型未生成任何方案 CSV");
 			}
+			log.info("ML generated scheme files discovered: outputDir={}, files={}", outputDir, schemeFiles.stream().map(path -> path.getFileName().toString()).toList());
 			List<AllocationParsedScheme> schemes = new ArrayList<>();
 			for (int i = 0; i < schemeFiles.size(); i++) {
 				Path schemeFile = schemeFiles.get(i);
 				List<AllocationParsedItem> items = parseSchemeItems(schemeFile);
 				String summary = summarizeScheme(schemeFile, items);
 				EvaluationData evaluation = loadEvaluation(outputDir, schemeFile.getFileName().toString());
+				log.info("ML parsed scheme: file={}, itemCount={}, summary={}, evaluationScore={}", schemeFile.getFileName(), items.size(), summary, evaluation != null ? evaluation.schemeScore() : null);
 				schemes.add(new AllocationParsedScheme(
 					"自训练模型方案 " + String.format("%03d", i + 1),
 					summary,

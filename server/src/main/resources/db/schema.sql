@@ -152,6 +152,35 @@ CREATE TABLE IF NOT EXISTS allocation_task (
     INDEX idx_allocation_task_status (status)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
+-- v8: 排课任务生成配置快照（教务可配置 HARD 时间片裁剪 + SOFT 偏好权重；GA 内部参数不入库）
+CREATE TABLE IF NOT EXISTS allocation_task_generation_config (
+    id BIGINT PRIMARY KEY AUTO_INCREMENT,
+    task_id BIGINT NOT NULL,
+    allowed_weeks VARCHAR(128) NOT NULL DEFAULT '1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18' COMMENT '允许参与排课的周次，多选结果，逗号分隔',
+    allowed_weekdays VARCHAR(32) NOT NULL DEFAULT '1,2,3,4,5' COMMENT '允许参与排课的星期，多选结果，1=周一，7=周日',
+    allowed_periods VARCHAR(32) NOT NULL DEFAULT '1,2,3,4' COMMENT '允许参与排课的节次，多选结果，默认不排晚课',
+    scheme_count INT NOT NULL DEFAULT 3 COMMENT '生成候选方案数量',
+    teacher_profile_penalty_scale DECIMAL(10,4) NOT NULL DEFAULT 50.0000 COMMENT '教师软画像惩罚缩放',
+    distribution_penalty_scale DECIMAL(10,4) NOT NULL DEFAULT 5.0000 COMMENT '分布均衡惩罚缩放',
+    classroom_stickiness_weight DECIMAL(10,4) NOT NULL DEFAULT 5.0000 COMMENT '教室粘性权重，含绑定教室软偏好',
+    compact_bonus_weight DECIMAL(10,4) NOT NULL DEFAULT 0.0000 COMMENT '紧凑排课奖励权重',
+    weekday_load_penalty DECIMAL(10,6) NOT NULL DEFAULT 0.008000,
+    room_day_load_penalty DECIMAL(10,6) NOT NULL DEFAULT 0.005000,
+    room_week_load_penalty DECIMAL(10,6) NOT NULL DEFAULT 0.002000,
+    task_day_load_penalty DECIMAL(10,6) NOT NULL DEFAULT 0.012000,
+    early_period_penalty DECIMAL(10,6) NOT NULL DEFAULT 0.012000,
+    late_period_penalty DECIMAL(10,6) NOT NULL DEFAULT 0.008000,
+    random_jitter DECIMAL(10,6) NOT NULL DEFAULT 0.002000,
+    classroom_stickiness_bonus DECIMAL(10,6) NOT NULL DEFAULT 0.006000,
+    weekend_penalty DECIMAL(10,6) NOT NULL DEFAULT 0.010000,
+    llm_prompt TEXT NULL COMMENT '教务自然语言策略原文，可选',
+    llm_result_json TEXT NULL COMMENT 'LLM Parser 标准化输出快照，可选',
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    UNIQUE KEY uk_generation_config_task (task_id),
+    CONSTRAINT fk_generation_config_task FOREIGN KEY (task_id) REFERENCES allocation_task (id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
 -- v2: 排课任务-教学任务关联
 CREATE TABLE IF NOT EXISTS allocation_task_teaching_task (
     id BIGINT PRIMARY KEY AUTO_INCREMENT,

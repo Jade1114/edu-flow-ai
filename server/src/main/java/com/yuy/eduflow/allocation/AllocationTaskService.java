@@ -6,6 +6,7 @@ import com.yuy.eduflow.course.Course;
 import com.yuy.eduflow.enums.TaskStatus;
 import com.yuy.eduflow.teacher.Teacher;
 import com.yuy.eduflow.teachingtask.TeachingTask;
+import java.math.BigDecimal;
 import java.util.List;
 import java.util.stream.Collectors;
 import org.springframework.stereotype.Service;
@@ -15,16 +16,26 @@ import org.springframework.transaction.annotation.Transactional;
 public class AllocationTaskService {
 	
 
-	private final AllocationTaskMapper allocationTaskMapper;
+	private static final String DEFAULT_ALLOWED_WEEKS = "1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18";
+	private static final String DEFAULT_ALLOWED_WEEKDAYS = "1,2,3,4,5";
+	private static final String DEFAULT_ALLOWED_PERIODS = "1,2,3,4";
 
-	public AllocationTaskService(AllocationTaskMapper allocationTaskMapper) {
+	private final AllocationTaskMapper allocationTaskMapper;
+	private final AllocationTaskGenerationConfigMapper generationConfigMapper;
+
+	public AllocationTaskService(
+		AllocationTaskMapper allocationTaskMapper,
+		AllocationTaskGenerationConfigMapper generationConfigMapper
+	) {
 		this.allocationTaskMapper = allocationTaskMapper;
+		this.generationConfigMapper = generationConfigMapper;
 	}
 
 	public List<AllocationTask> findAll(String keyword, String status) {
 		List<AllocationTask> tasks = allocationTaskMapper.findAll(keyword, status);
 		for (AllocationTask task : tasks) {
 			task.setTeachingTasks(loadTeachingTasks(task.getId()));
+			task.setGenerationConfig(loadGenerationConfig(task.getId()));
 		}
 		return tasks;
 	}
@@ -35,7 +46,13 @@ public class AllocationTaskService {
 			throw new ResourceNotFoundException("分课任务不存在");
 		}
 		task.setTeachingTasks(loadTeachingTasks(id));
+		task.setGenerationConfig(loadGenerationConfig(id));
 		return task;
+	}
+
+	private AllocationTaskGenerationConfig loadGenerationConfig(Long taskId) {
+		AllocationTaskGenerationConfig config = generationConfigMapper.findByTaskId(taskId);
+		return config != null ? config : defaultGenerationConfig(taskId);
 	}
 
 	private List<TeachingTask> loadTeachingTasks(Long taskId) {
@@ -82,9 +99,10 @@ public class AllocationTaskService {
         validateRequest(request);
 		AllocationTask task = toTask(new AllocationTask(), request);
 		allocationTaskMapper.insert(task);
-        if (request.teachingTaskIds() != null) {
-            bindTeachingTasks(task.getId(), request.teachingTaskIds());
-        }
+		if (request.teachingTaskIds() != null) {
+			bindTeachingTasks(task.getId(), request.teachingTaskIds());
+		}
+		saveGenerationConfig(task.getId(), request.generationConfig(), true);
 		return findById(task.getId());
 	}
 
@@ -95,9 +113,12 @@ public class AllocationTaskService {
 		AllocationTask task = toTask(existing, request);
 		allocationTaskMapper.update(task);
         allocationTaskMapper.deleteTeachingTasks(id);
-        if (request.teachingTaskIds() != null) {
-            bindTeachingTasks(id, request.teachingTaskIds());
-        }
+		if (request.teachingTaskIds() != null) {
+			bindTeachingTasks(id, request.teachingTaskIds());
+		}
+		if (request.generationConfig() != null) {
+			saveGenerationConfig(id, request.generationConfig(), false);
+		}
 		return findById(id);
 	}
 
@@ -123,6 +144,80 @@ public class AllocationTaskService {
         }
     }
 
+	private void saveGenerationConfig(Long taskId, AllocationTaskGenerationConfigRequest request, boolean createDefaultWhenAbsent) {
+		AllocationTaskGenerationConfig config = toGenerationConfig(taskId, request);
+		AllocationTaskGenerationConfig existing = generationConfigMapper.findByTaskId(taskId);
+		if (existing == null) {
+			if (createDefaultWhenAbsent || request != null) {
+				generationConfigMapper.insert(config);
+			}
+			return;
+		}
+		generationConfigMapper.updateByTaskId(config);
+	}
+
+	private AllocationTaskGenerationConfig toGenerationConfig(Long taskId, AllocationTaskGenerationConfigRequest request) {
+		AllocationTaskGenerationConfig config = defaultGenerationConfig(taskId);
+		if (request == null) {
+			return config;
+		}
+		config.setAllowedWeeks(defaultString(request.allowedWeeks(), DEFAULT_ALLOWED_WEEKS));
+		config.setAllowedWeekdays(defaultString(request.allowedWeekdays(), DEFAULT_ALLOWED_WEEKDAYS));
+		config.setAllowedPeriods(defaultString(request.allowedPeriods(), DEFAULT_ALLOWED_PERIODS));
+		config.setSchemeCount(defaultInteger(request.schemeCount(), 3));
+		config.setTeacherProfilePenaltyScale(defaultDecimal(request.teacherProfilePenaltyScale(), "50.0000"));
+		config.setDistributionPenaltyScale(defaultDecimal(request.distributionPenaltyScale(), "5.0000"));
+		config.setClassroomStickinessWeight(defaultDecimal(request.classroomStickinessWeight(), "5.0000"));
+		config.setCompactBonusWeight(defaultDecimal(request.compactBonusWeight(), "0.0000"));
+		config.setWeekdayLoadPenalty(defaultDecimal(request.weekdayLoadPenalty(), "0.008000"));
+		config.setRoomDayLoadPenalty(defaultDecimal(request.roomDayLoadPenalty(), "0.005000"));
+		config.setRoomWeekLoadPenalty(defaultDecimal(request.roomWeekLoadPenalty(), "0.002000"));
+		config.setTaskDayLoadPenalty(defaultDecimal(request.taskDayLoadPenalty(), "0.012000"));
+		config.setEarlyPeriodPenalty(defaultDecimal(request.earlyPeriodPenalty(), "0.012000"));
+		config.setLatePeriodPenalty(defaultDecimal(request.latePeriodPenalty(), "0.008000"));
+		config.setRandomJitter(defaultDecimal(request.randomJitter(), "0.002000"));
+		config.setClassroomStickinessBonus(defaultDecimal(request.classroomStickinessBonus(), "0.006000"));
+		config.setWeekendPenalty(defaultDecimal(request.weekendPenalty(), "0.010000"));
+		config.setLlmPrompt(request.llmPrompt());
+		config.setLlmResultJson(request.llmResultJson());
+		return config;
+	}
+
+	private AllocationTaskGenerationConfig defaultGenerationConfig(Long taskId) {
+		AllocationTaskGenerationConfig config = new AllocationTaskGenerationConfig();
+		config.setTaskId(taskId);
+		config.setAllowedWeeks(DEFAULT_ALLOWED_WEEKS);
+		config.setAllowedWeekdays(DEFAULT_ALLOWED_WEEKDAYS);
+		config.setAllowedPeriods(DEFAULT_ALLOWED_PERIODS);
+		config.setSchemeCount(3);
+		config.setTeacherProfilePenaltyScale(new BigDecimal("50.0000"));
+		config.setDistributionPenaltyScale(new BigDecimal("5.0000"));
+		config.setClassroomStickinessWeight(new BigDecimal("5.0000"));
+		config.setCompactBonusWeight(new BigDecimal("0.0000"));
+		config.setWeekdayLoadPenalty(new BigDecimal("0.008000"));
+		config.setRoomDayLoadPenalty(new BigDecimal("0.005000"));
+		config.setRoomWeekLoadPenalty(new BigDecimal("0.002000"));
+		config.setTaskDayLoadPenalty(new BigDecimal("0.012000"));
+		config.setEarlyPeriodPenalty(new BigDecimal("0.012000"));
+		config.setLatePeriodPenalty(new BigDecimal("0.008000"));
+		config.setRandomJitter(new BigDecimal("0.002000"));
+		config.setClassroomStickinessBonus(new BigDecimal("0.006000"));
+		config.setWeekendPenalty(new BigDecimal("0.010000"));
+		return config;
+	}
+
+	private String defaultString(String value, String defaultValue) {
+		return value != null && !value.isBlank() ? value.trim() : defaultValue;
+	}
+
+	private Integer defaultInteger(Integer value, Integer defaultValue) {
+		return value != null ? value : defaultValue;
+	}
+
+	private BigDecimal defaultDecimal(BigDecimal value, String defaultValue) {
+		return value != null ? value : new BigDecimal(defaultValue);
+	}
+
 	private AllocationTask toTask(AllocationTask task, AllocationTaskRequest request) {
         task.setName(request.name());
         task.setDescription(request.description());
@@ -147,5 +242,39 @@ public class AllocationTaskService {
         if (request.startWeek() != null && request.endWeek() != null && request.startWeek() > request.endWeek()) {
             throw new ValidationException("起始周次不能大于结束周次");
         }
+		validateGenerationConfig(request.generationConfig());
     }
+
+	private void validateGenerationConfig(AllocationTaskGenerationConfigRequest config) {
+		if (config == null) {
+			return;
+		}
+		validateCsvNumbers(config.allowedWeeks(), "允许周次", 1, 18);
+		validateCsvNumbers(config.allowedWeekdays(), "允许星期", 1, 7);
+		validateCsvNumbers(config.allowedPeriods(), "允许节次", 1, 5);
+		if (config.schemeCount() != null && (config.schemeCount() < 1 || config.schemeCount() > 5)) {
+			throw new ValidationException("候选方案数量必须在1到5之间");
+		}
+	}
+
+	private void validateCsvNumbers(String rawValue, String fieldName, int min, int max) {
+		if (rawValue == null || rawValue.isBlank()) {
+			return;
+		}
+		String[] parts = rawValue.split(",");
+		for (String part : parts) {
+			String trimmed = part.trim();
+			if (trimmed.isBlank()) {
+				throw new ValidationException(fieldName + "不能包含空值");
+			}
+			try {
+				int value = Integer.parseInt(trimmed);
+				if (value < min || value > max) {
+					throw new ValidationException(fieldName + "必须在" + min + "到" + max + "之间");
+				}
+			} catch (NumberFormatException exception) {
+				throw new ValidationException(fieldName + "必须为逗号分隔的数字");
+			}
+		}
+	}
 }

@@ -20,4 +20,5 @@ public class AllocationTask {
 
 	// 非数据库字段
 	private List<TeachingTask> teachingTasks;
+	private AllocationTaskGenerationConfig generationConfig;
 }

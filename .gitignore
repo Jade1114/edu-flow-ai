@@ -1,4 +1,5 @@
 .alma-snapshots
+/Users/yuy/.config/alma/
 .vscode/
 .env
 .env.*
@@ -13,6 +14,7 @@ server/ml/data/*.csv
 server/ml/data/*.json
 server/ml/data/generated_schemes/
 server/ml/data/feedback_exports/
+server/ml/data/feedback_training/
 server/ml/models/*.txt
 server/ml/models/*.pkl
 server/ml/models/feedback_versions/

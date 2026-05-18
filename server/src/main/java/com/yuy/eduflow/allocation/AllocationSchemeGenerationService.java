@@ -25,6 +25,7 @@ public class AllocationSchemeGenerationService {
 	private final ConflictCheckResultMapper conflictCheckResultMapper;
 	private final AllocationSchemeConflictDetector conflictDetector;
 	private final TeachingTaskMapper teachingTaskMapper;
+	private final AllocationTaskGenerationConfigMapper generationConfigMapper;
 
 	public AllocationSchemeGenerationService(
 		AllocationMlSchemeService allocationMlSchemeService,
@@ -32,7 +33,8 @@ public class AllocationSchemeGenerationService {
 		AllocationItemMapper allocationItemMapper,
 		ConflictCheckResultMapper conflictCheckResultMapper,
 		AllocationSchemeConflictDetector conflictDetector,
-		TeachingTaskMapper teachingTaskMapper
+		TeachingTaskMapper teachingTaskMapper,
+		AllocationTaskGenerationConfigMapper generationConfigMapper
 	) {
 		this.allocationMlSchemeService = allocationMlSchemeService;
 		this.allocationSchemeMapper = allocationSchemeMapper;
@@ -40,6 +42,7 @@ public class AllocationSchemeGenerationService {
 		this.conflictCheckResultMapper = conflictCheckResultMapper;
 		this.conflictDetector = conflictDetector;
 		this.teachingTaskMapper = teachingTaskMapper;
+		this.generationConfigMapper = generationConfigMapper;
 	}
 
 	public AllocationGenerateResult generateSchemes(Long taskId, Integer schemeCount, String policy) {
@@ -49,7 +52,8 @@ public class AllocationSchemeGenerationService {
 	public AllocationGenerateResult generateSchemes(Long taskId, Integer schemeCount, String policy, String policyParams, Consumer<GenerationStatus> progressReporter) {
 		log.info("=== SchemeGeneration generateSchemes() start === taskId={}, schemeCount={}", taskId, schemeCount);
 		Assert.positiveId(taskId, "分课任务ID");
-		AllocationGenerationPreview generationPreview = allocationMlSchemeService.generateSchemes(taskId, schemeCount, policy, policyParams, progressReporter);
+		Integer effectiveSchemeCount = resolveSchemeCount(taskId, schemeCount);
+		AllocationGenerationPreview generationPreview = allocationMlSchemeService.generateSchemes(taskId, effectiveSchemeCount, policy, policyParams, progressReporter);
 		log.info("Parsed {} schemes from self-trained model, rejecting old candidates...",
 			generationPreview.schemes() != null ? generationPreview.schemes().size() : 0);
 		progressReporter.accept(running("persist", "清理旧候选方案，准备入库...", 70));
@@ -85,6 +89,17 @@ public class AllocationSchemeGenerationService {
 
 	private GenerationStatus running(String stage, String message, Integer progress) {
 		return new GenerationStatus("RUNNING", stage, message, progress, null, 0, null);
+	}
+
+	private Integer resolveSchemeCount(Long taskId, Integer requestSchemeCount) {
+		if (requestSchemeCount != null && requestSchemeCount > 0) {
+			return requestSchemeCount;
+		}
+		AllocationTaskGenerationConfig config = generationConfigMapper.findByTaskId(taskId);
+		if (config != null && config.getSchemeCount() != null && config.getSchemeCount() > 0) {
+			return config.getSchemeCount();
+		}
+		return null;
 	}
 
 	private List<AllocationParsedScheme> safeSchemes(AllocationGenerationPreview generationPreview) {

@@ -12,8 +12,10 @@ import csv
 import json
 import random
 from collections import Counter
+from datetime import datetime
 from pathlib import Path
-from typing import Any
+from time import perf_counter
+from typing import Any, Optional
 
 import lightgbm as lgb
 import numpy as np
@@ -67,6 +69,9 @@ OUTPUT_COLUMNS = [
 
 TEACHER_PENALTIES_FILENAME = "teacher_penalties.json"
 LOG_PREFIX = "[SCHEDULE-CHAIN]"
+PYTHON_LOG_FILE: Optional[Path] = None
+CANDIDATE_DIAGNOSTICS: dict[int, dict[str, Any]] = {}
+RUN_TIMINGS: Counter[str] = Counter()
 
 SUMMARY_COLUMNS = [
     "scheme_no",
@@ -78,6 +83,15 @@ SUMMARY_COLUMNS = [
     "avg_predicted_score",
     "avg_rule_score",
     "fitness",
+    "hard_conflict_count",
+    "candidate_hard_conflict_count",
+    "teacher_slot_conflict_count",
+    "room_slot_conflict_count",
+    "class_slot_conflict_count",
+    "teacher_profile_penalty_total",
+    "distribution_penalty",
+    "classroom_switches",
+    "candidate_pool_count",
 ]
 
 WEEKDAY_LOAD_PENALTY = 0.004
@@ -86,19 +100,19 @@ ROOM_WEEK_LOAD_PENALTY = 0.003
 TASK_DAY_LOAD_PENALTY = 0.018
 RANDOM_JITTER = 0.002
 DEFAULT_CANDIDATE_POOL_SIZE = 500
-DEFAULT_CANDIDATE_TOP_N = 30
-DEFAULT_POPULATION_SIZE = 80
-DEFAULT_GENERATIONS = 80
-DEFAULT_ELITE_SIZE = 8
-DEFAULT_TOURNAMENT_SIZE = 4
-DEFAULT_MUTATION_RATE = 0.08
+DEFAULT_CANDIDATE_TOP_N = 100
+DEFAULT_POPULATION_SIZE = 160
+DEFAULT_GENERATIONS = 200
+DEFAULT_ELITE_SIZE = 16
+DEFAULT_TOURNAMENT_SIZE = 6
+DEFAULT_MUTATION_RATE = 0.12
 DEFAULT_PREDICTED_SCORE_WEIGHT = 100.0
 DEFAULT_RULE_SCORE_WEIGHT = 10.0
-DEFAULT_HARD_CONFLICT_PENALTY = 1000.0
-DEFAULT_TEACHER_PROFILE_PENALTY_SCALE = 100.0
-DEFAULT_DISTRIBUTION_PENALTY_SCALE = 20.0
-DEFAULT_CLASSROOM_STICKINESS_WEIGHT = 10.0
-DEFAULT_COMPACT_BONUS_WEIGHT = 10.0
+DEFAULT_HARD_CONFLICT_PENALTY = 100000.0
+DEFAULT_TEACHER_PROFILE_PENALTY_SCALE = 50.0
+DEFAULT_DISTRIBUTION_PENALTY_SCALE = 5.0
+DEFAULT_CLASSROOM_STICKINESS_WEIGHT = 5.0
+DEFAULT_COMPACT_BONUS_WEIGHT = 0.0
 
 POLICY_PROFILES = {
     "BALANCED": {
@@ -168,11 +182,28 @@ POLICY_PROFILES = {
 DEFAULT_POLICY = "BALANCED"
 
 
+def configure_python_log(log_file: Optional[Path]) -> None:
+    global PYTHON_LOG_FILE
+    PYTHON_LOG_FILE = log_file
+    if PYTHON_LOG_FILE is not None:
+        PYTHON_LOG_FILE.parent.mkdir(parents=True, exist_ok=True)
+        PYTHON_LOG_FILE.write_text("", encoding="utf-8")
+
+
+def add_timing(name: str, started_at: float) -> None:
+    RUN_TIMINGS[name] += round((perf_counter() - started_at) * 1000, 3)
+
+
 def log_chain(message: str, payload: Any | None = None) -> None:
     if payload is None:
-        print(f"{LOG_PREFIX} {message}", flush=True)
-        return
-    print(f"{LOG_PREFIX} {message}: {json.dumps(payload, ensure_ascii=False, default=str)}", flush=True)
+        line = f"{LOG_PREFIX} {message}"
+    else:
+        line = f"{LOG_PREFIX} {message}: {json.dumps(payload, ensure_ascii=False, default=str)}"
+    print(line, flush=True)
+    if PYTHON_LOG_FILE is not None:
+        timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")[:-3]
+        with PYTHON_LOG_FILE.open("a", encoding="utf-8") as file:
+            file.write(f"{timestamp} {line}\n")
 
 
 def load_schema(schema_path: Path) -> dict[str, Any]:
@@ -181,12 +212,85 @@ def load_schema(schema_path: Path) -> dict[str, Any]:
     return json.loads(schema_path.read_text(encoding="utf-8"))
 
 
+def load_optional_lightgbm(model_path: Path, schema_path: Path) -> tuple[Optional[lgb.Booster], Optional[dict[str, Any]], str]:
+    if model_path.exists() and schema_path.exists():
+        return lgb.Booster(model_file=str(model_path)), load_schema(schema_path), "lightgbm"
+    missing = []
+    if not model_path.exists():
+        missing.append(str(model_path))
+    if not schema_path.exists():
+        missing.append(str(schema_path))
+    log_chain("LightGBM 模型不可用，GA 将仅使用规则软评分排序候选", {"missing": missing})
+    return None, None, "rule_score_fallback"
+
+
+def diagnose_candidate_space(
+    task: dict[str, Any],
+    classrooms: list[dict[str, Any]],
+    time_slots: list[dict[str, Any]],
+    teacher_profile: Optional[dict[str, Any]],
+    exclude_weekends: bool,
+) -> dict[str, Any]:
+    required_capacity = int(task.get("total_student_count") or 0)
+    required_room_type = effective_required_room_type(task)
+    bound_classroom_id = task.get("bound_classroom_id")
+    normalized_unavailable = {
+        tuple(slot) for slot in normalize_unavailable_slots((teacher_profile or {}).get("unavailable_slots"))
+    }
+    available_time_slots = [
+        slot for slot in time_slots
+        if not (exclude_weekends and int(slot["day_of_week"]) >= 6)
+        and (int(slot["day_of_week"]), int(slot["period_index"])) not in normalized_unavailable
+    ]
+    capacity_valid_rooms = [room for room in classrooms if int(room.get("capacity") or 0) >= required_capacity]
+    type_valid_rooms = [room for room in capacity_valid_rooms if is_room_type_match(required_room_type, room.get("classroom_type") or "")]
+    final_rooms = type_valid_rooms
+    filtered_reasons = {}
+    if not available_time_slots:
+        filtered_reasons["teacher_or_weekend_time_unavailable"] = len(time_slots)
+    if not capacity_valid_rooms:
+        filtered_reasons["capacity_not_enough"] = len(classrooms)
+    elif not type_valid_rooms:
+        filtered_reasons["room_type_mismatch"] = len(capacity_valid_rooms)
+    return {
+        "task_id": int(task["teaching_task_id"]),
+        "teacher_id": int(task["teacher_id"]),
+        "teacher_name": task.get("teacher_name") or "",
+        "required_fragments": periods_needed(task),
+        "required_capacity": required_capacity,
+        "required_room_type": required_room_type,
+        "bound_classroom_id": bound_classroom_id,
+        "available_time_slot_count": len(available_time_slots),
+        "available_classrooms": [
+            {
+                "id": int(room["id"]),
+                "name": room.get("name") or room.get("classroom_name") or "",
+                "capacity": int(room.get("capacity") or 0),
+                "type": room.get("classroom_type") or "",
+                "building": room.get("building") or "",
+            }
+            for room in sorted(final_rooms, key=lambda item: int(item.get("capacity") or 0), reverse=True)[:20]
+        ],
+        "max_available_capacity": max([int(room.get("capacity") or 0) for room in final_rooms] or [0]),
+        "has_any_available_classroom": bool(final_rooms),
+        "has_any_feasible_candidate": bool(final_rooms and available_time_slots),
+        "filtered_reason": filtered_reasons or {"ok": 0},
+        "suggestions": {
+            "allow_split_class": required_capacity > max([int(room.get("capacity") or 0) for room in classrooms] or [0]),
+            "allow_room_type_relaxation": bool(required_room_type and capacity_valid_rooms and not type_valid_rooms),
+            "allow_capacity_expansion": not bool(capacity_valid_rooms),
+            "allow_bound_room_change": bool(bound_classroom_id and type_valid_rooms),
+        },
+    }
+
+
 def build_candidate_rows(
     *,
     task: dict[str, Any],
     classrooms: list[dict[str, Any]],
     time_slots: list[dict[str, Any]],
     selected_assignments: list[PseudoAssignment],
+    teacher_profile: Optional[dict[str, Any]] = None,
     exclude_weekends: bool = False,
 ) -> list[dict[str, Any]]:
     indexes = build_occupied_indexes(selected_assignments)
@@ -204,9 +308,25 @@ def build_candidate_rows(
     required_room_type = effective_required_room_type(task)
     total_student_count = int(task.get("total_student_count") or 0)
     teacher_max_weekly_hours = task.get("teacher_max_weekly_hours")
+    bound_classroom_id = task.get("bound_classroom_id")
+    unavailable_slots = {
+        tuple(slot) for slot in normalize_unavailable_slots((teacher_profile or {}).get("unavailable_slots"))
+    }
+    filter_started_at = perf_counter()
+    filtered_time_slots = [
+        slot for slot in time_slots
+        if not (exclude_weekends and int(slot["day_of_week"]) >= 6)
+        and (int(slot["day_of_week"]), int(slot["period_index"])) not in unavailable_slots
+    ]
+    filtered_classrooms = [
+        room for room in classrooms
+        if int(room.get("capacity") or 0) >= total_student_count
+        and is_room_type_match(required_room_type, room.get("classroom_type") or "")
+    ]
+    add_timing("candidate_filter_time", filter_started_at)
     rows: list[dict[str, Any]] = []
 
-    for slot in time_slots:
+    for slot in filtered_time_slots:
         slot_id = int(slot["id"])
         week_number = int(slot["week_number"])
         day_of_week = int(slot["day_of_week"])
@@ -215,8 +335,6 @@ def build_candidate_rows(
         is_afternoon = int(period_index in (3, 4))
         is_evening = int(period_index >= 5)
         is_weekend = int(day_of_week >= 6)
-        if exclude_weekends and is_weekend:
-            continue
         is_early_period = int(period_index == 1)
         is_late_period = int(period_index >= 5)
 
@@ -233,7 +351,7 @@ def build_candidate_rows(
             or [0]
         )
 
-        for room in classrooms:
+        for room in filtered_classrooms:
             room_id = int(room["id"])
             room_capacity = int(room.get("capacity") or 0)
             room_type = room.get("classroom_type") or ""
@@ -499,8 +617,8 @@ def summarize_teacher_profile_penalty_candidates(candidates: list[dict[str, Any]
 
 def rank_candidates(
     *,
-    booster: lgb.Booster,
-    schema: dict[str, Any],
+    booster: Optional[lgb.Booster],
+    schema: Optional[dict[str, Any]],
     candidates: list[dict[str, Any]],
     rng: random.Random,
     policy: dict[str, float],
@@ -510,10 +628,14 @@ def rank_candidates(
 ) -> list[dict[str, Any]]:
     if not candidates:
         return []
-    features = build_features(candidates, schema)
-    predictions = np.clip(booster.predict(features), 0.0, 1.0)
-    for candidate, predicted_score in zip(candidates, predictions):
-        candidate["predicted_score"] = float(predicted_score)
+    if booster is not None and schema is not None:
+        features = build_features(candidates, schema)
+        predictions = np.clip(booster.predict(features), 0.0, 1.0)
+        for candidate, predicted_score in zip(candidates, predictions):
+            candidate["predicted_score"] = float(predicted_score)
+    else:
+        for candidate in candidates:
+            candidate["predicted_score"] = float(candidate.get("rule_score") or 0.0)
     apply_selection_scores(candidates, rng, policy, task_classroom_id, teacher_id, teacher_profiles)
 
     return sorted(
@@ -546,12 +668,18 @@ def filter_time_slots(
     time_slots: list[dict[str, Any]],
     start_week: int | None,
     end_week: int | None,
+    allowed_weeks: set[int] | None = None,
+    allowed_weekdays: set[int] | None = None,
+    allowed_periods: set[int] | None = None,
 ) -> list[dict[str, Any]]:
     return [
         slot
         for slot in time_slots
         if (start_week is None or int(slot["week_number"]) >= start_week)
         and (end_week is None or int(slot["week_number"]) <= end_week)
+        and (allowed_weeks is None or int(slot["week_number"]) in allowed_weeks)
+        and (allowed_weekdays is None or int(slot["day_of_week"]) in allowed_weekdays)
+        and (allowed_periods is None or int(slot["period_index"]) in allowed_periods)
     ]
 
 
@@ -559,6 +687,53 @@ def parse_teaching_task_ids(raw_value: str | None) -> set[int] | None:
     if not raw_value:
         return None
     return {int(value.strip()) for value in raw_value.split(",") if value.strip()}
+
+
+def parse_int_set(raw_value: Any) -> set[int] | None:
+    if raw_value is None:
+        return None
+    if isinstance(raw_value, str):
+        values = [value.strip() for value in raw_value.split(",")]
+    elif isinstance(raw_value, (list, tuple, set)):
+        values = list(raw_value)
+    else:
+        values = [raw_value]
+    parsed = {int(value) for value in values if str(value).strip()}
+    return parsed or None
+
+
+def load_generation_config(raw_value: str | None) -> dict[str, Any]:
+    if not raw_value:
+        return {}
+    payload = json.loads(raw_value)
+    if not isinstance(payload, dict):
+        raise ValueError("generation-config must be a JSON object")
+    return payload
+
+
+def config_value(config: dict[str, Any], key: str, default: Any = None) -> Any:
+    return config.get(key) if config.get(key) is not None else default
+
+
+def config_float(config: dict[str, Any], key: str, default: float) -> float:
+    value = config_value(config, key, default)
+    return float(value)
+
+
+def policy_overrides_from_config(config: dict[str, Any]) -> dict[str, float]:
+    mapping = {
+        "weekdayLoadPenalty": "weekday_load_penalty",
+        "roomDayLoadPenalty": "room_day_load_penalty",
+        "roomWeekLoadPenalty": "room_week_load_penalty",
+        "taskDayLoadPenalty": "task_day_load_penalty",
+        "earlyPeriodPenalty": "early_period_penalty",
+        "latePeriodPenalty": "late_period_penalty",
+        "compactBonusWeight": "compact_bonus_weight",
+        "randomJitter": "random_jitter",
+        "classroomStickinessBonus": "classroom_stickiness_bonus",
+        "weekendPenalty": "weekend_penalty",
+    }
+    return {target: float(config[source]) for source, target in mapping.items() if config.get(source) is not None}
 
 
 
@@ -717,14 +892,39 @@ def log_selected_candidate(task: dict[str, Any], fragment_index: int, best: dict
     })
 
 
+def summarize_candidate_pool(raw_candidates: list[dict[str, Any]], pool_candidates: list[dict[str, Any]]) -> dict[str, Any]:
+    raw_hard_conflicts = sum(int(candidate.get("has_hard_conflict") or 0) for candidate in raw_candidates)
+    selected_hard_conflicts = sum(int(candidate.get("has_hard_conflict") or 0) for candidate in pool_candidates)
+    reject_reasons = Counter(
+        str(candidate.get("reject_reason") or "ok")
+        for candidate in raw_candidates
+        if int(candidate.get("has_hard_conflict") or 0) == 1
+    )
+    selected_reject_reasons = Counter(
+        str(candidate.get("reject_reason") or "ok")
+        for candidate in pool_candidates
+        if int(candidate.get("has_hard_conflict") or 0) == 1
+    )
+    return {
+        "raw_candidate_count": len(raw_candidates),
+        "raw_legal_candidate_count": len(raw_candidates) - raw_hard_conflicts,
+        "raw_hard_candidate_count": raw_hard_conflicts,
+        "selected_candidate_count": len(pool_candidates),
+        "selected_legal_candidate_count": len(pool_candidates) - selected_hard_conflicts,
+        "selected_hard_candidate_count": selected_hard_conflicts,
+        "raw_reject_reason_top": dict(reject_reasons.most_common(5)),
+        "selected_reject_reason_top": dict(selected_reject_reasons.most_common(5)),
+    }
+
+
 def build_candidate_pools(
     *,
     tasks: list[dict[str, Any]],
     classrooms: list[dict[str, Any]],
     time_slots: list[dict[str, Any]],
     teacher_profiles: dict[int, dict[str, object]],
-    booster: lgb.Booster,
-    schema: dict[str, Any],
+    booster: Optional[lgb.Booster],
+    schema: Optional[dict[str, Any]],
     max_tasks: int | None,
     rng: random.Random,
     candidate_pool_size: int,
@@ -734,48 +934,189 @@ def build_candidate_pools(
 ) -> list[dict[str, Any]]:
     pools: list[dict[str, Any]] = []
     scoped_tasks = tasks[:max_tasks] if max_tasks is not None else tasks
+    started_at = perf_counter()
+    total_raw_candidates = 0
+    total_legal_candidates = 0
     for task in scoped_tasks:
+        task_started_at = perf_counter()
         task_id = int(task["teaching_task_id"])
         teacher_id = int(task["teacher_id"])
-        for fragment_index in range(1, periods_needed(task) + 1):
-            candidates = build_candidate_rows(
-                task=task,
-                classrooms=classrooms,
-                time_slots=time_slots,
-                selected_assignments=[],
-                exclude_weekends=exclude_weekends,
-            )
-            ranked = rank_candidates(
-                booster=booster,
-                schema=schema,
-                candidates=shortlist_candidates(candidates, candidate_pool_size, rng, policy),
-                rng=rng,
-                policy=policy,
-                task_classroom_id=None,
-                teacher_id=teacher_id,
-                teacher_profiles=teacher_profiles,
-            )
-            pool_candidates = ranked[: max(1, min(candidate_top_n, len(ranked)))]
-            if not pool_candidates:
-                log_chain("GA 候选池为空", {
-                    "teaching_task_id": task_id,
-                    "teacher_id": teacher_id,
-                    "fragment_index": fragment_index,
-                })
-                continue
-            pools.append({
-                "task": task,
-                "task_id": task_id,
+        required_fragments = periods_needed(task)
+        teacher_profile = teacher_profiles.get(teacher_id)
+        task_diagnostic = diagnose_candidate_space(task, classrooms, time_slots, teacher_profile, exclude_weekends)
+        if not task_diagnostic["has_any_feasible_candidate"]:
+            task_diagnostic["missing_fragment_count"] = required_fragments
+            task_diagnostic["raw_candidate_count"] = 0
+            task_diagnostic["legal_candidate_count"] = 0
+            task_diagnostic["selected_candidate_count"] = 0
+            CANDIDATE_DIAGNOSTICS[task_id] = task_diagnostic
+            log_chain("GA 排课前过滤不可行任务", {
+                "teaching_task_id": task_id,
                 "teacher_id": teacher_id,
-                "class_group_ids": parse_id_tuple(task.get("class_group_ids")),
-                "fragment_index": fragment_index,
-                "candidates": pool_candidates,
+                "required_fragments": required_fragments,
+                "filtered_reason": task_diagnostic["filtered_reason"],
+                "suggestions": task_diagnostic["suggestions"],
             })
+            continue
+        build_started_at = perf_counter()
+        candidates = build_candidate_rows(
+            task=task,
+            classrooms=classrooms,
+            time_slots=time_slots,
+            selected_assignments=[],
+            teacher_profile=teacher_profile,
+            exclude_weekends=exclude_weekends,
+        )
+        add_timing("candidate_build_time", build_started_at)
+        legal_candidates = [candidate for candidate in candidates if int(candidate.get("has_hard_conflict") or 0) == 0]
+        total_raw_candidates += len(candidates)
+        total_legal_candidates += len(legal_candidates)
+        rank_started_at = perf_counter()
+        ranked = rank_candidates(
+            booster=booster,
+            schema=schema,
+            candidates=shortlist_candidates(legal_candidates, candidate_pool_size, rng, policy),
+            rng=rng,
+            policy=policy,
+            task_classroom_id=task.get("bound_classroom_id"),
+            teacher_id=teacher_id,
+            teacher_profiles=teacher_profiles,
+        )
+        add_timing("rank_time", rank_started_at)
+        pool_candidates = ranked[: max(1, min(candidate_top_n, len(ranked)))]
+        base_summary = summarize_candidate_pool(candidates, pool_candidates)
+        task_diagnostic.update({
+            "raw_candidate_count": len(candidates),
+            "legal_candidate_count": len(legal_candidates),
+            "selected_candidate_count": len(pool_candidates),
+            "missing_fragment_count": 0 if pool_candidates else required_fragments,
+            "candidate_summary": base_summary,
+        })
+        CANDIDATE_DIAGNOSTICS[task_id] = task_diagnostic
+        fragment_summaries: list[dict[str, Any]] = [
+            {"fragment_index": fragment_index, **base_summary}
+            for fragment_index in range(1, required_fragments + 1)
+        ]
+        if not pool_candidates:
+            log_chain("GA 硬合法候选池为空", {
+                "teaching_task_id": task_id,
+                "teacher_id": teacher_id,
+                "fragment_count": required_fragments,
+                "required_capacity": task_diagnostic["required_capacity"],
+                "available_classrooms": task_diagnostic["available_classrooms"],
+                "filtered_reason": task_diagnostic["filtered_reason"],
+                "has_any_available_classroom": task_diagnostic["has_any_available_classroom"],
+                "has_any_feasible_candidate": task_diagnostic["has_any_feasible_candidate"],
+                "suggestions": task_diagnostic["suggestions"],
+                "raw_candidate_count": len(candidates),
+                "raw_reject_reason_top": base_summary["raw_reject_reason_top"],
+            })
+        else:
+            for fragment_index in range(1, required_fragments + 1):
+                pools.append({
+                    "task": task,
+                    "task_id": task_id,
+                    "teacher_id": teacher_id,
+                    "class_group_ids": parse_id_tuple(task.get("class_group_ids")),
+                    "fragment_index": fragment_index,
+                    "candidates": pool_candidates,
+                })
+        if fragment_summaries:
+            risky_fragments = [
+                summary for summary in fragment_summaries
+                if int(summary.get("selected_hard_candidate_count") or 0) > 0
+                or int(summary.get("raw_legal_candidate_count") or 0) == 0
+            ]
+            log_chain("GA 候选池任务诊断", {
+                "teaching_task_id": task_id,
+                "teacher_id": teacher_id,
+                "teacher_name": task.get("teacher_name") or "",
+                "required_fragments": required_fragments,
+                "class_group_ids": task.get("class_group_ids"),
+                "required_room_type": effective_required_room_type(task),
+                "avg_raw_legal_candidate_count": round(sum(item["raw_legal_candidate_count"] for item in fragment_summaries) / len(fragment_summaries), 2),
+                "avg_selected_legal_candidate_count": round(sum(item["selected_legal_candidate_count"] for item in fragment_summaries) / len(fragment_summaries), 2),
+                "fragments_with_selected_hard_candidates": sum(1 for item in fragment_summaries if int(item["selected_hard_candidate_count"]) > 0),
+                "risky_fragments_sample": risky_fragments[:5],
+                "build_duration_ms": round((perf_counter() - task_started_at) * 1000, 2),
+            })
+    skipped_tasks = [item["task_id"] for item in CANDIDATE_DIAGNOSTICS.values() if not item.get("has_any_feasible_candidate")]
+    log_chain("GA 候选池全局诊断", {
+        "pool_count": len(pools),
+        "tasks": len(scoped_tasks),
+        "raw_candidate_count": total_raw_candidates,
+        "legal_candidate_count": total_legal_candidates,
+        "candidate_top_n": candidate_top_n,
+        "candidate_pool_size": candidate_pool_size,
+        "build_duration_ms": round((perf_counter() - started_at) * 1000, 2),
+        "skipped_infeasible_tasks": skipped_tasks,
+    })
     return pools
 
 
+def conflicts_with_occupied(candidate: dict[str, Any], pool: dict[str, Any], occupied: dict[str, set[tuple[int, int]]]) -> bool:
+    time_slot_id = int(candidate["candidate_time_slot_id"])
+    classroom_id = int(candidate["candidate_classroom_id"])
+    if int(candidate.get("has_hard_conflict") or 0) == 1:
+        return True
+    if (pool["teacher_id"], time_slot_id) in occupied["teacher_slot"]:
+        return True
+    if (classroom_id, time_slot_id) in occupied["room_slot"]:
+        return True
+    return any((class_group_id, time_slot_id) in occupied["class_slot"] for class_group_id in pool["class_group_ids"])
+
+
+def occupy_candidate(candidate: dict[str, Any], pool: dict[str, Any], occupied: dict[str, set[tuple[int, int]]]) -> None:
+    time_slot_id = int(candidate["candidate_time_slot_id"])
+    classroom_id = int(candidate["candidate_classroom_id"])
+    occupied["teacher_slot"].add((pool["teacher_id"], time_slot_id))
+    occupied["room_slot"].add((classroom_id, time_slot_id))
+    for class_group_id in pool["class_group_ids"]:
+        occupied["class_slot"].add((class_group_id, time_slot_id))
+
+
+def empty_occupied() -> dict[str, set[tuple[int, int]]]:
+    return {"teacher_slot": set(), "room_slot": set(), "class_slot": set()}
+
+
+def choose_feasible_gene(pool: dict[str, Any], occupied: dict[str, set[tuple[int, int]]], rng: random.Random) -> int | None:
+    feasible_indexes = [
+        index for index, candidate in enumerate(pool["candidates"])
+        if not conflicts_with_occupied(candidate, pool, occupied)
+    ]
+    if not feasible_indexes:
+        return None
+    preferred = feasible_indexes[: min(10, len(feasible_indexes))]
+    return rng.choice(preferred)
+
+
+def repair_individual(individual: list[int], pools: list[dict[str, Any]], rng: random.Random, log_unresolved: bool = False) -> list[int]:
+    repaired = individual[:]
+    occupied = empty_occupied()
+    order = list(range(len(pools)))
+    order.sort(key=lambda index: (len(pools[index]["candidates"]), rng.random()))
+    unresolved: list[int] = []
+    for index in order:
+        pool = pools[index]
+        current_gene = repaired[index]
+        current_candidate = pool["candidates"][current_gene]
+        if not conflicts_with_occupied(current_candidate, pool, occupied):
+            occupy_candidate(current_candidate, pool, occupied)
+            continue
+        replacement = choose_feasible_gene(pool, occupied, rng)
+        if replacement is None:
+            unresolved.append(index)
+            continue
+        repaired[index] = replacement
+        occupy_candidate(pool["candidates"][replacement], pool, occupied)
+    if unresolved and log_unresolved:
+        log_chain("GA repair 未能完全消除冲突", {"unresolved_fragment_count": len(unresolved), "sample_indexes": unresolved[:10]})
+    return repaired
+
+
 def random_individual(pools: list[dict[str, Any]], rng: random.Random) -> list[int]:
-    return [rng.randrange(len(pool["candidates"])) for pool in pools]
+    raw = [rng.randrange(len(pool["candidates"])) for pool in pools]
+    return repair_individual(raw, pools, rng)
 
 
 def individual_rows(individual: list[int], pools: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -823,6 +1164,50 @@ def individual_assignments(individual: list[int], pools: list[dict[str, Any]]) -
     return assignments
 
 
+def summarize_individual_conflict_hotspots(individual: list[int], pools: list[dict[str, Any]], limit: int = 10) -> dict[str, Any]:
+    teacher_slot: dict[tuple[int, int], list[dict[str, Any]]] = {}
+    room_slot: dict[tuple[int, int], list[dict[str, Any]]] = {}
+    class_slot: dict[tuple[int, int], list[dict[str, Any]]] = {}
+    candidate_conflicts: list[dict[str, Any]] = []
+    for gene, pool in zip(individual, pools):
+        candidate = pool["candidates"][gene]
+        item = {
+            "task_id": pool["task_id"],
+            "teacher_id": pool["teacher_id"],
+            "fragment_index": pool["fragment_index"],
+            "classroom_id": int(candidate["candidate_classroom_id"]),
+            "time_slot_id": int(candidate["candidate_time_slot_id"]),
+            "week_number": int(candidate["week_number"]),
+            "day_of_week": int(candidate["day_of_week"]),
+            "period_index": int(candidate["period_index"]),
+            "predicted_score": round(float(candidate.get("predicted_score") or 0.0), 6),
+            "rule_score": round(float(candidate.get("rule_score") or 0.0), 6),
+            "reject_reason": candidate.get("reject_reason") or "",
+        }
+        teacher_slot.setdefault((pool["teacher_id"], item["time_slot_id"]), []).append(item)
+        room_slot.setdefault((item["classroom_id"], item["time_slot_id"]), []).append(item)
+        for class_group_id in pool["class_group_ids"]:
+            class_slot.setdefault((class_group_id, item["time_slot_id"]), []).append(item)
+        if int(candidate.get("has_hard_conflict") or 0) == 1:
+            candidate_conflicts.append(item)
+
+    def top_duplicates(index: dict[tuple[int, int], list[dict[str, Any]]]) -> list[dict[str, Any]]:
+        duplicates = [
+            {"key": key, "count": len(items), "items": items[:5]}
+            for key, items in index.items()
+            if len(items) > 1
+        ]
+        duplicates.sort(key=lambda row: row["count"], reverse=True)
+        return duplicates[:limit]
+
+    return {
+        "candidate_conflicts_sample": candidate_conflicts[:limit],
+        "teacher_slot_duplicates": top_duplicates(teacher_slot),
+        "room_slot_duplicates": top_duplicates(room_slot),
+        "class_slot_duplicates": top_duplicates(class_slot),
+    }
+
+
 def evaluate_individual(
     individual: list[int],
     pools: list[dict[str, Any]],
@@ -845,7 +1230,7 @@ def evaluate_individual(
     task_rooms: dict[int, set[int]] = {}
     predicted_total = 0.0
     rule_total = 0.0
-    hard_conflicts = 0
+    candidate_hard_conflicts = 0
     teacher_profile_penalty_total = 0.0
 
     for gene, pool in zip(individual, pools):
@@ -857,7 +1242,7 @@ def evaluate_individual(
         day_of_week = int(candidate["day_of_week"])
         predicted_total += float(candidate.get("predicted_score") or 0.0)
         rule_total += float(candidate.get("rule_score") or 0.0)
-        hard_conflicts += int(candidate.get("has_hard_conflict") or 0)
+        candidate_hard_conflicts += int(candidate.get("has_hard_conflict") or 0)
         teacher_profile_penalty_total += float(candidate.get("teacher_profile_penalty") or 0.0)
         teacher_slot[(teacher_id, time_slot_id)] += 1
         room_slot[(room_id, time_slot_id)] += 1
@@ -867,10 +1252,11 @@ def evaluate_individual(
         task_day_load[(pool["task_id"], week_number, day_of_week)] += 1
         task_rooms.setdefault(pool["task_id"], set()).add(room_id)
 
-    duplicate_conflicts = sum(count - 1 for count in teacher_slot.values() if count > 1)
-    duplicate_conflicts += sum(count - 1 for count in room_slot.values() if count > 1)
-    duplicate_conflicts += sum(count - 1 for count in class_slot.values() if count > 1)
-    hard_conflicts += duplicate_conflicts
+    teacher_slot_conflicts = sum(count - 1 for count in teacher_slot.values() if count > 1)
+    room_slot_conflicts = sum(count - 1 for count in room_slot.values() if count > 1)
+    class_slot_conflicts = sum(count - 1 for count in class_slot.values() if count > 1)
+    duplicate_conflicts = teacher_slot_conflicts + room_slot_conflicts + class_slot_conflicts
+    hard_conflicts = candidate_hard_conflicts + duplicate_conflicts
     distribution_penalty = sum(max(0, count - 4) for count in day_load.values())
     distribution_penalty += sum(max(0, count - 2) for count in task_day_load.values())
     classroom_switches = sum(max(0, len(room_ids) - 1) for room_ids in task_rooms.values())
@@ -879,20 +1265,26 @@ def evaluate_individual(
     size = len(individual)
     avg_predicted = predicted_total / size
     avg_rule = rule_total / size
-    fitness = (
+    soft_score = (
         avg_predicted * predicted_score_weight
         + avg_rule * rule_score_weight
-        - hard_conflicts * hard_conflict_penalty
         - teacher_profile_penalty_total * teacher_profile_penalty_scale
         - distribution_penalty * distribution_penalty_scale
         - classroom_switches * classroom_stickiness_weight
         + compact_bonus * compact_bonus_weight
     )
+    fitness = -hard_conflicts * hard_conflict_penalty + soft_score
     return {
         "fitness": round(fitness, 6),
+        "soft_score": round(soft_score, 6),
         "avg_predicted_score": round(avg_predicted, 6),
         "avg_rule_score": round(avg_rule, 6),
         "hard_conflict_count": hard_conflicts,
+        "candidate_hard_conflict_count": candidate_hard_conflicts,
+        "duplicate_conflict_count": duplicate_conflicts,
+        "teacher_slot_conflict_count": teacher_slot_conflicts,
+        "room_slot_conflict_count": room_slot_conflicts,
+        "class_slot_conflict_count": class_slot_conflicts,
         "teacher_profile_penalty_total": round(teacher_profile_penalty_total, 6),
         "distribution_penalty": distribution_penalty,
         "classroom_switches": classroom_switches,
@@ -928,7 +1320,10 @@ def evolve_population(
     mutation_rate: float,
     fitness_kwargs: dict[str, float],
 ) -> list[dict[str, Any]]:
+    init_started_at = perf_counter()
     population = [random_individual(pools, rng) for _ in range(population_size)]
+    add_timing("ga_init_time", init_started_at)
+    evolution_started_at = perf_counter()
     scored: list[dict[str, Any]] = []
     for generation in range(1, generations + 1):
         scored = [
@@ -941,6 +1336,10 @@ def evolve_population(
                 "generation": generation,
                 "best_fitness": scored[0]["metrics"]["fitness"],
                 "best_hard_conflicts": scored[0]["metrics"].get("hard_conflict_count"),
+                "candidate_hard_conflicts": scored[0]["metrics"].get("candidate_hard_conflict_count"),
+                "teacher_slot_conflicts": scored[0]["metrics"].get("teacher_slot_conflict_count"),
+                "room_slot_conflicts": scored[0]["metrics"].get("room_slot_conflict_count"),
+                "class_slot_conflicts": scored[0]["metrics"].get("class_slot_conflict_count"),
             })
         next_population = [item["individual"][:] for item in scored[: max(1, min(elite_size, len(scored)))]]
         while len(next_population) < population_size:
@@ -948,8 +1347,11 @@ def evolve_population(
             parent_b = tournament_select(scored, tournament_size, rng)
             child = crossover(parent_a, parent_b, pools, rng)
             mutate(child, pools, mutation_rate, rng)
-            next_population.append(child)
+            repair_started_at = perf_counter()
+            next_population.append(repair_individual(child, pools, rng))
+            add_timing("repair_time", repair_started_at)
         population = next_population
+    add_timing("ga_evolution_time", evolution_started_at)
     scored = [
         {"individual": individual, "metrics": evaluate_individual(individual, pools, **fitness_kwargs)}
         for individual in population
@@ -964,8 +1366,8 @@ def generate_scheme(
     classrooms: list[dict[str, Any]],
     time_slots: list[dict[str, Any]],
     teacher_profiles: dict[int, dict[str, object]],
-    booster: lgb.Booster,
-    schema: dict[str, Any],
+    booster: Optional[lgb.Booster],
+    schema: Optional[dict[str, Any]],
     max_tasks: int | None,
     rng: random.Random,
     candidate_pool_size: int,
@@ -1007,10 +1409,17 @@ def generate_scheme(
         fitness_kwargs=effective_fitness_kwargs,
     )
     best = scored[0]
+    repair_started_at = perf_counter()
+    best["individual"] = repair_individual(best["individual"], pools, rng, log_unresolved=True)
+    add_timing("repair_time", repair_started_at)
+    validate_started_at = perf_counter()
+    best["metrics"] = evaluate_individual(best["individual"], pools, **effective_fitness_kwargs)
+    add_timing("validate_time", validate_started_at)
     rows = individual_rows(best["individual"], pools)
     assignments = individual_assignments(best["individual"], pools)
     metrics = {**best["metrics"], "candidate_pool_count": len(pools)}
     log_chain("GA 最优方案", metrics)
+    log_chain("GA 最优方案冲突热点", summarize_individual_conflict_hotspots(best["individual"], pools))
     return rows, assignments, metrics
 
 
@@ -1039,6 +1448,21 @@ def summarize_scheme(rows: list[dict[str, Any]], tasks: list[dict[str, Any]], ma
     }
 
 
+def summarize_metrics(metrics: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "fitness": metrics.get("fitness"),
+        "hard_conflict_count": metrics.get("hard_conflict_count"),
+        "candidate_hard_conflict_count": metrics.get("candidate_hard_conflict_count"),
+        "teacher_slot_conflict_count": metrics.get("teacher_slot_conflict_count"),
+        "room_slot_conflict_count": metrics.get("room_slot_conflict_count"),
+        "class_slot_conflict_count": metrics.get("class_slot_conflict_count"),
+        "teacher_profile_penalty_total": metrics.get("teacher_profile_penalty_total"),
+        "distribution_penalty": metrics.get("distribution_penalty"),
+        "classroom_switches": metrics.get("classroom_switches"),
+        "candidate_pool_count": metrics.get("candidate_pool_count"),
+    }
+
+
 def print_summary(rows: list[dict[str, Any]], tasks: list[dict[str, Any]], max_tasks: int | None) -> None:
     summary = summarize_scheme(rows, tasks, max_tasks)
     print("Generated model-driven scheduling demo")
@@ -1058,6 +1482,22 @@ def write_summary(rows: list[dict[str, Any]], output_path: Path) -> None:
         writer.writerows(rows)
 
 
+def write_candidate_diagnostics(output_path: Path) -> None:
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    diagnostics = sorted(CANDIDATE_DIAGNOSTICS.values(), key=lambda item: item["task_id"])
+    payload = {
+        "summary": {
+            "task_count": len(diagnostics),
+            "infeasible_task_count": sum(1 for item in diagnostics if not item.get("has_any_feasible_candidate")),
+            "missing_fragment_count": sum(int(item.get("missing_fragment_count") or 0) for item in diagnostics),
+            "skipped_infeasible_task_ids": [item["task_id"] for item in diagnostics if not item.get("has_any_feasible_candidate")],
+            "timings_ms": {key: round(value, 3) for key, value in RUN_TIMINGS.items()},
+        },
+        "tasks": diagnostics,
+    }
+    output_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Generate scheduling schemes with GA + LightGBM.")
     parser.add_argument("--model", type=Path, default=MODEL_PATH, help="Trained LightGBM model path.")
@@ -1069,6 +1509,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--random-seed", type=int, default=42, help="Base random seed for variant generation.")
     parser.add_argument("--policy", default=DEFAULT_POLICY, choices=list(POLICY_PROFILES.keys()), help="Generation policy profile.")
     parser.add_argument("--policy-params", default=None, help="JSON string of custom policy weights to override preset values.")
+    parser.add_argument("--generation-config", default=None, help="JSON task generation config snapshot from allocation_task_generation_config.")
     parser.add_argument("--teacher-penalties", type=Path, required=True, help="Teacher penalty JSON prepared by Java orchestration.")
     parser.add_argument("--teaching-task-ids", default=None, help="Comma-separated teaching task IDs to schedule.")
     parser.add_argument("--start-week", type=int, default=None, help="Optional minimum week number.")
@@ -1088,16 +1529,24 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--distribution-penalty-scale", type=float, default=DEFAULT_DISTRIBUTION_PENALTY_SCALE)
     parser.add_argument("--classroom-stickiness-weight", type=float, default=DEFAULT_CLASSROOM_STICKINESS_WEIGHT)
     parser.add_argument("--compact-bonus-weight", type=float, default=DEFAULT_COMPACT_BONUS_WEIGHT)
+    parser.add_argument("--log-file", type=Path, default=None, help="Optional Python-side detailed log file path.")
     return parser.parse_args()
 
 
-def main() -> None:
-    args = parse_args()
-    if not args.model.exists():
-        raise FileNotFoundError(f"Model not found: {args.model}. Run train_lightgbm.py first.")
-    schema = load_schema(args.schema)
-    booster = lgb.Booster(model_file=str(args.model))
+def run_ga_pipeline(args: argparse.Namespace) -> dict[str, Any]:
+    """Run the full GA scheme generation pipeline.
+
+    Extracted from main() so both the CLI entry point and the FastAPI router
+    can share the same logic. Returns a dict with output paths and summary.
+    """
+    configure_python_log(args.log_file)
+    generation_config = load_generation_config(args.generation_config)
+    allowed_weeks = parse_int_set(generation_config.get("allowedWeeks"))
+    allowed_weekdays = parse_int_set(generation_config.get("allowedWeekdays"))
+    allowed_periods = parse_int_set(generation_config.get("allowedPeriods"))
+    booster, schema, scoring_mode = load_optional_lightgbm(args.model, args.schema)
     log_chain("排课方案生成链路启动", {
+        "scoring_mode": scoring_mode,
         "model_path": str(args.model),
         "schema_path": str(args.schema),
         "variant_count": args.variant_count,
@@ -1115,17 +1564,41 @@ def main() -> None:
         "start_week": args.start_week,
         "end_week": args.end_week,
         "exclude_weekends": args.exclude_weekends,
+        "allowed_weeks": sorted(allowed_weeks) if allowed_weeks else None,
+        "allowed_weekdays": sorted(allowed_weekdays) if allowed_weekdays else None,
+        "allowed_periods": sorted(allowed_periods) if allowed_periods else None,
+        "generation_config": generation_config or None,
+        "python_log_file": str(args.log_file) if args.log_file else None,
     })
 
+    load_started_at = perf_counter()
     db_config = load_db_config()
     with connect(db_config) as connection:
         tasks = fetch_tasks(connection)
         classrooms = fetch_classrooms(connection)
         time_slots = fetch_time_slots(connection)
         teacher_profiles = fetch_teacher_profiles(connection)
+    add_timing("load_data_time", load_started_at)
 
     tasks = filter_tasks(tasks, parse_teaching_task_ids(args.teaching_task_ids))
-    time_slots = filter_time_slots(time_slots, args.start_week, args.end_week)
+    before_config_time_slot_count = len(time_slots)
+    time_slots = filter_time_slots(
+        time_slots,
+        args.start_week,
+        args.end_week,
+        allowed_weeks=allowed_weeks,
+        allowed_weekdays=allowed_weekdays,
+        allowed_periods=allowed_periods,
+    )
+    if allowed_weeks or allowed_weekdays or allowed_periods:
+        log_chain("生成配置时间片硬约束生效", {
+            "before_time_slot_count": before_config_time_slot_count,
+            "after_time_slot_count": len(time_slots),
+            "removed_time_slot_count": before_config_time_slot_count - len(time_slots),
+            "allowed_weeks": sorted(allowed_weeks) if allowed_weeks else None,
+            "allowed_weekdays": sorted(allowed_weekdays) if allowed_weekdays else None,
+            "allowed_periods": sorted(allowed_periods) if allowed_periods else None,
+        })
     if args.exclude_weekends:
         before_count = len(time_slots)
         time_slots = [slot for slot in time_slots if int(slot["day_of_week"]) < 6]
@@ -1160,18 +1633,18 @@ def main() -> None:
     teacher_penalties = load_teacher_penalties(args.teacher_penalties)
     log_chain("教师画像惩罚由编排层提供", summarize_teacher_penalties(teacher_penalties))
 
-    custom_params = None
+    custom_params = policy_overrides_from_config(generation_config)
     if args.policy_params:
-        custom_params = json.loads(args.policy_params)
+        custom_params.update(json.loads(args.policy_params))
     policy = load_policy(args.policy, custom_params)
     fitness_kwargs = {
         "predicted_score_weight": args.predicted_score_weight,
         "rule_score_weight": args.rule_score_weight,
         "hard_conflict_penalty": args.hard_conflict_penalty,
-        "teacher_profile_penalty_scale": args.teacher_profile_penalty_scale,
-        "distribution_penalty_scale": args.distribution_penalty_scale,
-        "classroom_stickiness_weight": args.classroom_stickiness_weight,
-        "compact_bonus_weight": args.compact_bonus_weight,
+        "teacher_profile_penalty_scale": config_float(generation_config, "teacherProfilePenaltyScale", args.teacher_profile_penalty_scale),
+        "distribution_penalty_scale": config_float(generation_config, "distributionPenaltyScale", args.distribution_penalty_scale),
+        "classroom_stickiness_weight": config_float(generation_config, "classroomStickinessWeight", args.classroom_stickiness_weight),
+        "compact_bonus_weight": config_float(generation_config, "compactBonusWeight", args.compact_bonus_weight),
     }
     log_chain("策略权重与 GA 适应度参数生效", {
         "policy": args.policy,
@@ -1203,12 +1676,21 @@ def main() -> None:
         )
         write_scheme(rows, args.output)
         write_teacher_penalties(teacher_penalties, args.output.parent / TEACHER_PENALTIES_FILENAME)
-        (args.output.parent / "ga_summary.json").write_text(json.dumps(metrics, ensure_ascii=False, indent=2), encoding="utf-8")
-        log_chain("单方案生成完成", {"output_path": str(args.output), **summarize_scheme(rows, tasks, args.max_tasks), "fitness": metrics.get("fitness")})
+        ga_summary_path = args.output.parent / "ga_summary.json"
+        ga_summary_path.write_text(json.dumps(metrics, ensure_ascii=False, indent=2), encoding="utf-8")
+        write_candidate_diagnostics(args.output.parent / "candidate_diagnostics.json")
+        log_chain("单方案生成完成", {"output_path": str(args.output), **summarize_scheme(rows, tasks, args.max_tasks), **summarize_metrics(metrics), "timings_ms": dict(RUN_TIMINGS)})
         print_summary(rows, tasks, args.max_tasks)
         print(f"Output -> {args.output}")
         print(f"Teacher penalties -> {args.output.parent / TEACHER_PENALTIES_FILENAME}")
-        return
+        return {
+            "output_dir": str(args.output.parent),
+            "scheme_count": 1,
+            "schemes": [{"scheme_no": 1, "output_path": str(args.output), **summarize_scheme(rows, tasks, args.max_tasks), **summarize_metrics(metrics)}],
+            "ga_summary_path": str(ga_summary_path),
+            "candidate_diagnostics_path": str(args.output.parent / "candidate_diagnostics.json"),
+            "timings_ms": dict(RUN_TIMINGS),
+        }
 
     summary_rows: list[dict[str, Any]] = []
     args.output_dir.mkdir(parents=True, exist_ok=True)
@@ -1238,15 +1720,30 @@ def main() -> None:
         )
         write_scheme(rows, output_path)
         summary = summarize_scheme(rows, tasks, args.max_tasks)
-        summary_rows.append({"scheme_no": scheme_no, "output_path": str(output_path), **summary, "fitness": metrics.get("fitness")})
+        summary_rows.append({"scheme_no": scheme_no, "output_path": str(output_path), **summary, **summarize_metrics(metrics)})
 
     summary_path = args.output_dir / "summary.csv"
     ga_summary_path = args.output_dir / "ga_summary.json"
     write_summary(summary_rows, summary_path)
-    ga_summary_path.write_text(json.dumps({"schemes": summary_rows}, ensure_ascii=False, indent=2), encoding="utf-8")
-    log_chain("多方案生成完成", {"summary_rows": summary_rows, "summary_path": str(summary_path), "ga_summary_path": str(ga_summary_path)})
+    ga_summary_path.write_text(json.dumps({"schemes": summary_rows, "timings_ms": dict(RUN_TIMINGS)}, ensure_ascii=False, indent=2), encoding="utf-8")
+    write_candidate_diagnostics(args.output_dir / "candidate_diagnostics.json")
+    log_chain("多方案生成完成", {"summary_rows": summary_rows, "summary_path": str(summary_path), "ga_summary_path": str(ga_summary_path), "candidate_diagnostics_path": str(args.output_dir / "candidate_diagnostics.json"), "timings_ms": dict(RUN_TIMINGS)})
     print(f"Generated {len(summary_rows)} scheme variants -> {args.output_dir}")
     print(f"Summary -> {summary_path}")
+    return {
+        "output_dir": str(args.output_dir),
+        "scheme_count": len(summary_rows),
+        "schemes": summary_rows,
+        "ga_summary_path": str(ga_summary_path),
+        "candidate_diagnostics_path": str(args.output_dir / "candidate_diagnostics.json"),
+        "timings_ms": dict(RUN_TIMINGS),
+    }
+
+
+def main() -> None:
+    """CLI entry point — parse args then delegate to run_ga_pipeline."""
+    args = parse_args()
+    run_ga_pipeline(args)
 
 
 if __name__ == "__main__":

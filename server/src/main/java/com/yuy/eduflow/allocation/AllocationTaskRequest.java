@@ -9,6 +9,7 @@ public record AllocationTaskRequest(
 	Integer endWeek,
 	String status,
 	String createdBy,
-	List<Long> teachingTaskIds
+	List<Long> teachingTaskIds,
+	AllocationTaskGenerationConfigRequest generationConfig
 ) {
 }

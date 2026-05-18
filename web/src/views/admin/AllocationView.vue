@@ -6,6 +6,28 @@ import { ActiveStatus, SchemeStatus } from "@/constants/status.js";
 
 const tasks = ref([]);
 const taskDialog = ref(false);
+const defaultGenerationConfig = () => ({
+  allowedWeeks: Array.from({ length: 18 }, (_, index) => index + 1),
+  allowedWeekdays: [1, 2, 3, 4, 5],
+  allowedPeriods: [1, 2, 3, 4],
+  schemeCount: 3,
+  teacherProfilePenaltyScale: 50,
+  distributionPenaltyScale: 5,
+  classroomStickinessWeight: 5,
+  compactBonusWeight: 0,
+  weekdayLoadPenalty: 0.008,
+  roomDayLoadPenalty: 0.005,
+  roomWeekLoadPenalty: 0.002,
+  taskDayLoadPenalty: 0.012,
+  earlyPeriodPenalty: 0.012,
+  latePeriodPenalty: 0.008,
+  randomJitter: 0.002,
+  classroomStickinessBonus: 0.006,
+  weekendPenalty: 0.01,
+  llmPrompt: "",
+  llmResultJson: "",
+});
+
 const taskForm = ref({
   id: null,
   name: "",
@@ -13,7 +35,26 @@ const taskForm = ref({
   startWeek: 1,
   endWeek: 18,
   teachingTaskIds: [],
+  generationConfig: defaultGenerationConfig(),
 });
+
+const weekOptions = Array.from({ length: 18 }, (_, index) => index + 1);
+const weekdayOptions = [
+  { label: '周一', value: 1 },
+  { label: '周二', value: 2 },
+  { label: '周三', value: 3 },
+  { label: '周四', value: 4 },
+  { label: '周五', value: 5 },
+  { label: '周六', value: 6 },
+  { label: '周日', value: 7 },
+];
+const periodOptions = [
+  { label: '第1节', value: 1 },
+  { label: '第2节', value: 2 },
+  { label: '第3节', value: 3 },
+  { label: '第4节', value: 4 },
+  { label: '第5节', value: 5 },
+];
 
 const schemes = ref([]);
 const schemeVisible = ref(false);
@@ -80,13 +121,16 @@ const PRESET_WEIGHTS = {
 };
 
 const weightLabels = {
+  teacher_profile_penalty_scale: '教师画像权重',
+  distribution_penalty_scale: '分布均衡权重',
+  classroom_stickiness_weight: '教室粘性权重',
+  compact_bonus_weight: '紧凑奖励权重',
   weekday_load_penalty: '星期均衡惩罚',
   room_day_load_penalty: '教室日负载',
   room_week_load_penalty: '教室周负载',
   task_day_load_penalty: '单日集中惩罚',
   early_period_penalty: '早课惩罚',
   late_period_penalty: '晚课惩罚',
-  compact_bonus_weight: '紧凑奖励',
   random_jitter: '随机扰动',
   classroom_stickiness_bonus: '教室粘性奖励',
   weekend_penalty: '周末惩罚',
@@ -99,6 +143,9 @@ const weightDescs = {
   task_day_load_penalty: '同一教学任务集中在同一天的惩罚',
   early_period_penalty: '安排在早课（第1-2节）的惩罚，强避免可拉高到 0.1+',
   late_period_penalty: '安排在晚课（第4-5节）的惩罚，强避免可拉高到 0.08+',
+  teacher_profile_penalty_scale: '教师画像软偏好的整体影响强度',
+  distribution_penalty_scale: '课表分布均衡的整体影响强度',
+  classroom_stickiness_weight: '同一教学任务尽量固定教室，也会偏好原绑定教室',
   compact_bonus_weight: '压缩在更少天数完成的奖励',
   random_jitter: '随机扰动，打破重复模式的微小噪声',
   classroom_stickiness_bonus: '同一教学任务保持在同教室的奖励，越大越不换教室',
@@ -106,13 +153,29 @@ const weightDescs = {
 };
 
 const weightMax = {
+  teacherProfilePenaltyScale: 100,
+  distributionPenaltyScale: 20,
+  classroomStickinessWeight: 20,
+  compactBonusWeight: 10,
+  weekdayLoadPenalty: 0.05,
+  roomDayLoadPenalty: 0.06,
+  roomWeekLoadPenalty: 0.03,
+  taskDayLoadPenalty: 0.08,
+  earlyPeriodPenalty: 0.15,
+  latePeriodPenalty: 0.12,
+  randomJitter: 0.01,
+  classroomStickinessBonus: 0.05,
+  weekendPenalty: 0.35,
+  teacher_profile_penalty_scale: 100,
+  distribution_penalty_scale: 20,
+  classroom_stickiness_weight: 20,
+  compact_bonus_weight: 10,
   weekday_load_penalty: 0.05,
   room_day_load_penalty: 0.06,
   room_week_load_penalty: 0.03,
   task_day_load_penalty: 0.08,
   early_period_penalty: 0.15,
   late_period_penalty: 0.12,
-  compact_bonus_weight: 0.05,
   random_jitter: 0.01,
   classroom_stickiness_bonus: 0.05,
   weekend_penalty: 0.35,
@@ -129,6 +192,80 @@ const policyMode = ref('preset'); // 'preset' | 'custom'
 const activePolicy = ref('BALANCED');
 
 const teachingTasks = ref([]);
+
+function csvToNumberArray(value, fallback) {
+  if (!value) return [...fallback];
+  return String(value)
+    .split(',')
+    .map(item => Number(item.trim()))
+    .filter(item => Number.isFinite(item));
+}
+
+function numberArrayToCsv(value) {
+  return [...(value || [])].sort((a, b) => a - b).join(',');
+}
+
+function normalizeGenerationConfig(rawConfig = {}) {
+  const defaults = defaultGenerationConfig();
+  return {
+    ...defaults,
+    ...rawConfig,
+    allowedWeeks: csvToNumberArray(rawConfig.allowedWeeks, defaults.allowedWeeks),
+    allowedWeekdays: csvToNumberArray(rawConfig.allowedWeekdays, defaults.allowedWeekdays),
+    allowedPeriods: csvToNumberArray(rawConfig.allowedPeriods, defaults.allowedPeriods),
+  };
+}
+
+function serializeGenerationConfig(config) {
+  return {
+    ...config,
+    allowedWeeks: numberArrayToCsv(config.allowedWeeks),
+    allowedWeekdays: numberArrayToCsv(config.allowedWeekdays),
+    allowedPeriods: numberArrayToCsv(config.allowedPeriods),
+  };
+}
+
+function presetToGenerationConfigWeights(preset) {
+  const weights = PRESET_WEIGHTS[preset] || PRESET_WEIGHTS.BALANCED;
+  return {
+    weekdayLoadPenalty: weights.weekday_load_penalty,
+    roomDayLoadPenalty: weights.room_day_load_penalty,
+    roomWeekLoadPenalty: weights.room_week_load_penalty,
+    taskDayLoadPenalty: weights.task_day_load_penalty,
+    earlyPeriodPenalty: weights.early_period_penalty,
+    latePeriodPenalty: weights.late_period_penalty,
+    compactBonusWeight: weights.compact_bonus_weight,
+    randomJitter: weights.random_jitter,
+    classroomStickinessBonus: weights.classroom_stickiness_bonus,
+    weekendPenalty: weights.weekend_penalty,
+  };
+}
+
+function applyPresetToTaskConfig(preset) {
+  const config = taskForm.value.generationConfig;
+  taskForm.value.generationConfig = {
+    ...config,
+    ...presetToGenerationConfigWeights(preset),
+  };
+}
+
+const generationWeightFields = [
+  ['teacherProfilePenaltyScale', '教师画像权重'],
+  ['distributionPenaltyScale', '分布均衡权重'],
+  ['classroomStickinessWeight', '教室粘性权重'],
+  ['compactBonusWeight', '紧凑奖励权重'],
+  ['weekdayLoadPenalty', '星期均衡惩罚'],
+  ['roomDayLoadPenalty', '教室日负载'],
+  ['roomWeekLoadPenalty', '教室周负载'],
+  ['taskDayLoadPenalty', '单日集中惩罚'],
+  ['earlyPeriodPenalty', '早课惩罚'],
+  ['latePeriodPenalty', '晚课惩罚'],
+  ['randomJitter', '随机扰动'],
+  ['classroomStickinessBonus', '教室粘性奖励'],
+  ['weekendPenalty', '周末惩罚'],
+];
+
+const taskPolicyPreset = ref('BALANCED');
 
 async function loadTasks() {
   tasks.value = await request.get("/api/allocation-tasks");
@@ -152,7 +289,9 @@ function openTaskDialog(row) {
       teachingTaskIds: row.teachingTasks
         ? row.teachingTasks.map((tt) => tt.id)
         : [],
+      generationConfig: normalizeGenerationConfig(row.generationConfig),
     };
+    taskPolicyPreset.value = 'BALANCED';
   } else {
     taskForm.value = {
       id: null,
@@ -161,7 +300,9 @@ function openTaskDialog(row) {
       startWeek: 1,
       endWeek: 18,
       teachingTaskIds: [],
+      generationConfig: defaultGenerationConfig(),
     };
+    taskPolicyPreset.value = 'BALANCED';
   }
   taskDialog.value = true;
   // 对话框渲染后恢复表格勾选状态
@@ -207,7 +348,10 @@ async function saveTask() {
     ElMessage.warning("请至少选择一个教学任务");
     return;
   }
-  const payload = { ...taskForm.value };
+  const payload = {
+    ...taskForm.value,
+    generationConfig: serializeGenerationConfig(taskForm.value.generationConfig),
+  };
   if (payload.id) {
     await request.put(`/api/allocation-tasks/${payload.id}`, payload);
   } else {
@@ -248,12 +392,8 @@ async function generateSchemes(taskId) {
   genStatus.value = { stage: "running", status: "RUNNING", message: "开始生成..." };
   currentTaskId.value = taskId;
 
-  const params = new URLSearchParams({ schemeCount: schemeCount.value, policy: policy.value });
-  if (customWeights.value) {
-    params.append('policyParams', JSON.stringify(customWeights.value));
-  }
   try {
-    await request.post(`/api/allocation-tasks/${taskId}/generate-async?${params.toString()}`);
+    await request.post(`/api/allocation-tasks/${taskId}/generate-async`);
     startSse(taskId);
   } catch (e) {
     generating.value = false;
@@ -780,7 +920,7 @@ onUnmounted(() => {
             type="success"
             size="small"
             :disabled="generating"
-            @click="openPolicyDialog(row.id)"
+            @click="generateSchemes(row.id)"
           >
             {{ isGeneratingTask(row.id) ? (genStatus?.stage ? stageLabel(genStatus.stage) : '生成中...') : '生成方案' }}
           </el-button>
@@ -893,17 +1033,57 @@ onUnmounted(() => {
     <el-dialog
       v-model="taskDialog"
       :title="taskForm.id ? '编辑任务' : '新建任务'"
-      width="720px"
+      width="960px"
     >
       <el-form :model="taskForm" label-width="100px">
         <el-form-item label="任务名称">
           <el-input v-model="taskForm.name" />
         </el-form-item>
-        <el-form-item label="周次范围">
-          <div style="display: flex; gap: 8px; align-items: center">
-            <el-input-number v-model="taskForm.startWeek" :min="1" :max="18" />
-            <span>~</span>
-            <el-input-number v-model="taskForm.endWeek" :min="1" :max="18" />
+        <el-divider content-position="left">生成配置</el-divider>
+        <el-form-item label="生成方案数">
+          <el-input-number v-model="taskForm.generationConfig.schemeCount" :min="1" :max="5" />
+          <span style="margin-left: 8px; color: #909399; font-size: 12px">点击生成时按这里的数量生成候选方案</span>
+        </el-form-item>
+        <el-form-item label="周次多选">
+          <el-checkbox-group v-model="taskForm.generationConfig.allowedWeeks" style="display: flex; flex-wrap: wrap; gap: 4px 10px">
+            <el-checkbox v-for="week in weekOptions" :key="week" :value="week">{{ week }}</el-checkbox>
+          </el-checkbox-group>
+        </el-form-item>
+        <el-form-item label="星期多选">
+          <el-checkbox-group v-model="taskForm.generationConfig.allowedWeekdays">
+            <el-checkbox v-for="day in weekdayOptions" :key="day.value" :value="day.value">{{ day.label }}</el-checkbox>
+          </el-checkbox-group>
+        </el-form-item>
+        <el-form-item label="节次多选">
+          <el-checkbox-group v-model="taskForm.generationConfig.allowedPeriods">
+            <el-checkbox v-for="period in periodOptions" :key="period.value" :value="period.value">{{ period.label }}</el-checkbox>
+          </el-checkbox-group>
+        </el-form-item>
+        <el-form-item label="策略预设">
+          <el-radio-group v-model="taskPolicyPreset" @change="applyPresetToTaskConfig">
+            <el-radio-button v-for="opt in policyOptions" :key="opt.value" :value="opt.value">{{ opt.label }}</el-radio-button>
+          </el-radio-group>
+        </el-form-item>
+        <el-form-item label="软权重">
+          <div style="display: grid; grid-template-columns: repeat(2, minmax(240px, 1fr)); gap: 8px; width: 100%">
+            <div
+              v-for="([key, label]) in generationWeightFields"
+              :key="key"
+              :title="weightDescs[key] || key"
+              style="display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 6px 8px; border: 1px solid #ebeef5; border-radius: 6px"
+            >
+              <span style="font-size: 12px; color: #606266">{{ label }}</span>
+              <el-input-number
+                v-model="taskForm.generationConfig[key]"
+                :min="0"
+                :max="weightMax[key] || 100"
+                :step="key.toLowerCase().includes('scale') || key.includes('Weight') ? 1 : 0.001"
+                :precision="key.toLowerCase().includes('scale') || key.includes('Weight') ? 2 : 3"
+                size="small"
+                controls-position="right"
+                style="width: 120px"
+              />
+            </div>
           </div>
         </el-form-item>
         <el-form-item label="教学任务">
