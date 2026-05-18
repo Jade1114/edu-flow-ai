@@ -209,6 +209,8 @@ def log_chain(message: str, payload: Any | None = None) -> None:
         timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")[:-3]
         with PYTHON_LOG_FILE.open("a", encoding="utf-8") as file:
             file.write(f"{timestamp} {line}\n")
+    # Also persist to persistent service log
+    ml_logger.service.info("%s %s", LOG_PREFIX, line)
 
 
 def load_schema(schema_path: Path) -> dict[str, Any]:
@@ -1513,13 +1515,18 @@ def summarize_metrics(metrics: dict[str, Any]) -> dict[str, Any]:
 
 def print_summary(rows: list[dict[str, Any]], tasks: list[dict[str, Any]], max_tasks: int | None) -> None:
     summary = summarize_scheme(rows, tasks, max_tasks)
-    print("Generated model-driven scheduling demo")
-    print(f"Tasks: {summary['tasks']}")
-    print(f"Expected fragments: {summary['expected_fragments']}")
-    print(f"Generated fragments: {summary['generated_fragments']}")
-    print(f"Hard-conflict fragments: {summary['hard_conflict_fragments']}")
-    print(f"Average predicted score: {summary['avg_predicted_score']:.4f}")
-    print(f"Average rule score: {summary['avg_rule_score']:.4f}")
+    lines = [
+        "Generated model-driven scheduling demo",
+        f"Tasks: {summary['tasks']}",
+        f"Expected fragments: {summary['expected_fragments']}",
+        f"Generated fragments: {summary['generated_fragments']}",
+        f"Hard-conflict fragments: {summary['hard_conflict_fragments']}",
+        f"Average predicted score: {summary['avg_predicted_score']:.4f}",
+        f"Average rule score: {summary['avg_rule_score']:.4f}",
+    ]
+    for l in lines:
+        print(l)
+        ml_logger.service.info("SCHEDULE %s", l)
 
 
 def write_summary(rows: list[dict[str, Any]], output_path: Path) -> None:
