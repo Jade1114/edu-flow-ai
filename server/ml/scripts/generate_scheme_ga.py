@@ -1794,7 +1794,7 @@ def run_ga_pipeline_by_task(
     write_teacher_penalties(teacher_penalties, teacher_penalties_path)
 
     seed = random_seed if random_seed is not None else int(task_id % 1_000_000)
-    args = Namespace(
+    args = argparse.Namespace(
         model=model_path,
         schema=schema_path,
         output=output_dir / "scheme_001.csv",
