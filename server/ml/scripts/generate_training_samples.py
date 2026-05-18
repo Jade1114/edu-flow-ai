@@ -160,9 +160,17 @@ def connect(config: DbConfig):
 
 
 def fetch_all(connection, sql: str, params: tuple | None = None) -> list[dict[str, Any]]:
-    with connection.cursor() as cursor:
-        cursor.execute(sql, params)
-        return list(cursor.fetchall())
+    try:
+        with connection.cursor() as cursor:
+            cursor.execute(sql, params)
+            return list(cursor.fetchall())
+    except Exception as exc:
+        # Print a one-liner with the failing SQL so it shows in the GA log chain
+        import sys as _sys
+        preview = " ".join(sql.split())[:120]
+        print(f"[SCHEDULE-CHAIN] DB error: {preview} | params={params} | {type(exc).__name__}: {exc}",
+              file=_sys.stderr, flush=True)
+        raise
 
 
 def fetch_tasks(connection) -> list[dict[str, Any]]:
@@ -298,7 +306,7 @@ def fetch_task_teaching_task_ids(connection, task_id: int) -> list[int]:
     """Get teaching task ids bound to an allocation task."""
     rows = fetch_all(
         connection,
-        "SELECT teaching_task_id FROM allocation_task_teaching_task WHERE task_id = %s",
+        "SELECT teaching_task_id FROM allocation_task_teaching_task WHERE allocation_task_id = %s",
         (task_id,),
     )
     return [int(row["teaching_task_id"]) for row in rows]

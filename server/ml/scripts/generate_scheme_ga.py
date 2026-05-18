@@ -1593,8 +1593,11 @@ def _call_llm(prompt: str, config: dict[str, str]) -> str:
         choices = result.get("choices", [])
         if not choices:
             raise ValueError(f"LLM response has no choices: {result}")
-        return choices[0]["message"]["content"]
+        content = choices[0]["message"]["content"]
+        log_chain("LLM API 调用成功", {"model": config.get("model"), "input_tokens": len(prompt), "response_length": len(content)})
+        return content
     except Exception as exc:
+        log_chain("LLM API 调用失败", {"model": config.get("model"), "error": str(exc)})
         raise ValueError(f"LLM API call failed: {exc}") from exc
 
 
@@ -1733,23 +1736,33 @@ def run_ga_pipeline_by_task(
     effective_db = db_config or load_db_config()
     with connect(effective_db) as connection:
         # 1. Verify task exists
+        log_chain("DB: 查询排课任务", {"task_id": task_id})
         allocation_task = fetch_allocation_task(connection, task_id)
         if allocation_task is None:
             raise ValueError(f"Allocation task {task_id} not found")
+        log_chain("DB: 排课任务存在", {"task_id": task_id, "name": allocation_task.get("name")})
 
         # 2. Get bound teaching task IDs
+        log_chain("DB: 查询教学任务关联", {"task_id": task_id})
         teaching_task_ids = fetch_task_teaching_task_ids(connection, task_id)
         if not teaching_task_ids:
             raise ValueError(f"No teaching tasks bound to allocation task {task_id}")
+        log_chain("DB: 教学任务关联", {"task_id": task_id, "teaching_task_count": len(teaching_task_ids)})
 
         # 3. Get generation config (optional — uses defaults if missing)
+        log_chain("DB: 查询生成配置", {"task_id": task_id})
         raw_config = fetch_generation_config(connection, task_id)
+        log_chain("DB: 生成配置", {"task_id": task_id, "found": raw_config is not None})
 
         # 4. Load base data
         tasks = fetch_tasks(connection)
         classrooms = fetch_classrooms(connection)
         time_slots = fetch_time_slots(connection)
         teacher_profiles = fetch_teacher_profiles(connection)
+        log_chain("DB: 基础数据加载完成", {
+            "tasks": len(tasks), "classrooms": len(classrooms),
+            "time_slots": len(time_slots), "teacher_profiles": len(teacher_profiles),
+        })
 
     # Build generation config JSON (mirrors Java's toGenerationConfigJson)
     generation_config_json = _build_generation_config_json(raw_config) if raw_config else None
