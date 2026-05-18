@@ -25,7 +25,6 @@ public class AllocationSchemeGenerationService {
 	private final ConflictCheckResultMapper conflictCheckResultMapper;
 	private final AllocationSchemeConflictDetector conflictDetector;
 	private final TeachingTaskMapper teachingTaskMapper;
-	private final AllocationTaskGenerationConfigMapper generationConfigMapper;
 
 	public AllocationSchemeGenerationService(
 		AllocationMlSchemeService allocationMlSchemeService,
@@ -33,8 +32,7 @@ public class AllocationSchemeGenerationService {
 		AllocationItemMapper allocationItemMapper,
 		ConflictCheckResultMapper conflictCheckResultMapper,
 		AllocationSchemeConflictDetector conflictDetector,
-		TeachingTaskMapper teachingTaskMapper,
-		AllocationTaskGenerationConfigMapper generationConfigMapper
+		TeachingTaskMapper teachingTaskMapper
 	) {
 		this.allocationMlSchemeService = allocationMlSchemeService;
 		this.allocationSchemeMapper = allocationSchemeMapper;
@@ -42,7 +40,6 @@ public class AllocationSchemeGenerationService {
 		this.conflictCheckResultMapper = conflictCheckResultMapper;
 		this.conflictDetector = conflictDetector;
 		this.teachingTaskMapper = teachingTaskMapper;
-		this.generationConfigMapper = generationConfigMapper;
 	}
 
 	public AllocationGenerateResult generateSchemes(Long taskId) {
@@ -66,7 +63,7 @@ public class AllocationSchemeGenerationService {
 			int baseProgress = 75 + Math.round((i * 15f) / Math.max(parsedSchemes.size(), 1));
 			progressReporter.accept(running("persist", "保存候选方案 " + (i + 1) + "/" + parsedSchemes.size() + "...", baseProgress));
 			log.info("Persisting scheme [{}]...", parsedScheme.schemeName());
-			AllocationScheme scheme = persistScheme(taskId, parsedScheme, policyParams);
+			AllocationScheme scheme = persistScheme(taskId, parsedScheme);
 			log.info("Scheme persisted: id={}, name={}", scheme.getId(), scheme.getSchemeName());
 			List<AllocationItem> items = persistItems(scheme.getId(), parsedScheme.items());
 			log.info("Persisted {} items for scheme id={}", items.size(), scheme.getId());
@@ -90,31 +87,18 @@ public class AllocationSchemeGenerationService {
 		return new GenerationStatus("RUNNING", stage, message, progress, null, 0, null);
 	}
 
-	private Integer resolveSchemeCount(Long taskId, Integer requestSchemeCount) {
-		if (requestSchemeCount != null && requestSchemeCount > 0) {
-			return requestSchemeCount;
-		}
-		AllocationTaskGenerationConfig config = generationConfigMapper.findByTaskId(taskId);
-		if (config != null && config.getSchemeCount() != null && config.getSchemeCount() > 0) {
-			return config.getSchemeCount();
-		}
-		return null;
-	}
-
 	private List<AllocationParsedScheme> safeSchemes(AllocationGenerationPreview generationPreview) {
 		return generationPreview.schemes() == null ? List.of() : generationPreview.schemes();
 	}
 
-	private AllocationScheme persistScheme(Long taskId, AllocationParsedScheme parsedScheme, String policyParams) {
+	private AllocationScheme persistScheme(Long taskId, AllocationParsedScheme parsedScheme) {
 		AllocationScheme scheme = new AllocationScheme();
 		scheme.setTaskId(taskId);
 		scheme.setSchemeName(parsedScheme.schemeName());
 		scheme.setSummary(parsedScheme.summary());
 		scheme.setSchemeScore(parsedScheme.schemeScore());
 		scheme.setEvaluationSummary(parsedScheme.evaluationSummary());
-		boolean customPolicy = policyParams != null && !policyParams.isBlank();
-		scheme.setPolicy(customPolicy ? "CUSTOM" : parsedScheme.policy());
-		scheme.setPolicyParams(customPolicy ? policyParams : null);
+		scheme.setPolicy(parsedScheme.policy());
 		scheme.setModelVersion(parsedScheme.modelVersion());
 		scheme.setConflictSummary(null);
 		scheme.setValid(true);

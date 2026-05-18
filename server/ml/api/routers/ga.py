@@ -17,7 +17,7 @@ from fastapi.responses import JSONResponse
 import ml_logger
 
 from .. import task_store
-from ..schemas import GenerateSchemeRequest, TaskInfo, TaskStatusResponse
+from ..schemas import GenerateSchemeRequest, TaskStatusResponse
 
 router = APIRouter(tags=["ga"])
 

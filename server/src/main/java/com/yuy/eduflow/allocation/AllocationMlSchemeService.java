@@ -4,15 +4,12 @@ import com.yuy.eduflow.common.exception.BusinessException;
 import com.yuy.eduflow.common.exception.ResourceNotFoundException;
 import com.yuy.eduflow.common.exception.ValidationException;
 import com.yuy.eduflow.ml.MlApiClient;
-import com.yuy.eduflow.ml.MlFeedbackTrainingMapper;
 import java.io.BufferedReader;
 import java.io.IOException;
 import java.math.BigDecimal;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.time.LocalDateTime;
-import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashMap;
@@ -29,31 +26,19 @@ import tools.jackson.databind.ObjectMapper;
 @Service
 public class AllocationMlSchemeService {
 
-	private static final int DEFAULT_VARIANT_COUNT = 3;
-	private static final int DEFAULT_CANDIDATE_POOL_SIZE = 500;
 	private static final String DEFAULT_POLICY = "BALANCED";
-	private static final DateTimeFormatter RUN_ID_FORMATTER = DateTimeFormatter.ofPattern("yyyyMMddHHmmssSSS");
 
 	private final AllocationTaskMapper allocationTaskMapper;
-	private final AllocationTaskGenerationConfigMapper generationConfigMapper;
 	private final ObjectMapper objectMapper;
-	private final TeacherPenaltyResolver teacherPenaltyResolver;
-	private final MlFeedbackTrainingMapper feedbackTrainingMapper;
 	private final MlApiClient mlApiClient;
 
 	public AllocationMlSchemeService(
 		AllocationTaskMapper allocationTaskMapper,
-		AllocationTaskGenerationConfigMapper generationConfigMapper,
 		ObjectMapper objectMapper,
-		TeacherPenaltyResolver teacherPenaltyResolver,
-		MlFeedbackTrainingMapper feedbackTrainingMapper,
 		MlApiClient mlApiClient
 	) {
 		this.allocationTaskMapper = allocationTaskMapper;
-		this.generationConfigMapper = generationConfigMapper;
 		this.objectMapper = objectMapper;
-		this.teacherPenaltyResolver = teacherPenaltyResolver;
-		this.feedbackTrainingMapper = feedbackTrainingMapper;
 		this.mlApiClient = mlApiClient;
 	}
 
@@ -71,9 +56,9 @@ public class AllocationMlSchemeService {
 		// Python reads everything from DB and generates output_dir internally
 		Path outputDir = runModelScript(task, progressReporter);
 		progressReporter.accept(running("eval", "自训练模型评估方案质量...", 62));
-		runEvaluator(mlDir, outputDir);
+		runEvaluator(outputDir);
 		progressReporter.accept(running("parse", "解析评估后的 CSV 方案...", 68));
-		String resolvedPolicy = policyOrDefault(policy);
+		String resolvedPolicy = policyOrDefault(null);
 		List<AllocationParsedScheme> schemes;
 		try {
 			schemes = parseGeneratedSchemes(outputDir, resolvedPolicy);
@@ -96,7 +81,6 @@ public class AllocationMlSchemeService {
 		AllocationTask task,
 		Consumer<GenerationStatus> progressReporter
 	) {
-		// Build minimal request — Python reads everything from DB via task_id
 		Map<String, Object> requestBody = new LinkedHashMap<>();
 		requestBody.put("task_id", task.getId());
 
@@ -121,153 +105,8 @@ public class AllocationMlSchemeService {
 		}
 	}
 
-	private AllocationTaskGenerationConfig resolveGenerationConfig(Long taskId, Integer requestSchemeCount) {
-		AllocationTaskGenerationConfig config = generationConfigMapper.findByTaskId(taskId);
-		if (config == null) {
-			config = defaultGenerationConfig(taskId);
-		}
-		if (requestSchemeCount != null && requestSchemeCount > 0) {
-			config.setSchemeCount(normalizedVariantCount(requestSchemeCount));
-		}
-		return config;
-	}
-
-	private AllocationTaskGenerationConfig defaultGenerationConfig(Long taskId) {
-		AllocationTaskGenerationConfig config = new AllocationTaskGenerationConfig();
-		config.setTaskId(taskId);
-		config.setAllowedWeeks("1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18");
-		config.setAllowedWeekdays("1,2,3,4,5");
-		config.setAllowedPeriods("1,2,3,4");
-		config.setSchemeCount(DEFAULT_VARIANT_COUNT);
-		config.setTeacherProfilePenaltyScale(new BigDecimal("50.0000"));
-		config.setDistributionPenaltyScale(new BigDecimal("5.0000"));
-		config.setClassroomStickinessWeight(new BigDecimal("5.0000"));
-		config.setCompactBonusWeight(new BigDecimal("0.0000"));
-		config.setWeekdayLoadPenalty(new BigDecimal("0.008000"));
-		config.setRoomDayLoadPenalty(new BigDecimal("0.005000"));
-		config.setRoomWeekLoadPenalty(new BigDecimal("0.002000"));
-		config.setTaskDayLoadPenalty(new BigDecimal("0.012000"));
-		config.setEarlyPeriodPenalty(new BigDecimal("0.012000"));
-		config.setLatePeriodPenalty(new BigDecimal("0.008000"));
-		config.setRandomJitter(new BigDecimal("0.002000"));
-		config.setClassroomStickinessBonus(new BigDecimal("0.006000"));
-		config.setWeekendPenalty(new BigDecimal("0.010000"));
-		return config;
-	}
-
-	private String toGenerationConfigJson(AllocationTaskGenerationConfig config) {
-		try {
-			return objectMapper.writeValueAsString(config);
-		} catch (Exception exception) {
-			throw new BusinessException(500, "生成配置序列化失败：" + exception.getMessage(), exception);
-		}
-	}
-
-	private void writeTeacherPenalties(List<AllocationTaskTeachingTaskResult> teachingTasks, Path outputPath) throws IOException {
-		Map<String, Object> payload = teacherPenaltyResolver.resolve(teachingTasks);
-		String payloadJson = objectMapper.writeValueAsString(payload);
-		Files.createDirectories(outputPath.getParent());
-		Files.writeString(outputPath, payloadJson, StandardCharsets.UTF_8);
-		log.info("Teacher penalties prepared by Java: path={}, json={}", outputPath, payloadJson);
-	}
-
-	private ModelArtifacts preferredModelArtifacts(Path mlDir) {
-		Map<String, Object> latestTraining = feedbackTrainingMapper.findLatestTrainingLog();
-		ModelArtifacts trainedArtifacts = resolveLatestTrainingArtifacts(latestTraining);
-		if (trainedArtifacts != null) {
-			log.info("ML model artifacts selected from latest successful training: model={}, schema={}", trainedArtifacts.modelPath(), trainedArtifacts.schemaPath());
-			return trainedArtifacts;
-		}
-		Path fallbackModel = mlDir.resolve("models/schedule_ranker_v1.txt");
-		Path fallbackSchema = mlDir.resolve("data/feature_schema.json");
-		if (Files.exists(fallbackModel) && Files.exists(fallbackSchema)) {
-			log.info("ML model artifacts selected from initial model fallback: model={}, schema={}", fallbackModel, fallbackSchema);
-		} else {
-			log.info("No LightGBM model artifacts found, GA will generate hard-feasible schemes with rule-score fallback: model={}, schema={}", fallbackModel, fallbackSchema);
-		}
-		return new ModelArtifacts(fallbackModel, fallbackSchema);
-	}
-
-	private ModelArtifacts resolveLatestTrainingArtifacts(Map<String, Object> latestTraining) {
-		if (latestTraining == null || latestTraining.isEmpty()) {
-			return null;
-		}
-		Object modelPathValue = latestTraining.get("modelPath");
-		if (modelPathValue == null) {
-			return null;
-		}
-		Path modelPath = Path.of(String.valueOf(modelPathValue));
-		Path schemaPath = resolveSchemaPathFromTraining(latestTraining, modelPath);
-		if (Files.exists(modelPath) && schemaPath != null && Files.exists(schemaPath)) {
-			return new ModelArtifacts(modelPath, schemaPath);
-		}
-		log.warn("Latest successful training artifacts missing, fallback to initial model: model={}, schema={}", modelPath, schemaPath);
-		return null;
-	}
-
-	private Path resolveSchemaPathFromTraining(Map<String, Object> latestTraining, Path modelPath) {
-		String metricsJson = latestTraining.get("metricsJson") == null ? null : String.valueOf(latestTraining.get("metricsJson"));
-		Path schemaFromMetrics = schemaPathFromMetrics(metricsJson);
-		if (schemaFromMetrics != null) {
-			return schemaFromMetrics;
-		}
-		String modelFileName = modelPath.getFileName().toString();
-		Path modelDir = modelPath.getParent();
-		Path mlDir = "feedback_versions".equals(modelDir.getFileName().toString())
-			? modelDir.getParent().getParent()
-			: modelDir.getParent();
-		Path dataDir = mlDir.resolve("data");
-		Path feedbackTrainingDir = dataDir.resolve("feedback_training");
-		if (modelFileName.startsWith("schedule_ranker_feedback_") && modelFileName.endsWith(".txt")) {
-			String suffix = modelFileName.substring("schedule_ranker_feedback_".length(), modelFileName.length() - ".txt".length());
-			Path nestedSchema = feedbackTrainingDir.resolve("feedback_feature_schema_" + suffix + ".json");
-			return Files.exists(nestedSchema) ? nestedSchema : dataDir.resolve("feedback_feature_schema_" + suffix + ".json");
-		}
-		Path nestedActiveSchema = feedbackTrainingDir.resolve("feedback_feature_schema.json");
-		return Files.exists(nestedActiveSchema) ? nestedActiveSchema : dataDir.resolve("feedback_feature_schema.json");
-	}
-
-	@SuppressWarnings("unchecked")
-	private Path schemaPathFromMetrics(String metricsJson) {
-		if (metricsJson == null || metricsJson.isBlank()) {
-			return null;
-		}
-		try {
-			Map<String, Object> payload = objectMapper.readValue(metricsJson, Map.class);
-			Object schemaPath = payload.get("schema_path");
-			if (schemaPath != null) {
-				return Path.of(String.valueOf(schemaPath));
-			}
-		} catch (Exception ex) {
-			log.warn("Failed to parse latest training metrics JSON for schema path: {}", ex.getMessage());
-		}
-		return null;
-	}
-
-	private record ModelArtifacts(Path modelPath, Path schemaPath) {}
-
-	private Path resolveMlDir() {
-		Path cwd = Path.of("").toAbsolutePath();
-		Path direct = cwd.resolve("ml");
-		if (Files.isDirectory(direct.resolve("scripts"))) {
-			return direct;
-		}
-		Path nested = cwd.resolve("server/ml");
-		if (Files.isDirectory(nested.resolve("scripts"))) {
-			return nested;
-		}
-		throw new BusinessException(500, "未找到 server/ml 目录，无法调用自训练模型");
-	}
-
-	private String resolvePythonExecutable(Path mlDir) {
-		Path venvPython = mlDir.resolve(".venv/bin/python");
-		if (Files.isExecutable(venvPython)) {
-			return venvPython.toString();
-		}
-		return "python3";
-	}
-
-	private void runEvaluator(Path mlDir, Path outputDir) {
+	private void runEvaluator(Path outputDir) {
+		Path mlDir = resolveMlDir();
 		List<String> command = new ArrayList<>();
 		command.add(resolvePythonExecutable(mlDir));
 		command.add("scripts/evaluate_scheme_demo.py");
@@ -308,6 +147,27 @@ public class AllocationMlSchemeService {
 		}
 	}
 
+	private Path resolveMlDir() {
+		Path cwd = Path.of("").toAbsolutePath();
+		Path direct = cwd.resolve("ml");
+		if (Files.isDirectory(direct.resolve("scripts"))) {
+			return direct;
+		}
+		Path nested = cwd.resolve("server/ml");
+		if (Files.isDirectory(nested.resolve("scripts"))) {
+			return nested;
+		}
+		throw new BusinessException(500, "未找到 server/ml 目录，无法调用自训练模型");
+	}
+
+	private String resolvePythonExecutable(Path mlDir) {
+		Path venvPython = mlDir.resolve(".venv/bin/python");
+		if (Files.isExecutable(venvPython)) {
+			return venvPython.toString();
+		}
+		return "python3";
+	}
+
 	private record EvaluationData(Double schemeScore, String evaluationSummary) {}
 
 	private EvaluationData loadEvaluation(Path outputDir, String schemeFileName) {
@@ -331,13 +191,6 @@ public class AllocationMlSchemeService {
 
 	private String policyOrDefault(String policy) {
 		return policy != null && !policy.isBlank() ? policy : DEFAULT_POLICY;
-	}
-
-	private int normalizedVariantCount(Integer schemeCount) {
-		if (schemeCount == null || schemeCount <= 0) {
-			return DEFAULT_VARIANT_COUNT;
-		}
-		return Math.min(Math.max(schemeCount, 1), 5);
 	}
 
 	private List<AllocationParsedScheme> parseGeneratedSchemes(Path outputDir, String policy) throws IOException {
