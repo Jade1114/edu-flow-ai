@@ -159,9 +159,9 @@ def connect(config: DbConfig):
     )
 
 
-def fetch_all(connection, sql: str) -> list[dict[str, Any]]:
+def fetch_all(connection, sql: str, params: tuple | None = None) -> list[dict[str, Any]]:
     with connection.cursor() as cursor:
-        cursor.execute(sql)
+        cursor.execute(sql, params)
         return list(cursor.fetchall())
 
 
@@ -286,6 +286,7 @@ def fetch_allocation_task(connection, task_id: int) -> dict[str, Any] | None:
     rows = fetch_all(
         connection,
         "SELECT id, name, status FROM allocation_task WHERE id = %s",
+        (task_id,),
     )
     for row in rows:
         if int(row["id"]) == task_id:
@@ -298,6 +299,7 @@ def fetch_task_teaching_task_ids(connection, task_id: int) -> list[int]:
     rows = fetch_all(
         connection,
         "SELECT teaching_task_id FROM allocation_task_teaching_task WHERE task_id = %s",
+        (task_id,),
     )
     return [int(row["teaching_task_id"]) for row in rows]
 
@@ -319,6 +321,7 @@ def fetch_generation_config(connection, task_id: int) -> dict[str, Any] | None:
         FROM allocation_task_generation_config
         WHERE task_id = %s
         """,
+        (task_id,),
     )
     if not rows:
         return None
