@@ -11,11 +11,15 @@ import argparse
 import csv
 import json
 import random
+import sys
 from collections import Counter
 from datetime import datetime
 from pathlib import Path
 from time import perf_counter
 from typing import Any, Optional
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+import ml_logger
 
 import lightgbm as lgb
 import numpy as np
@@ -628,14 +632,34 @@ def rank_candidates(
 ) -> list[dict[str, Any]]:
     if not candidates:
         return []
-    if booster is not None and schema is not None:
+    model_used = booster is not None and schema is not None
+    if model_used:
         features = build_features(candidates, schema)
         predictions = np.clip(booster.predict(features), 0.0, 1.0)
         for candidate, predicted_score in zip(candidates, predictions):
             candidate["predicted_score"] = float(predicted_score)
+        scores = [c["predicted_score"] for c in candidates]
+        ml_logger.scoring_batch(
+            task_id=int(candidates[0].get("teaching_task_id", 0)),
+            candidate_count=len(candidates),
+            score_mean=float(np.mean(scores)),
+            score_std=float(np.std(scores)),
+            score_min=float(np.min(scores)),
+            score_max=float(np.max(scores)),
+            model_used=True,
+        )
     else:
         for candidate in candidates:
             candidate["predicted_score"] = float(candidate.get("rule_score") or 0.0)
+        ml_logger.scoring_batch(
+            task_id=int(candidates[0].get("teaching_task_id", 0)),
+            candidate_count=len(candidates),
+            score_mean=float(np.mean([c["predicted_score"] for c in candidates])),
+            score_std=0.0,
+            score_min=float(np.min([c["predicted_score"] for c in candidates])),
+            score_max=float(np.max([c["predicted_score"] for c in candidates])),
+            model_used=False,
+        )
     apply_selection_scores(candidates, rng, policy, task_classroom_id, teacher_id, teacher_profiles)
 
     return sorted(
@@ -1051,6 +1075,16 @@ def build_candidate_pools(
         "build_duration_ms": round((perf_counter() - started_at) * 1000, 2),
         "skipped_infeasible_tasks": skipped_tasks,
     })
+    ml_logger.ga_pool_diagnostics({
+        "pool_count": len(pools),
+        "tasks": len(scoped_tasks),
+        "raw_candidate_count": total_raw_candidates,
+        "legal_candidate_count": total_legal_candidates,
+        "candidate_top_n": candidate_top_n,
+        "candidate_pool_size": candidate_pool_size,
+        "build_duration_ms": round((perf_counter() - started_at) * 1000, 2),
+        "skipped_infeasible_tasks": skipped_tasks,
+    })
     return pools
 
 
@@ -1332,15 +1366,25 @@ def evolve_population(
         ]
         scored.sort(key=lambda item: item["metrics"]["fitness"], reverse=True)
         if generation == 1 or generation == generations or generation % 10 == 0:
+            m = scored[0]["metrics"]
             log_chain("GA 迭代进度", {
                 "generation": generation,
-                "best_fitness": scored[0]["metrics"]["fitness"],
-                "best_hard_conflicts": scored[0]["metrics"].get("hard_conflict_count"),
-                "candidate_hard_conflicts": scored[0]["metrics"].get("candidate_hard_conflict_count"),
-                "teacher_slot_conflicts": scored[0]["metrics"].get("teacher_slot_conflict_count"),
-                "room_slot_conflicts": scored[0]["metrics"].get("room_slot_conflict_count"),
-                "class_slot_conflicts": scored[0]["metrics"].get("class_slot_conflict_count"),
+                "best_fitness": m["fitness"],
+                "best_hard_conflicts": m.get("hard_conflict_count"),
+                "candidate_hard_conflicts": m.get("candidate_hard_conflict_count"),
+                "teacher_slot_conflicts": m.get("teacher_slot_conflict_count"),
+                "room_slot_conflicts": m.get("room_slot_conflict_count"),
+                "class_slot_conflicts": m.get("class_slot_conflict_count"),
             })
+            ml_logger.ga_iteration(
+                generation=generation,
+                best_fitness=m["fitness"],
+                hard_conflicts=m.get("hard_conflict_count", 0),
+                candidate_hard_conflicts=m.get("candidate_hard_conflict_count", 0),
+                teacher_slot_conflicts=m.get("teacher_slot_conflict_count", 0),
+                room_slot_conflicts=m.get("room_slot_conflict_count", 0),
+                class_slot_conflicts=m.get("class_slot_conflict_count", 0),
+            )
         next_population = [item["individual"][:] for item in scored[: max(1, min(elite_size, len(scored)))]]
         while len(next_population) < population_size:
             parent_a = tournament_select(scored, tournament_size, rng)
@@ -1419,7 +1463,10 @@ def generate_scheme(
     assignments = individual_assignments(best["individual"], pools)
     metrics = {**best["metrics"], "candidate_pool_count": len(pools)}
     log_chain("GA 最优方案", metrics)
-    log_chain("GA 最优方案冲突热点", summarize_individual_conflict_hotspots(best["individual"], pools))
+    ml_logger.ga_summary(metrics)
+    hotspots = summarize_individual_conflict_hotspots(best["individual"], pools)
+    log_chain("GA 最优方案冲突热点", hotspots)
+    ml_logger.ga_conflict_hotspots(hotspots)
     return rows, assignments, metrics
 
 

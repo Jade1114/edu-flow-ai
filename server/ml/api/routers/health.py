@@ -4,6 +4,8 @@ from pathlib import Path
 
 from fastapi import APIRouter, Request
 
+import ml_logger
+
 from ..schemas import HealthResponse
 
 router = APIRouter(tags=["health"])
@@ -13,9 +15,11 @@ router = APIRouter(tags=["health"])
 async def health(request: Request) -> HealthResponse:
     ml_dir: Path = request.app.state.ml_dir
     model_path = ml_dir / "models" / "schedule_ranker_v1.txt"
+    available = model_path.exists()
+    ml_logger.service.debug("Health check: lightgbm=%s model=%s", available, model_path)
     return HealthResponse(
         status="ok",
-        lightgbm_available=model_path.exists(),
-        model_path=str(model_path) if model_path.exists() else None,
+        lightgbm_available=available,
+        model_path=str(model_path) if available else None,
         ml_dir=str(ml_dir),
     )

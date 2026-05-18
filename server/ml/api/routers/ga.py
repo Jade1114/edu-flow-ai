@@ -15,6 +15,8 @@ from typing import Any
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import JSONResponse
 
+import ml_logger
+
 from .. import task_store
 from ..schemas import GenerateSchemeRequest, TaskInfo, TaskStatusResponse
 
@@ -106,6 +108,11 @@ async def submit_generate_scheme(
     task_id = task_store.create(
         name=f"GA scheme generation → {output_dir.name}",
         total_steps=100,
+    )
+
+    ml_logger.service.info(
+        "GA task submitted: task_id=%s output_dir=%s variant_count=%d policy=%s",
+        task_id, req.output_dir, req.variant_count, req.policy,
     )
 
     # Fire & forget in thread pool (non-blocking for FastAPI event loop)

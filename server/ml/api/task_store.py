@@ -7,11 +7,16 @@ so FastAPI's event loop stays responsive.
 from __future__ import annotations
 
 import asyncio
+import sys
 import uuid
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
 from enum import Enum
+from pathlib import Path
 from typing import Any, Callable, Optional
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+import ml_logger
 
 
 class TaskStatus(str, Enum):
@@ -87,6 +92,7 @@ async def run_blocking(
             progress=100,
             completed_at=_now(),
         )
+        ml_logger.service.info("Task completed: task_id=%s name=%s", task_id, _tasks[task_id]["name"])
     except Exception as exc:
         update(
             task_id,
@@ -94,6 +100,7 @@ async def run_blocking(
             error=f"{type(exc).__name__}: {exc}",
             completed_at=_now(),
         )
+        ml_logger.service.error("Task failed: task_id=%s name=%s error=%s", task_id, _tasks[task_id]["name"], exc)
 
 
 def cleanup_old_tasks(max_age_minutes: int = 60) -> int:

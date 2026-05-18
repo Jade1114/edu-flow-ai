@@ -12,7 +12,11 @@ from __future__ import annotations
 
 import argparse
 import json
+import sys
 from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+import ml_logger
 from typing import Any
 
 import lightgbm as lgb
@@ -183,6 +187,14 @@ def parse_args() -> argparse.Namespace:
 
 def main() -> None:
     args = parse_args()
+    ml_logger.training_start({
+        "data_path": str(args.data),
+        "model_path": str(args.model),
+        "schema_path": str(args.schema),
+        "model_params": MODEL_PARAMS,
+        "train_test_split": TRAIN_TEST_SPLIT,
+    })
+
     dataset = load_dataset(args.data)
     features, target, sample_weight, feature_columns, categorical_columns = build_feature_frame(dataset)
     model, metrics = train_model(features, target, sample_weight, categorical_columns)
@@ -195,6 +207,12 @@ def main() -> None:
         model_path=args.model,
         feature_schema_path=args.schema,
     )
+
+    # Log feature importance from the saved schema
+    schema = json.loads(args.schema.read_text(encoding="utf-8"))
+    importance = {row["feature"]: row["importance"] for row in schema.get("feature_importance_top20", [])}
+    ml_logger.training_feature_importance(importance)
+    ml_logger.training_complete(metrics, str(args.model))
 
     print(f"Trained LightGBM schedule scorer with {len(dataset)} samples")
     print(f"Features: {len(feature_columns)} total, {len(categorical_columns)} categorical")
