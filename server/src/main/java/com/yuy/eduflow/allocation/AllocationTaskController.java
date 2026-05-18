@@ -55,21 +55,16 @@ public class AllocationTaskController {
 
 	@PostMapping("/{id}/schemes")
 	public ApiResponse<AllocationGenerateResult> generateSchemes(
-		@PathVariable Long id,
-		@RequestParam(required = false) Integer schemeCount,
-		@RequestParam(required = false) String policy
+		@PathVariable Long id
 	) {
-		return ApiResponse.success(allocationSchemeGenerationService.generateSchemes(id, schemeCount, policy));
+		return ApiResponse.success(allocationSchemeGenerationService.generateSchemes(id));
 	}
 
 	@PostMapping("/{id}/generate-async")
 	public ApiResponse<GenerationStatus> generateAsync(
-		@PathVariable Long id,
-		@RequestParam(required = false) Integer schemeCount,
-		@RequestParam(required = false) String policy,
-		@RequestParam(required = false) String policyParams
+		@PathVariable Long id
 	) {
-		generationTracker.startGeneration(id, schemeCount, policy, policyParams);
+		generationTracker.startGeneration(id);
 		return ApiResponse.success(generationTracker.getStatus(id));
 	}
 

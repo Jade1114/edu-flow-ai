@@ -35,18 +35,15 @@ public class GenerationTracker {
 	 * Start generating schemes for the given task in a background thread.
 	 * The status can be polled via {@link #getStatus(Long)}.
 	 */
-	public void startGeneration(Long taskId, Integer schemeCount, String policy, String policyParams) {
+	public void startGeneration(Long taskId) {
 		long startedAt = System.currentTimeMillis();
 		updateStatus(taskId, running("ml", "开始生成，准备调用自训练排课模型...", 5, startedAt));
-		log.info("Generation started for taskId={}, schemeCount={}, policy={}, policyParams={}", taskId, schemeCount, policy, policyParams);
+		log.info("Generation started for taskId={}", taskId);
 
 		executor.submit(() -> {
 			try {
 				AllocationGenerateResult result = generationService.generateSchemes(
 					taskId,
-					schemeCount,
-					policy,
-					policyParams,
 					status -> updateStatus(taskId, status)
 				);
 				updateStatus(taskId, new GenerationStatus("COMPLETED", "done", "生成完成", 100, null, result.schemeCount(), null));

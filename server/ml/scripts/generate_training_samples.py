@@ -265,6 +265,50 @@ def fetch_teacher_profiles(connection) -> dict[int, dict[str, object]]:
     return profiles
 
 
+def fetch_allocation_task(connection, task_id: int) -> dict[str, Any] | None:
+    """Get allocation task by id. Returns None if not found."""
+    rows = fetch_all(
+        connection,
+        "SELECT id, name, status FROM allocation_task WHERE id = %s",
+    )
+    for row in rows:
+        if int(row["id"]) == task_id:
+            return row
+    return None
+
+
+def fetch_task_teaching_task_ids(connection, task_id: int) -> list[int]:
+    """Get teaching task ids bound to an allocation task."""
+    rows = fetch_all(
+        connection,
+        "SELECT teaching_task_id FROM allocation_task_teaching_task WHERE task_id = %s",
+    )
+    return [int(row["teaching_task_id"]) for row in rows]
+
+
+def fetch_generation_config(connection, task_id: int) -> dict[str, Any] | None:
+    """Get generation config for an allocation task. Returns None if not set."""
+    rows = fetch_all(
+        connection,
+        """
+        SELECT
+            allowed_weeks, allowed_weekdays, allowed_periods,
+            scheme_count,
+            teacher_profile_penalty_scale, distribution_penalty_scale,
+            classroom_stickiness_weight, compact_bonus_weight,
+            weekday_load_penalty, room_day_load_penalty,
+            room_week_load_penalty, task_day_load_penalty,
+            early_period_penalty, late_period_penalty,
+            random_jitter, classroom_stickiness_bonus, weekend_penalty
+        FROM allocation_task_generation_config
+        WHERE task_id = %s
+        """,
+    )
+    if not rows:
+        return None
+    return rows[0]
+
+
 def parse_unavailable_time(text: str) -> set[tuple[int, int]]:
     """Parse '周一全天、周三上午' → {(1,1),(1,2)...(3,1),(3,2)}."""
     slots: set[tuple[int, int]] = set()

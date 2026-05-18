@@ -57,7 +57,7 @@ public class AllocationMlSchemeService {
 		this.mlApiClient = mlApiClient;
 	}
 
-	public AllocationGenerationPreview generateSchemes(Long taskId, Integer schemeCount, String policy, String policyParams, Consumer<GenerationStatus> progressReporter) {
+	public AllocationGenerationPreview generateSchemes(Long taskId, Consumer<GenerationStatus> progressReporter) {
 		AllocationTask task = allocationTaskMapper.findById(taskId);
 		if (task == null) {
 			throw new ResourceNotFoundException("排课任务不存在");
@@ -70,23 +70,15 @@ public class AllocationMlSchemeService {
 		progressReporter.accept(running("ml", "调用自训练排课模型生成候选方案...", 15));
 		Path mlDir = resolveMlDir();
 		Path outputDir = mlDir.resolve("data/generated_schemes/task_" + taskId + "_" + RUN_ID_FORMATTER.format(LocalDateTime.now()));
-		List<String> teachingTaskIds = teachingTasks.stream()
-			.map(result -> String.valueOf(result.getId()))
-			.toList();
 
 		try {
 			Files.createDirectories(outputDir);
 		} catch (IOException exception) {
 			throw new BusinessException(500, "创建输出目录失败：" + exception.getMessage(), exception);
 		}
-		Path teacherPenaltiesPath = outputDir.resolve("teacher_penalties.json");
-		try {
-			writeTeacherPenalties(teachingTasks, teacherPenaltiesPath);
-		} catch (IOException exception) {
-			throw new BusinessException(500, "写入教师画像惩罚文件失败：" + exception.getMessage(), exception);
-		}
-		AllocationTaskGenerationConfig generationConfig = resolveGenerationConfig(task.getId(), schemeCount);
-		runModelScript(mlDir, outputDir, task, teachingTaskIds, generationConfig, policy, policyParams, teacherPenaltiesPath, progressReporter);
+		// Python reads task details, generation config, teacher penalties from DB directly
+		// Java only sends task_id + output_dir
+		runModelScript(outputDir, task, progressReporter);
 		progressReporter.accept(running("eval", "自训练模型评估方案质量...", 62));
 		runEvaluator(mlDir, outputDir);
 		progressReporter.accept(running("parse", "解析评估后的 CSV 方案...", 68));
@@ -105,61 +97,17 @@ public class AllocationMlSchemeService {
 	}
 
 	private void runModelScript(
-		Path mlDir,
 		Path outputDir,
 		AllocationTask task,
-		List<String> teachingTaskIds,
-		AllocationTaskGenerationConfig generationConfig,
-		String policy,
-		String policyParams,
-		Path teacherPenaltiesPath,
 		Consumer<GenerationStatus> progressReporter
 	) {
-		// Resolve model artifacts
-		ModelArtifacts artifacts = preferredModelArtifacts(mlDir);
-		int effectiveVariantCount = normalizedVariantCount(generationConfig.getSchemeCount());
-		String generationConfigJson = toGenerationConfigJson(generationConfig);
-
-		// Read teacher penalties JSON to inline in the request
-		String teacherPenaltiesJson;
-		try {
-			teacherPenaltiesJson = Files.readString(teacherPenaltiesPath, StandardCharsets.UTF_8);
-		} catch (IOException e) {
-			throw new BusinessException(500, "读取教师画像惩罚文件失败：" + e.getMessage(), e);
-		}
-
-		// Build request body matching FastAPI's GenerateSchemeRequest
+		// Build minimal request — Python reads everything from DB via task_id
 		Map<String, Object> requestBody = new LinkedHashMap<>();
+		requestBody.put("task_id", task.getId());
 		requestBody.put("output_dir", outputDir.toString());
-		requestBody.put("teaching_task_ids", String.join(",", teachingTaskIds));
-		requestBody.put("variant_count", effectiveVariantCount);
-		requestBody.put("candidate_pool_size", DEFAULT_CANDIDATE_POOL_SIZE);
-		requestBody.put("candidate_top_n", 100);
-		requestBody.put("population_size", 160);
-		requestBody.put("generations", 200);
-		requestBody.put("elite_size", 16);
-		requestBody.put("tournament_size", 6);
-		requestBody.put("mutation_rate", 0.12);
-		requestBody.put("model_path", artifacts.modelPath().toString());
-		requestBody.put("schema_path", artifacts.schemaPath().toString());
-		requestBody.put("policy", policyOrDefault(policy));
-		requestBody.put("generation_config", generationConfigJson);
-		if (policyParams != null && !policyParams.isBlank()) {
-			requestBody.put("policy_params", policyParams);
-		}
-		requestBody.put("hard_conflict_penalty", 100000.0);
-		requestBody.put("teacher_profile_penalty_scale", generationConfig.getTeacherProfilePenaltyScale().doubleValue());
-		requestBody.put("distribution_penalty_scale", generationConfig.getDistributionPenaltyScale().doubleValue());
-		requestBody.put("classroom_stickiness_weight", generationConfig.getClassroomStickinessWeight().doubleValue());
-		requestBody.put("compact_bonus_weight", generationConfig.getCompactBonusWeight().doubleValue());
-		requestBody.put("random_seed", System.currentTimeMillis() % 1_000_000);
-		requestBody.put("log_file", outputDir.resolve("python-ga.log").toString());
-		requestBody.put("teacher_penalties_json", teacherPenaltiesJson);
 
-		log.info("ML GA scheme generator starting (HTTP): taskId={}, taskName={}, teachingTaskCount={}, policy={}, variantCount={}, outputDir={}",
-			task.getId(), task.getName(), teachingTaskIds.size(), policyOrDefault(policy), effectiveVariantCount, outputDir);
-		log.info("ML scheme generator request: variantCount={}, candidatePoolSize={}, populationSize={}, generations={}, generationConfig={}",
-			effectiveVariantCount, DEFAULT_CANDIDATE_POOL_SIZE, 160, 200, generationConfigJson);
+		log.info("ML GA scheme generator starting (HTTP): taskId={}, taskName={}, outputDir={}",
+			task.getId(), task.getName(), outputDir);
 
 		progressReporter.accept(running("ml", "调用自训练排课模型生成候选方案...", 15));
 

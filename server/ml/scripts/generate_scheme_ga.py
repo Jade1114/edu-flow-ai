@@ -1545,6 +1545,144 @@ def write_candidate_diagnostics(output_path: Path) -> None:
     output_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
 
 
+def run_ga_pipeline_by_task(
+    task_id: int,
+    output_dir: Path,
+    db_config: dict[str, str] | None = None,
+    *,
+    model_path: Path = MODEL_PATH,
+    schema_path: Path = FEATURE_SCHEMA_PATH,
+    variant_count: int = 3,
+    candidate_pool_size: int = DEFAULT_CANDIDATE_POOL_SIZE,
+    candidate_top_n: int = DEFAULT_CANDIDATE_TOP_N,
+    population_size: int = DEFAULT_POPULATION_SIZE,
+    generations: int = DEFAULT_GENERATIONS,
+    elite_size: int = DEFAULT_ELITE_SIZE,
+    tournament_size: int = DEFAULT_TOURNAMENT_SIZE,
+    mutation_rate: float = DEFAULT_MUTATION_RATE,
+    exclude_weekends: bool = False,
+    random_seed: int | None = None,
+) -> dict[str, Any]:
+    """Run GA pipeline driven by a task_id — reads everything from DB.
+
+    This is the entry point for the FastAPI async endpoint. Java only needs
+    to pass task_id; Python looks up teaching tasks, generation config,
+    teacher penalties, etc. from the database directly.
+    """
+    from generate_training_samples import (
+        connect,
+        fetch_allocation_task,
+        fetch_task_teaching_task_ids,
+        fetch_generation_config,
+        fetch_tasks,
+        fetch_classrooms,
+        fetch_time_slots,
+        fetch_teacher_profiles,
+        load_db_config,
+    )
+
+    effective_db = db_config or load_db_config()
+    with connect(effective_db) as connection:
+        # 1. Verify task exists
+        allocation_task = fetch_allocation_task(connection, task_id)
+        if allocation_task is None:
+            raise ValueError(f"Allocation task {task_id} not found")
+
+        # 2. Get bound teaching task IDs
+        teaching_task_ids = fetch_task_teaching_task_ids(connection, task_id)
+        if not teaching_task_ids:
+            raise ValueError(f"No teaching tasks bound to allocation task {task_id}")
+
+        # 3. Get generation config (optional — uses defaults if missing)
+        raw_config = fetch_generation_config(connection, task_id)
+
+        # 4. Load base data
+        tasks = fetch_tasks(connection)
+        classrooms = fetch_classrooms(connection)
+        time_slots = fetch_time_slots(connection)
+        teacher_profiles = fetch_teacher_profiles(connection)
+
+    # Build generation config JSON (mirrors Java's toGenerationConfigJson)
+    generation_config_json = _build_generation_config_json(raw_config) if raw_config else None
+
+    # Filter to task's teaching tasks
+    teaching_task_ids_str = ",".join(str(tid) for tid in teaching_task_ids)
+
+    # Compute teacher penalties from DB (fallback — no Java pre-computation)
+    teacher_penalties = fallback_teacher_penalties(teacher_profiles)
+
+    # Write teacher penalties to disk for the pipeline
+    teacher_penalties_path = output_dir / "teacher_penalties.json"
+    output_dir.mkdir(parents=True, exist_ok=True)
+    write_teacher_penalties(teacher_penalties, teacher_penalties_path)
+
+    seed = random_seed if random_seed is not None else int(task_id % 1_000_000)
+    args = Namespace(
+        model=model_path,
+        schema=schema_path,
+        output=output_dir / "scheme_001.csv",
+        output_dir=output_dir,
+        max_tasks=None,
+        variant_count=variant_count,
+        random_seed=seed,
+        policy=DEFAULT_POLICY,
+        policy_params=None,
+        generation_config=generation_config_json,
+        teacher_penalties=teacher_penalties_path,
+        teaching_task_ids=teaching_task_ids_str,
+        start_week=None,
+        end_week=None,
+        exclude_weekends=exclude_weekends,
+        candidate_pool_size=candidate_pool_size,
+        candidate_top_n=candidate_top_n,
+        population_size=population_size,
+        generations=generations,
+        elite_size=elite_size,
+        tournament_size=tournament_size,
+        mutation_rate=mutation_rate,
+        predicted_score_weight=DEFAULT_PREDICTED_SCORE_WEIGHT,
+        rule_score_weight=DEFAULT_RULE_SCORE_WEIGHT,
+        hard_conflict_penalty=DEFAULT_HARD_CONFLICT_PENALTY,
+        teacher_profile_penalty_scale=50.0,
+        distribution_penalty_scale=5.0,
+        classroom_stickiness_weight=5.0,
+        compact_bonus_weight=0.0,
+        log_file=output_dir / "python-ga.log",
+    )
+    return run_ga_pipeline(args)
+
+
+def _build_generation_config_json(raw_config: dict[str, Any]) -> str:
+    """Convert DB generation config row to the JSON format Java used to send."""
+    import json as _json
+    config = {
+        "allowedWeeks": str(raw_config.get("allowed_weeks", "")),
+        "allowedWeekdays": str(raw_config.get("allowed_weekdays", "")),
+        "allowedPeriods": str(raw_config.get("allowed_periods", "")),
+        "schemeCount": int(raw_config.get("scheme_count", 3)),
+        "teacherProfilePenaltyScale": float(raw_config.get("teacher_profile_penalty_scale", 50.0)),
+        "distributionPenaltyScale": float(raw_config.get("distribution_penalty_scale", 5.0)),
+        "classroomStickinessWeight": float(raw_config.get("classroom_stickiness_weight", 5.0)),
+        "compactBonusWeight": float(raw_config.get("compact_bonus_weight", 0.0)),
+    }
+    # Optional fine-grained weights if they exist
+    for src, dst in [
+        ("weekday_load_penalty", "weekdayLoadPenalty"),
+        ("room_day_load_penalty", "roomDayLoadPenalty"),
+        ("room_week_load_penalty", "roomWeekLoadPenalty"),
+        ("task_day_load_penalty", "taskDayLoadPenalty"),
+        ("early_period_penalty", "earlyPeriodPenalty"),
+        ("late_period_penalty", "latePeriodPenalty"),
+        ("random_jitter", "randomJitter"),
+        ("classroom_stickiness_bonus", "classroomStickinessBonus"),
+        ("weekend_penalty", "weekendPenalty"),
+    ]:
+        val = raw_config.get(src)
+        if val is not None:
+            config[dst] = float(val)
+    return _json.dumps(config, ensure_ascii=False)
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Generate scheduling schemes with GA + LightGBM.")
     parser.add_argument("--model", type=Path, default=MODEL_PATH, help="Trained LightGBM model path.")

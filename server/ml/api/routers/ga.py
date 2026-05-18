@@ -8,7 +8,6 @@ from __future__ import annotations
 
 import asyncio
 import sys
-from argparse import Namespace
 from pathlib import Path
 from typing import Any
 
@@ -23,70 +22,17 @@ from ..schemas import GenerateSchemeRequest, TaskInfo, TaskStatusResponse
 router = APIRouter(tags=["ga"])
 
 
-def _import_ga() -> Any:
-    ml_dir = Path(__file__).resolve().parents[2]
+def _run_pipeline_by_task(task_id: int, output_dir_str: str, ml_dir: Path) -> dict[str, Any]:
+    """Blocking wrapper — imports GA module, runs by task_id."""
     scripts_dir = str(ml_dir / "scripts")
     if scripts_dir not in sys.path:
         sys.path.insert(0, scripts_dir)
     import generate_scheme_ga  # noqa: F811
 
-    return generate_scheme_ga
-
-
-def _build_args(
-    req: GenerateSchemeRequest,
-    ml_dir: Path,
-    output_dir: Path,
-) -> Namespace:
-    """Build argparse Namespace mirroring generate_scheme_ga.py CLI args."""
-    model_path = Path(req.model_path) if req.model_path else ml_dir / "models" / "schedule_ranker_v1.txt"
-    schema_path = Path(req.schema_path) if req.schema_path else ml_dir / "data" / "feature_schema.json"
-    teacher_penalties_path = output_dir / "teacher_penalties.json"
-    log_file = Path(req.log_file) if req.log_file else output_dir / "python-ga.log"
-
-    # Write teacher penalties to disk
-    teacher_penalties_path.parent.mkdir(parents=True, exist_ok=True)
-    teacher_penalties_path.write_text(req.teacher_penalties_json, encoding="utf-8")
-
-    random_seed = req.random_seed if req.random_seed is not None else 42
-    return Namespace(
-        model=model_path,
-        schema=schema_path,
-        output=output_dir / "scheme_001.csv",
-        output_dir=output_dir,
-        max_tasks=req.max_tasks,
-        variant_count=req.variant_count,
-        random_seed=random_seed,
-        policy=req.policy,
-        policy_params=req.policy_params,
-        generation_config=req.generation_config,
-        teacher_penalties=teacher_penalties_path,
-        teaching_task_ids=req.teaching_task_ids,
-        start_week=None,
-        end_week=None,
-        exclude_weekends=req.exclude_weekends,
-        candidate_pool_size=req.candidate_pool_size,
-        candidate_top_n=req.candidate_top_n,
-        population_size=req.population_size,
-        generations=req.generations,
-        elite_size=req.elite_size,
-        tournament_size=req.tournament_size,
-        mutation_rate=req.mutation_rate,
-        predicted_score_weight=req.predicted_score_weight,
-        rule_score_weight=req.rule_score_weight,
-        hard_conflict_penalty=req.hard_conflict_penalty,
-        teacher_profile_penalty_scale=req.teacher_profile_penalty_scale,
-        distribution_penalty_scale=req.distribution_penalty_scale,
-        classroom_stickiness_weight=req.classroom_stickiness_weight,
-        compact_bonus_weight=req.compact_bonus_weight,
-        log_file=log_file,
+    return generate_scheme_ga.run_ga_pipeline_by_task(
+        task_id=task_id,
+        output_dir=Path(output_dir_str),
     )
-
-
-def _run_pipeline(args: Namespace) -> dict[str, Any]:
-    """Blocking wrapper — runs GA pipeline, called in thread pool."""
-    ga = _import_ga()
-    return ga.run_ga_pipeline(args)
 
 
 @router.post("/generate-scheme", status_code=202)
@@ -94,29 +40,34 @@ async def submit_generate_scheme(
     req: GenerateSchemeRequest,
     request: Request,
 ) -> JSONResponse:
-    """Submit a GA scheme generation task. Returns immediately with a task_id.
+    """Submit a GA scheme generation task by task_id.
 
-    Poll GET /api/ml/generate-scheme/{task_id} for the result.
+    Python reads everything from DB — Java only needs to pass task_id.
+    Returns immediately with a task_id; poll GET /api/ml/generate-scheme/{task_id}.
     """
     ml_dir: Path = request.app.state.ml_dir
     output_dir = Path(req.output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    args = _build_args(req, ml_dir, output_dir)
-
     # Create async task
     task_id = task_store.create(
-        name=f"GA scheme generation → {output_dir.name}",
+        name=f"GA scheme generation → task_{req.task_id}",
         total_steps=100,
     )
 
     ml_logger.service.info(
-        "GA task submitted: task_id=%s output_dir=%s variant_count=%d policy=%s",
-        task_id, req.output_dir, req.variant_count, req.policy,
+        "GA task submitted: task_id=%s allocation_task_id=%d output_dir=%s",
+        task_id, req.task_id, req.output_dir,
     )
 
-    # Fire & forget in thread pool (non-blocking for FastAPI event loop)
-    asyncio.create_task(task_store.run_blocking(task_id, _run_pipeline, args))
+    # Fire & forget in thread pool
+    asyncio.create_task(task_store.run_blocking(
+        task_id,
+        _run_pipeline_by_task,
+        req.task_id,
+        req.output_dir,
+        ml_dir,
+    ))
 
     return JSONResponse(
         content={
