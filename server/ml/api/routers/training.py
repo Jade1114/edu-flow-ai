@@ -9,7 +9,10 @@ from typing import Any
 from fastapi import APIRouter, HTTPException
 from fastapi import Request
 
-from ..schemas import TrainRequest, TrainResponse
+try:
+    from ..schemas import TrainRequest, TrainResponse
+except ImportError:
+    from schemas import TrainRequest, TrainResponse
 
 router = APIRouter(tags=["training"])
 

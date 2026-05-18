@@ -3,8 +3,8 @@ package com.yuy.eduflow.ml;
 import com.yuy.eduflow.common.exception.BusinessException;
 import java.util.Map;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
+import org.springframework.http.client.SimpleClientHttpRequestFactory;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestClient;
 
@@ -28,6 +28,7 @@ public class MlApiClient {
 	public MlApiClient(MlApiProperties properties, RestClient.Builder restClientBuilder) {
 		this.properties = properties;
 		this.restClient = restClientBuilder
+			.requestFactory(new SimpleClientHttpRequestFactory())
 			.baseUrl(properties.getUrl())
 			.build();
 		log.info("MlApiClient initialized: baseUrl={}", properties.getUrl());
@@ -69,14 +70,18 @@ public class MlApiClient {
 	 * Call {@link #getTaskStatus(String)} to poll for the result.
 	 */
 	public String submitGenerateSchemes(Map<String, Object> requestParams) {
-		log.info("ML API submit generate-scheme: outputDir={}, variantCount={}, policy={}",
-			requestParams.get("output_dir"),
-			requestParams.get("variant_count"),
-			requestParams.get("policy"));
+		Object allocationTaskId = requestParams.get("task_id");
+		if (allocationTaskId == null) {
+			throw new BusinessException(500, "ML API submit missing task_id: " + requestParams);
+		}
+		log.info("ML API submit generate-scheme: taskId={}, requestBody={}", allocationTaskId, requestParams);
 
 		Map<String, Object> response = restClient.post()
-			.uri("/api/ml/generate-scheme")
-			.header(HttpHeaders.CONTENT_TYPE, MediaType.APPLICATION_JSON_VALUE)
+			.uri(uriBuilder -> uriBuilder
+				.path("/api/ml/generate-scheme")
+				.queryParam("task_id", allocationTaskId)
+				.build())
+			.contentType(MediaType.APPLICATION_JSON)
 			.body(requestParams)
 			.retrieve()
 			.body(Map.class);

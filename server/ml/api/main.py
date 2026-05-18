@@ -10,7 +10,10 @@ from fastapi.middleware.cors import CORSMiddleware
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import ml_logger
 
-from .routers import ga, health, training
+try:
+    from .routers import ga, health, training
+except ImportError:
+    from routers import ga, health, training
 
 ML_DIR = Path(__file__).resolve().parents[1]
 

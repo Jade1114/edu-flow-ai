@@ -24,7 +24,7 @@ server:
 app:
   ml:
     api:
-      url: ${ML_API_URL:http://127.0.0.1:8089}
+      url: ${ML_API_URL:http://127.0.0.1:8000}
       ml-dir: ${ML_DIR:}
   embedding:
     openai:

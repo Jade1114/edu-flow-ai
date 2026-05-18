@@ -6,7 +6,10 @@ from fastapi import APIRouter, Request
 
 import ml_logger
 
-from ..schemas import HealthResponse
+try:
+    from ..schemas import HealthResponse
+except ImportError:
+    from schemas import HealthResponse
 
 router = APIRouter(tags=["health"])
 

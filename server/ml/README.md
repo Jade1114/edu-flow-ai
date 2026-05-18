@@ -29,13 +29,16 @@ The GA optimizer first tries to combine rule-legal fragments into complete hard-
 
 ```bash
 # 启动 FastAPI ML 服务（独立进程，与 Java Spring Boot 解耦）
-cd server/ml && .venv/bin/python -m uvicorn api.main:app --host 127.0.0.1 --port 8089 --log-level warning
-
-# 开发模式（自动重载）
-cd server/ml && .venv/bin/python -m uvicorn api.main:app --host 127.0.0.1 --port 8089 --reload
+cd server/ml
+source .venv/bin/activate
+uvicorn main:app --reload
 ```
 
-Java 通过 `app.ml.api.url` 配置连接地址（默认 `http://127.0.0.1:8089`）。
+`uvicorn main:app --reload` 默认监听 `http://127.0.0.1:8000`。
+Java 通过 `app.ml.api.url` 配置连接地址（默认 `http://127.0.0.1:8000`）。
+如需继续使用 `8089`，启动 Python 时加 `--port 8089`，或启动 Java 时设置 `ML_API_URL=http://127.0.0.1:8089`。
+
+日志统一写到项目根目录 `logs/`：Java 写 `edu-flow-ai.log` / `schedule-chain.log`，Python 写 `ml-service.log` / `ga-algorithm.log` / `lightgbm-*.log`，单次 GA 详情写 `python-ga-<task>.log`。
 
 ## Directory Layout
 

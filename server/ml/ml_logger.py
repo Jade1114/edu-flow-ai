@@ -1,6 +1,6 @@
 """Centralized Python ML service logging.
 
-Separate persistent log files per concern, all under server/ml/logs/:
+Separate persistent log files per concern, all under project-root logs/:
 
   ml-service.log        — FastAPI 服务运行日志（请求、错误、启动等）
   ga-algorithm.log      — GA 进化日志（迭代进度、适应度、冲突、耗时）
@@ -21,7 +21,7 @@ from typing import Any, Optional
 
 # ── 路径 ──────────────────────────────────────────────────────────────
 
-LOG_DIR = Path(__file__).resolve().parent / "logs"
+LOG_DIR = Path(__file__).resolve().parents[2] / "logs"
 LOG_DIR.mkdir(parents=True, exist_ok=True)
 
 # ── 格式 ──────────────────────────────────────────────────────────────

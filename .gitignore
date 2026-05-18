@@ -18,3 +18,9 @@ server/ml/data/feedback_training/
 server/ml/models/*.txt
 server/ml/models/*.pkl
 server/ml/models/feedback_versions/
+server/ml/__pycache__/
+server/ml/api/__pycache__/
+server/ml/api/routers/__pycache__/
+server/ml/scripts/__pycache__/
+
+logs/

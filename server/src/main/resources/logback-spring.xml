@@ -3,7 +3,7 @@
     <include resource="org/springframework/boot/logging/logback/defaults.xml"/>
     <include resource="org/springframework/boot/logging/logback/console-appender.xml"/>
 
-    <property name="LOG_DIR" value="${LOG_PATH:-logs}"/>
+    <property name="LOG_DIR" value="${LOG_PATH:-${user.dir}/../logs}"/>
     <property name="FILE_PATTERN" value="%d{yyyy-MM-dd HH:mm:ss.SSS} %-5level [%thread] %logger{40} - %msg%n"/>
 
     <appender name="APP_FILE" class="ch.qos.logback.core.rolling.RollingFileAppender">
