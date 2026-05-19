@@ -27,9 +27,9 @@ from sklearn.model_selection import train_test_split
 
 
 ROOT_DIR = Path(__file__).resolve().parents[1]
-DATA_PATH = ROOT_DIR / "data" / "training_samples.csv"
-MODEL_PATH = ROOT_DIR / "models" / "schedule_ranker_v1.txt"
-FEATURE_SCHEMA_PATH = ROOT_DIR / "data" / "feature_schema.json"
+DATA_PATH = ROOT_DIR / "data" / "training" / "samples.csv"
+MODEL_PATH = ROOT_DIR / "models" / "base" / "schedule_ranker_v1.txt"
+FEATURE_SCHEMA_PATH = ROOT_DIR / "data" / "training" / "feature_schema.json"
 TARGET_COLUMN = "score"
 EXCLUDED_COLUMNS = {
     "sample_id",

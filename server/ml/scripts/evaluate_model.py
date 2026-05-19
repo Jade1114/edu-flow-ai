@@ -22,9 +22,9 @@ from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
 
 
 ROOT_DIR = Path(__file__).resolve().parents[1]
-MODEL_PATH = ROOT_DIR / "models" / "schedule_ranker_v1.txt"
-FEATURE_SCHEMA_PATH = ROOT_DIR / "data" / "feature_schema.json"
-DATA_PATH = ROOT_DIR / "data" / "training_samples.csv"
+MODEL_PATH = ROOT_DIR / "models" / "base" / "schedule_ranker_v1.txt"
+FEATURE_SCHEMA_PATH = ROOT_DIR / "data" / "training" / "feature_schema.json"
+DATA_PATH = ROOT_DIR / "data" / "training" / "samples.csv"
 TARGET_COLUMN = "score"
 
 GROUP_COLUMNS = [

@@ -21,7 +21,7 @@ from typing import Any, Optional
 
 # ── 路径 ──────────────────────────────────────────────────────────────
 
-LOG_DIR = Path(__file__).resolve().parents[2] / "logs"
+LOG_DIR = Path(__file__).resolve().parents[2] / "logs" / "python"
 LOG_DIR.mkdir(parents=True, exist_ok=True)
 
 # ── 格式 ──────────────────────────────────────────────────────────────

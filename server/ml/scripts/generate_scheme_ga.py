@@ -49,9 +49,9 @@ from generate_training_samples import (
 
 ROOT_DIR = Path(__file__).resolve().parents[1]
 PROJECT_ROOT = ROOT_DIR.parents[1]
-PROJECT_LOG_DIR = PROJECT_ROOT / "logs"
-MODEL_PATH = ROOT_DIR / "models" / "schedule_ranker_v1.txt"
-FEATURE_SCHEMA_PATH = ROOT_DIR / "data" / "feature_schema.json"
+PROJECT_LOG_DIR = PROJECT_ROOT / "logs" / "python"
+MODEL_PATH = ROOT_DIR / "models" / "base" / "schedule_ranker_v1.txt"
+FEATURE_SCHEMA_PATH = ROOT_DIR / "data" / "training" / "feature_schema.json"
 OUTPUT_PATH = ROOT_DIR / "data" / "generated_scheme_ga.csv"
 OUTPUT_DIR = ROOT_DIR / "data" / "generated_schemes"
 SUMMARY_PATH = OUTPUT_DIR / "summary.csv"
@@ -1854,7 +1854,7 @@ def run_ga_pipeline_by_task(
         distribution_penalty_scale=5.0,
         classroom_stickiness_weight=5.0,
         compact_bonus_weight=0.0,
-        log_file=PROJECT_LOG_DIR / f"python-ga-{output_dir.name}.log",
+        log_file=PROJECT_LOG_DIR / "ga-runs" / f"{output_dir.name}.log",
     )
     result = run_ga_pipeline(args)
 
