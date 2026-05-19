@@ -335,7 +335,7 @@ public class MlFeedbackTrainingService {
 		}
 	}
 
-	private void extractValidationMetrics(MlTrainingLog log, String metricsJson) {
+	private void extractValidationMetrics(MlTrainingLog trainingLog, String metricsJson) {
 		if (metricsJson == null) return;
 		try {
 			@SuppressWarnings("unchecked")
@@ -346,11 +346,11 @@ public class MlFeedbackTrainingService {
 
 			Number auc = (Number) validation.get("auc");
 			if (auc != null) {
-				log.setEvalAuc(auc.doubleValue());
+				trainingLog.setEvalAuc(auc.doubleValue());
 			}
 			Number scoreSeparation = (Number) validation.get("score_separation");
 			if (scoreSeparation != null) {
-				log.setEvalAccuracy(scoreSeparation.doubleValue());
+				trainingLog.setEvalAccuracy(scoreSeparation.doubleValue());
 			}
 		} catch (Exception ex) {
 			log.warn("Failed to extract validation metrics from schema", ex);

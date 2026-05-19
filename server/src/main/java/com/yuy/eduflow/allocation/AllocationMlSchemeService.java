@@ -194,7 +194,8 @@ public class AllocationMlSchemeService {
 			throw new ValidationException("自训练模型未生成 schemes.json");
 		}
 		String rawJson = Files.readString(schemesJson, StandardCharsets.UTF_8);
-		List<Map<String, Object>> schemesData = objectMapper.readValue(rawJson, new com.fasterxml.jackson.core.type.TypeReference<List<Map<String, Object>>>() {});
+		@SuppressWarnings("unchecked")
+		List<Map<String, Object>> schemesData = objectMapper.readValue(rawJson, List.class);
 		log.info("ML parsed schemes.json: schemeCount={}", schemesData.size());
 		int existingMaxIndex = allocationSchemeMapper.selectMaxSchemeIndex(taskId);
 		log.info("Existing max scheme index for taskId={}: {}", taskId, existingMaxIndex);
@@ -255,10 +256,6 @@ public class AllocationMlSchemeService {
 			? BigDecimal.ZERO
 			: totalPredictedScore.divide(BigDecimal.valueOf(dayPredictCount), 4, java.math.RoundingMode.HALF_UP);
 		return "片段 " + items.size() + "，平均模型分 " + avgPredictedScore + "，星期分布 " + loadByDay;
-	}
-			return null;
-		}
-		return values.get(index).trim();
 	}
 
 	private GenerationStatus running(String stage, String message, Integer progress) {
