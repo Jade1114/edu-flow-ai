@@ -837,37 +837,31 @@ const schemeScores = computed(() => {
 const currentWeek = ref(1);
 const dayNames = ["周一", "周二", "周三", "周四", "周五", "周六", "周日"];
 const timetableFilters = ref({
-  teacherId: null,
-  classGroupName: "",
-  teachingTaskId: null,
+  teachers: [],
+  classGroups: [],
+  teachingTasks: [],
 });
 
-const activeTeacherLabel = computed(() => {
-  if (!timetableFilters.value.teacherId) return null;
-  const found = timetableTeacherOptions.value.find(
-    (o) => o.value === timetableFilters.value.teacherId,
-  );
-  return found ? found.label : null;
-});
-
-const activeTeachingTaskLabel = computed(() => {
-  if (!timetableFilters.value.teachingTaskId) return null;
-  const found = timetableTeachingTaskOptions.value.find(
-    (o) => o.value === timetableFilters.value.teachingTaskId,
-  );
-  return found ? found.label : null;
-});
-
-const activeClassGroupLabel = computed(() => {
-  if (!timetableFilters.value.classGroupName) return null;
-  return timetableFilters.value.classGroupName;
+const activeFilterTags = computed(() => {
+  const tags = [];
+  for (const name of timetableFilters.value.teachers) {
+    tags.push({ type: "教师", label: name, clear: () => { timetableFilters.value.teachers = timetableFilters.value.teachers.filter((v) => v !== name); } });
+  }
+  for (const name of timetableFilters.value.classGroups) {
+    tags.push({ type: "班级", label: name, clear: () => { timetableFilters.value.classGroups = timetableFilters.value.classGroups.filter((v) => v !== name); } });
+  }
+  for (const id of timetableFilters.value.teachingTasks) {
+    const opt = timetableTeachingTaskOptions.value.find((o) => o.value === id);
+    if (opt) tags.push({ type: "课程", label: opt.label, clear: () => { timetableFilters.value.teachingTasks = timetableFilters.value.teachingTasks.filter((v) => v !== id); } });
+  }
+  return tags;
 });
 
 const hasActiveFilter = computed(
   () =>
-    timetableFilters.value.teacherId ||
-    timetableFilters.value.classGroupName ||
-    timetableFilters.value.teachingTaskId,
+    timetableFilters.value.teachers.length > 0 ||
+    timetableFilters.value.classGroups.length > 0 ||
+    timetableFilters.value.teachingTasks.length > 0,
 );
 
 const timetableTeacherOptions = computed(() => {
@@ -923,23 +917,17 @@ function uniqueOptions(items, valueKey, labelKey) {
 
 function matchTimetableFilters(item) {
   const filters = timetableFilters.value;
-  if (filters.teacherId && item.teacherName !== filters.teacherId) return false;
-  if (filters.teachingTaskId && item.teachingTaskId !== filters.teachingTaskId)
-    return false;
-  if (
-    filters.classGroupName &&
-    !String(item.classGroupName || "").includes(filters.classGroupName)
-  )
-    return false;
+  if (filters.teachers.length > 0 && !filters.teachers.includes(item.teacherName)) return false;
+  if (filters.teachingTasks.length > 0 && !filters.teachingTasks.includes(item.teachingTaskId)) return false;
+  if (filters.classGroups.length > 0) {
+    const itemGroups = String(item.classGroupName || "").split(",").map((g) => g.trim()).filter(Boolean);
+    if (!filters.classGroups.some((g) => itemGroups.includes(g))) return false;
+  }
   return true;
 }
 
 function resetTimetableFilters() {
-  timetableFilters.value = {
-    teacherId: null,
-    classGroupName: "",
-    teachingTaskId: null,
-  };
+  timetableFilters.value = { teachers: [], classGroups: [], teachingTasks: [] };
 }
 
 function itemHasConflict(item) {
@@ -1720,13 +1708,14 @@ onUnmounted(() => {
           <div style="flex: 1"></div>
           <div style="display: flex; align-items: center; gap: 6px; background: #f8fafc; padding: 4px 10px 4px 16px; border-radius: 6px; font-size: 12px; color: #909399">
             <span>筛选</span>
-            <el-tag v-if="activeTeacherLabel" size="small" closable @close="timetableFilters.teacherId = null">{{ activeTeacherLabel }}</el-tag>
-            <el-tag v-if="activeClassGroupLabel" size="small" closable @close="timetableFilters.classGroupName = null">{{ activeClassGroupLabel }}</el-tag>
-            <el-tag v-if="activeTeachingTaskLabel" size="small" closable @close="timetableFilters.teachingTaskId = null">{{ activeTeachingTaskLabel }}</el-tag>
+            <el-tag v-for="tag in activeFilterTags" :key="tag.type + tag.label" size="small" closable @close="tag.clear()">{{ tag.type }}: {{ tag.label }}</el-tag>
             <el-button v-if="hasActiveFilter" size="small" text @click="resetTimetableFilters" style="font-size: 12px">× 清除</el-button>
           </div>
           <el-select
-            v-model="timetableFilters.teacherId"
+            v-model="timetableFilters.teachers"
+            multiple
+            collapse-tags
+            collapse-tags-tooltip
             clearable
             filterable
             size="small"
@@ -1741,7 +1730,10 @@ onUnmounted(() => {
             />
           </el-select>
           <el-select
-            v-model="timetableFilters.classGroupName"
+            v-model="timetableFilters.classGroups"
+            multiple
+            collapse-tags
+            collapse-tags-tooltip
             clearable
             filterable
             size="small"
@@ -1756,11 +1748,14 @@ onUnmounted(() => {
             />
           </el-select>
           <el-select
-            v-model="timetableFilters.teachingTaskId"
+            v-model="timetableFilters.teachingTasks"
+            multiple
+            collapse-tags
+            collapse-tags-tooltip
             clearable
             filterable
             size="small"
-            placeholder="教学任务"
+            placeholder="课程"
             style="width: 130px"
           >
             <el-option
