@@ -1,5 +1,5 @@
 <script setup>
-import { ref, computed, onMounted, onUnmounted, nextTick } from "vue";
+import { ref, computed, onMounted, onUnmounted } from "vue";
 import request from "@/api/request.js";
 import { ElMessage, ElMessageBox } from "element-plus";
 import { ActiveStatus, SchemeStatus } from "@/constants/status.js";
@@ -464,7 +464,8 @@ function openTaskDialog(row) {
   llmInterpretation.value = "";
   taskDialog.value = true;
   // 对话框渲染后恢复表格勾选状态
-  nextTick(() => {
+  // 用 setTimeout 替代 nextTick，确保表格 DOM 和行数据已完全渲染
+  setTimeout(() => {
     if (!taskTableRef.value) return;
     taskTableRef.value.clearSelection();
     const selectedIds = taskForm.value.teachingTaskIds;
@@ -473,7 +474,7 @@ function openTaskDialog(row) {
         taskTableRef.value.toggleRowSelection(tt, true);
       }
     });
-  });
+  }, 100);
 }
 
 const taskTableRef = ref();
