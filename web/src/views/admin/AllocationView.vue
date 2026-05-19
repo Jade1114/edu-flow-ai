@@ -963,6 +963,21 @@ function openSlotDetail(dayOfWeek, periodIndex) {
   };
 }
 
+// === 快速模板 ===
+const quickTemplates = ref([
+  { id: "qt-1", classroomId: null, classroomName: "模板A" },
+  { id: "qt-2", classroomId: null, classroomName: "模板B" },
+]);
+
+function onTemplateDragStart(e, template) {
+  e.dataTransfer.setData("text/plain", "template:" + template.id);
+  e.dataTransfer.effectAllowed = "copy";
+}
+
+function templateLabel(t) {
+  return t.classroomName || t.id;
+}
+
 // === 手动编辑排课片段 ===
 const editDialog = ref(false);
 const editingItem = ref(null);
@@ -1067,8 +1082,9 @@ function onDragLeave() {
 async function onDrop(e, day, period) {
   e.preventDefault();
   dropTarget.value = null;
+  const dragData = e.dataTransfer.getData("text/plain");
   const item = dragItem.value;
-  if (!item) return;
+  dragItem.value = null;
 
   const key = `${currentWeek.value}-${day}-${period}`;
   const targetTimeSlotId = timeSlotMap[key];
@@ -1076,23 +1092,52 @@ async function onDrop(e, day, period) {
     ElMessage.warning("该时间段不存在");
     return;
   }
-  if (targetTimeSlotId === item.timeSlotId) {
-    dragItem.value = null;
-    return; // 没变化
+
+  // 模板拖拽 → 批量修改该格所有项目的教室
+  if (dragData && dragData.startsWith("template:")) {
+    const templateId = dragData.split(":")[1];
+    const template = quickTemplates.value.find(t => t.id === templateId);
+    if (!template || !template.classroomId) {
+      ElMessage.warning("请先在模板中选择教室");
+      return;
+    }
+    const slotItems = itemsAtSlot(day, period);
+    if (!slotItems.length) {
+      ElMessage.info("该时段没有排课片段");
+      return;
+    }
+    savingMove.value = true;
+    try {
+      for (const si of slotItems) {
+        await request.put(
+          `/api/allocation-schemes/${schemeDetail.value.id}/items/${si.id}`,
+          { classroomId: template.classroomId, timeSlotId: si.timeSlotId },
+        );
+      }
+      ElMessage.success(`模板已应用到 ${slotItems.length} 个排课片段`);
+      const [detail, items] = await Promise.all([
+        request.get(`/api/allocation-schemes/${schemeDetail.value.id}`),
+        request.get(`/api/allocation-schemes/${schemeDetail.value.id}/items`),
+      ]);
+      schemeDetail.value = { ...schemeDetail.value, ...detail, items };
+    } catch (e) {
+      ElMessage.error("应用模板失败");
+    } finally {
+      savingMove.value = false;
+    }
+    return;
   }
 
-  // 调 API
+  // 普通卡片拖拽 → 移动单个项目
+  if (!item) return;
+  if (targetTimeSlotId === item.timeSlotId) return;
   savingMove.value = true;
   try {
     await request.put(
       `/api/allocation-schemes/${schemeDetail.value.id}/items/${item.id}`,
-      {
-        classroomId: item.classroomId,
-        timeSlotId: targetTimeSlotId,
-      },
+      { classroomId: item.classroomId, timeSlotId: targetTimeSlotId },
     );
     ElMessage.success("已移动，调整日志已记录");
-    // 刷新 scheme 完整数据（含 conflictSummary）+ items
     const [detail, items] = await Promise.all([
       request.get(`/api/allocation-schemes/${schemeDetail.value.id}`),
       request.get(`/api/allocation-schemes/${schemeDetail.value.id}/items`),
@@ -1102,16 +1147,17 @@ async function onDrop(e, day, period) {
     ElMessage.error("移动失败");
   } finally {
     savingMove.value = false;
-    dragItem.value = null;
   }
 }
 
 async function viewSchemeDetail(schemeId) {
-  const [detail, items, allTimeSlots] = await Promise.all([
+  const [detail, items, allTimeSlots, allRooms] = await Promise.all([
     request.get(`/api/allocation-schemes/${schemeId}`),
     request.get(`/api/allocation-schemes/${schemeId}/items`),
     request.get("/api/time-slots"),
+    request.get(`/api/classrooms?status=ACTIVE`),
   ]);
+  classrooms.value = allRooms;
   // 从任务列表中找到对应任务的周次范围
   const task = tasks.value.find((t) => t.id === detail.taskId);
   buildTimeSlotMap(allTimeSlots);
@@ -1766,6 +1812,41 @@ onUnmounted(() => {
               :value="task.value"
             />
           </el-select>
+        </div>
+
+        <!-- 快速模板 -->
+        <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 10px; padding: 4px 10px; background: #f8fafc; border-radius: 6px">
+          <span style="font-size: 12px; color: #909399; white-space: nowrap">快速模板</span>
+          <div
+            v-for="tpl in quickTemplates"
+            :key="tpl.id"
+            draggable="true"
+            :style="{
+              display: 'flex', alignItems: 'center', gap: '4px', padding: '2px 8px 2px 4px',
+              border: '2px dashed #409eff', borderRadius: '6px', cursor: 'grab', fontSize: '12px',
+              background: tpl.classroomId ? '#ecf5ff' : '#fff',
+              opacity: tpl.classroomId ? 1 : 0.6,
+            }"
+            @dragstart="onTemplateDragStart($event, tpl)"
+          >
+            <el-select
+              v-model="tpl.classroomId"
+              filterable
+              placeholder="选教室"
+              size="small"
+              style="width: 130px"
+              @change="(val) => { const r = classrooms.find(c => c.id === val); tpl.classroomName = r ? (r.name || r.classroomName) : ''; }"
+              @click.stop
+            >
+              <el-option
+                v-for="room in classrooms"
+                :key="room.id"
+                :label="`${room.name || room.classroomName || room.id} · ${room.capacity || 0}人`"
+                :value="room.id"
+              />
+            </el-select>
+            <span style="color: #909399; font-size: 11px">拖到格子覆盖</span>
+          </div>
         </div>
 
         <!-- 课程表表格 -->
