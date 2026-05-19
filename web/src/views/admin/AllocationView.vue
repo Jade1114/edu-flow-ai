@@ -870,9 +870,14 @@ const hasActiveFilter = computed(
     timetableFilters.value.teachingTaskId,
 );
 
-const timetableTeacherOptions = computed(() =>
-  uniqueOptions(schemeDetail.value?.items || [], "teacherId", "teacherName"),
-);
+const timetableTeacherOptions = computed(() => {
+  const seen = new Set();
+  for (const item of schemeDetail.value?.items || []) {
+    const name = item.teacherName;
+    if (name && !seen.has(name)) seen.add(name);
+  }
+  return [...seen].sort((a, b) => a.localeCompare(b, "zh-Hans-CN")).map((name) => ({ value: name, label: name }));
+});
 
 const timetableClassGroupOptions = computed(() => {
   const names = new Set();
@@ -918,7 +923,7 @@ function uniqueOptions(items, valueKey, labelKey) {
 
 function matchTimetableFilters(item) {
   const filters = timetableFilters.value;
-  if (filters.teacherId && item.teacherId !== filters.teacherId) return false;
+  if (filters.teacherId && item.teacherName !== filters.teacherId) return false;
   if (filters.teachingTaskId && item.teachingTaskId !== filters.teachingTaskId)
     return false;
   if (
