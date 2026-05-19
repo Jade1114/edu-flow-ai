@@ -24,12 +24,14 @@ public class MlFeedbackTrainingService {
 	private static final DateTimeFormatter FILE_TIME_FORMAT = DateTimeFormatter.ofPattern("yyyyMMddHHmmss");
 
 	private final MlFeedbackTrainingMapper mapper;
+	private final tools.jackson.databind.ObjectMapper objectMapper;
 	private final AtomicReference<MlTrainingStatusResult> latestStatus = new AtomicReference<>(
 		new MlTrainingStatusResult("IDLE", null, null, null, null, null, null, null, "No training started", null, null)
 	);
 
-	public MlFeedbackTrainingService(MlFeedbackTrainingMapper mapper) {
+	public MlFeedbackTrainingService(MlFeedbackTrainingMapper mapper, tools.jackson.databind.ObjectMapper objectMapper) {
 		this.mapper = mapper;
+		this.objectMapper = objectMapper;
 	}
 
 	public MlFeedbackExportResult exportFeedback(Long taskId) {
@@ -132,7 +134,9 @@ public class MlFeedbackTrainingService {
 				"--schema", schemaPath.toString()
 			);
 
-			trainingLog.setMetricsJson(readMetricsJson(schemaPath));
+			String metricsJson = readMetricsJson(schemaPath);
+			trainingLog.setMetricsJson(metricsJson);
+			extractValidationMetrics(trainingLog, metricsJson);
 
 			if (trainResult.exitCode() != 0) {
 				return finish(trainingLog, "FAILED", exportPath, samplePath, modelPath, schemaPath,
@@ -141,7 +145,9 @@ public class MlFeedbackTrainingService {
 			}
 
 			appendTrainingComparison(schemaPath, previousModelPath, activeModelPath, modelPath);
-			trainingLog.setMetricsJson(readMetricsJson(schemaPath));
+			metricsJson = readMetricsJson(schemaPath);
+			trainingLog.setMetricsJson(metricsJson);
+			extractValidationMetrics(trainingLog, metricsJson);
 			publishActiveModel(modelPath, activeModelPath, schemaPath, activeSchemaPath);
 
 			return finish(trainingLog, "SUCCEEDED", exportPath, samplePath, modelPath, schemaPath,
@@ -326,6 +332,28 @@ public class MlFeedbackTrainingService {
 		} catch (IOException ex) {
 			log.warn("Failed to read training metrics schema: {}", schemaPath, ex);
 			return null;
+		}
+	}
+
+	private void extractValidationMetrics(MlTrainingLog log, String metricsJson) {
+		if (metricsJson == null) return;
+		try {
+			@SuppressWarnings("unchecked")
+			Map<String, Object> schema = objectMapper.readValue(metricsJson, Map.class);
+			@SuppressWarnings("unchecked")
+			Map<String, Object> validation = (Map<String, Object>) schema.get("validation");
+			if (validation == null) return;
+
+			Number auc = (Number) validation.get("auc");
+			if (auc != null) {
+				log.setEvalAuc(auc.doubleValue());
+			}
+			Number scoreSeparation = (Number) validation.get("score_separation");
+			if (scoreSeparation != null) {
+				log.setEvalAccuracy(scoreSeparation.doubleValue());
+			}
+		} catch (Exception ex) {
+			log.warn("Failed to extract validation metrics from schema", ex);
 		}
 	}
 

@@ -82,17 +82,41 @@ const positiveRate = computed(() => {
   return Math.round((last.positiveCount || 0) / total * 100)
 })
 
+// 趋势图与分布
+const chartWidth = 400
+
+const aucPoints = computed(() =>
+  [...trainingLogs.value].reverse().map(r => {
+    const v = validationMetrics(r)
+    return r.evalAuc ?? v?.auc ?? null
+  }).filter(v => v != null)
+)
+
+const sepPoints = computed(() =>
+  [...trainingLogs.value].reverse().map(r => {
+    const v = validationMetrics(r)
+    return r.evalAccuracy ?? v?.score_separation ?? null
+  }).filter(v => v != null)
+)
+
+const latestScoreDist = computed(() => {
+  const last = trainingLogs.value[0]
+  if (!last) return []
+  return valScoreDistribution(last) || []
+})
+
 const statsCards = computed(() => {
   const last = trainingLogs.value[0]
   if (!last) return []
   const metrics = trainingMetrics(last)
+  const valMetrics = validationMetrics(last)
   return [
     { label: '模型版本', value: last.modelVersion || '-', icon: Cpu },
     { label: '训练类型', value: typeLabel(last.trainingType), icon: VideoPlay },
     { label: '样本总数', value: last.sampleCount || 0, icon: DataAnalysis },
     { label: '正样本率', value: positiveRate.value + '%', icon: CircleCheck },
-    { label: 'R²', value: metrics?.r2 != null ? metrics.r2.toFixed(4) : '-', icon: TrendCharts },
-    { label: 'RMSE', value: metrics?.rmse != null ? metrics.rmse.toFixed(4) : '-', icon: Finished },
+    { label: 'AUC', value: last.evalAuc != null ? last.evalAuc.toFixed(4) : (valMetrics?.auc != null ? valMetrics.auc.toFixed(4) : '-'), icon: TrendCharts },
+    { label: '评分分离度', value: last.evalAccuracy != null ? last.evalAccuracy.toFixed(4) : (valMetrics?.score_separation != null ? valMetrics.score_separation.toFixed(4) : '-'), icon: Finished },
   ]
 })
 
@@ -107,6 +131,14 @@ function parseMetricsJson(row) {
 
 function trainingMetrics(row) {
   return parseMetricsJson(row)?.metrics || null
+}
+
+function validationMetrics(row) {
+  return parseMetricsJson(row)?.validation || null
+}
+
+function valScoreDistribution(row) {
+  return validationMetrics(row)?.score_distribution || null
 }
 
 function modelParams(row) {
@@ -299,6 +331,63 @@ onMounted(() => {
       </el-col>
     </el-row>
 
+    <!-- 验证指标趋势 -->
+    <el-row :gutter="16" v-if="trainingLogs.length">
+      <el-col :span="14">
+        <el-card shadow="never">
+          <template #header>
+            <div style="display: flex; align-items: center; gap: 6px; font-weight: 700">
+              <el-icon><TrendCharts /></el-icon>
+              <span>验证指标趋势（AUC / 分离度）</span>
+            </div>
+          </template>
+          <div style="height: 180px; position: relative; padding: 10px 0">
+            <svg :viewBox="`0 0 ${chartWidth} 160`" style="width: 100%; height: 160px">
+              <!-- 网格线 -->
+              <line v-for="gy in [0, 0.25, 0.5, 0.75, 1.0]" :key="gy" :x1="20" :x2="chartWidth - 10" :y1="160 - gy * 150" :y2="160 - gy * 150" stroke="#f0f0f0" stroke-width="1" />
+              <!-- AUC 线 -->
+              <polyline v-if="aucPoints.length >= 2"
+                :points="aucPoints.map((p, i) => `${20 + i * (chartWidth - 30) / Math.max(aucPoints.length - 1, 1)},${160 - p * 150}`).join(' ')"
+                fill="none" stroke="#409eff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" />
+              <!-- 分离度线 -->
+              <polyline v-if="sepPoints.length >= 2"
+                :points="sepPoints.map((p, i) => `${20 + i * (chartWidth - 30) / Math.max(sepPoints.length - 1, 1)},${150 - Math.min(p * 150, 150)}`).join(' ')"
+                fill="none" stroke="#67c23a" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" stroke-dasharray="4,2" />
+              <!-- 图例 -->
+              <text x="20" y="18" font-size="11" fill="#409eff">AUC</text>
+              <text x="80" y="18" font-size="11" fill="#67c23a">分离度</text>
+            </svg>
+          </div>
+        </el-card>
+      </el-col>
+      <el-col :span="10">
+        <el-card shadow="never">
+          <template #header>
+            <div style="display: flex; align-items: center; gap: 6px; font-weight: 700">
+              <el-icon><DataAnalysis /></el-icon>
+              <span>最新评分分布</span>
+            </div>
+          </template>
+          <div v-if="latestScoreDist.length" style="display: flex; flex-direction: column; gap: 6px; padding: 8px 0">
+            <div v-for="bucket in latestScoreDist" :key="bucket.range" style="display: flex; align-items: center; gap: 8px; font-size: 12px">
+              <span style="width: 70px; color: #909399; text-align: right">{{ bucket.range }}</span>
+              <div style="flex: 1; height: 18px; background: #f0f0f0; border-radius: 3px; overflow: hidden">
+                <div :style="{
+                  height: '100%',
+                  width: bucket.pct + '%',
+                  background: bucket.range.includes('0.99') || bucket.range.includes('0.999') ? '#f56c6c' : '#409eff',
+                  borderRadius: '3px',
+                  transition: 'width 0.5s ease'
+                }" />
+              </div>
+              <span style="width: 40px; color: #606266">{{ bucket.count }}</span>
+            </div>
+          </div>
+          <el-empty v-else description="暂无评分分布数据，训练一次后即可查看" :image-size="60" />
+        </el-card>
+      </el-col>
+    </el-row>
+
     <!-- 训练历史 -->
     <el-card shadow="never">
       <template #header>
@@ -315,14 +404,25 @@ onMounted(() => {
         <el-table-column prop="sampleCount" label="样本" width="70" />
         <el-table-column prop="positiveCount" label="正样本" width="70" />
         <el-table-column prop="negativeCount" label="负样本" width="70" />
-        <el-table-column label="R²" width="80">
+        <el-table-column label="AUC" width="80">
           <template #default="{ row }">
-            {{ trainingMetrics(row)?.r2 != null ? trainingMetrics(row).r2.toFixed(4) : '-' }}
+            <span v-if="row.evalAuc != null" :style="{ color: row.evalAuc >= 0.7 ? '#67c23a' : row.evalAuc >= 0.5 ? '#e6a23c' : '#f56c6c' }">
+              {{ row.evalAuc.toFixed(4) }}
+            </span>
+            <span v-else>{{ validationMetrics(row)?.auc != null ? validationMetrics(row).auc.toFixed(4) : '-' }}</span>
           </template>
         </el-table-column>
-        <el-table-column label="RMSE" width="90">
+        <el-table-column label="分离度" width="80">
           <template #default="{ row }">
-            {{ trainingMetrics(row)?.rmse != null ? trainingMetrics(row).rmse.toFixed(4) : '-' }}
+            <span v-if="row.evalAccuracy != null" :style="{ color: row.evalAccuracy > 0.1 ? '#67c23a' : row.evalAccuracy > 0.02 ? '#e6a23c' : '#909399' }">
+              {{ row.evalAccuracy.toFixed(4) }}
+            </span>
+            <span v-else>{{ validationMetrics(row)?.score_separation != null ? validationMetrics(row).score_separation.toFixed(4) : '-' }}</span>
+          </template>
+        </el-table-column>
+        <el-table-column label="评分标准差" width="90">
+          <template #default="{ row }">
+            {{ validationMetrics(row)?.score_std != null ? validationMetrics(row).score_std.toFixed(4) : '-' }}
           </template>
         </el-table-column>
         <el-table-column label="对比基线" width="120" show-overflow-tooltip>

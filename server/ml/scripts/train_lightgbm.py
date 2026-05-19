@@ -104,7 +104,7 @@ def build_feature_frame(dataset: pd.DataFrame) -> tuple[pd.DataFrame, pd.Series,
     return features, target, sample_weight, feature_columns, categorical_columns
 
 
-def train_model(features: pd.DataFrame, target: pd.Series, sample_weight: pd.Series, categorical_columns: list[str]) -> tuple[lgb.LGBMRegressor, dict[str, float]]:
+def train_model(features: pd.DataFrame, target: pd.Series, sample_weight: pd.Series, categorical_columns: list[str]) -> tuple[lgb.LGBMRegressor, pd.DataFrame, pd.Series, pd.Series, dict[str, float]]:
     x_train, x_test, y_train, y_test, weight_train, _ = train_test_split(
         features,
         target,
@@ -131,13 +131,62 @@ def train_model(features: pd.DataFrame, target: pd.Series, sample_weight: pd.Ser
         "rmse": float(np.sqrt(mse)),
         "r2": float(r2_score(y_test, predictions)),
     }
-    return model, metrics
+    return model, x_test, y_test, predictions, metrics
+
+
+def evaluate_validation(
+    y_true: pd.Series,
+    y_pred: pd.Series | np.ndarray,
+) -> dict[str, Any]:
+    """Compute validation metrics, both regression and ranking-oriented.
+
+    For feedback samples (target is 0/1), also computes AUC and
+    score_separation — how well the model distinguishes good from bad.
+    """
+    y_true = pd.Series(y_true).reset_index(drop=True)
+    y_pred = pd.Series(np.asarray(y_pred)).reset_index(drop=True)
+
+    val: dict[str, Any] = {}
+    val["mae"] = float(mean_absolute_error(y_true, y_pred))
+    val["rmse"] = float(np.sqrt(mean_squared_error(y_true, y_pred)))
+    val["r2"] = float(r2_score(y_true, y_pred))
+
+    # If targets look binary (mostly 0/1), compute ranking metrics too
+    unique_vals = y_true.dropna().unique()
+    is_binary = set(unique_vals).issubset({0.0, 1.0, 0, 1}) and len(unique_vals) <= 2
+
+    if is_binary:
+        pos = y_pred[y_true >= 0.5]
+        neg = y_pred[y_true < 0.5]
+        val["score_separation"] = float(pos.mean() - neg.mean()) if len(pos) > 0 and len(neg) > 0 else 0.0
+        val["pos_mean"] = float(pos.mean()) if len(pos) > 0 else 0.0
+        val["neg_mean"] = float(neg.mean()) if len(neg) > 0 else 0.0
+
+        from sklearn.metrics import roc_auc_score
+        try:
+            val["auc"] = float(roc_auc_score(y_true, y_pred))
+        except Exception:
+            val["auc"] = None
+
+        # Score distribution buckets
+        bins = [0, 0.2, 0.4, 0.6, 0.8, 0.9, 0.95, 0.99, 0.999, 1.001]
+        labels = ["0-0.2", "0.2-0.4", "0.4-0.6", "0.6-0.8", "0.8-0.9", "0.9-0.95", "0.95-0.99", "0.99-0.999", "0.999-1.0"]
+        val["score_distribution"] = [
+            {"range": labels[i], "count": int(c), "pct": round(float(c) / len(y_pred) * 100, 1)}
+            for i, c in enumerate(np.histogram(y_pred, bins=bins)[0])
+        ]
+
+    # Score std dev — lower = more saturated
+    val["score_std"] = float(y_pred.std())
+
+    return val
 
 
 def save_artifacts(
     model: lgb.LGBMRegressor,
     *,
     metrics: dict[str, float],
+    validation: dict[str, Any] | None,
     feature_columns: list[str],
     categorical_columns: list[str],
     data_path: Path,
@@ -172,6 +221,7 @@ def save_artifacts(
         "categorical_columns": categorical_columns,
         "excluded_columns": sorted(EXCLUDED_COLUMNS),
         "metrics": metrics,
+        "validation": validation,
         "feature_importance_top20": importance_rows[:20],
     }
     feature_schema_path.write_text(json.dumps(schema, ensure_ascii=False, indent=2), encoding="utf-8")
@@ -197,10 +247,12 @@ def main() -> None:
 
     dataset = load_dataset(args.data)
     features, target, sample_weight, feature_columns, categorical_columns = build_feature_frame(dataset)
-    model, metrics = train_model(features, target, sample_weight, categorical_columns)
+    model, x_test, y_test, predictions, metrics = train_model(features, target, sample_weight, categorical_columns)
+    validation = evaluate_validation(y_test, predictions)
     save_artifacts(
         model,
         metrics=metrics,
+        validation=validation,
         feature_columns=feature_columns,
         categorical_columns=categorical_columns,
         data_path=args.data,
@@ -217,6 +269,10 @@ def main() -> None:
     print(f"Trained LightGBM schedule scorer with {len(dataset)} samples")
     print(f"Features: {len(feature_columns)} total, {len(categorical_columns)} categorical")
     print(f"Metrics: MAE={metrics['mae']:.4f}, RMSE={metrics['rmse']:.4f}, R2={metrics['r2']:.4f}")
+    if validation.get("auc") is not None:
+        print(f"Validation AUC={validation['auc']:.4f},  score_separation={validation.get('score_separation', '-'):.4f},  score_std={validation['score_std']:.4f}")
+    else:
+        print(f"Validation score_std={validation['score_std']:.4f}")
     print(f"Model saved -> {args.model}")
     print(f"Feature schema saved -> {args.schema}")
 
