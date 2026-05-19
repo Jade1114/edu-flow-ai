@@ -1943,9 +1943,9 @@ def _build_generation_config_json(raw_config: dict[str, Any]) -> str:
         "allowedWeekdays": str(raw_config.get("allowed_weekdays", "")),
         "allowedPeriods": str(raw_config.get("allowed_periods", "")),
         "schemeCount": int(raw_config.get("scheme_count", 3)),
-        "teacherProfilePenaltyScale": float(raw_config.get("teacher_profile_penalty_scale", 50.0)),
-        "distributionPenaltyScale": float(raw_config.get("distribution_penalty_scale", 5.0)),
-        "classroomStickinessWeight": float(raw_config.get("classroom_stickiness_weight", 5.0)),
+        "teacherProfilePenaltyScale": float(raw_config.get("teacher_profile_penalty_scale", 80.0)),
+        "distributionPenaltyScale": float(raw_config.get("distribution_penalty_scale", 10.0)),
+        "classroomStickinessWeight": float(raw_config.get("classroom_stickiness_weight", 15.0)),
         "compactBonusWeight": float(raw_config.get("compact_bonus_weight", 0.0)),
     }
     # Optional fine-grained weights if they exist
