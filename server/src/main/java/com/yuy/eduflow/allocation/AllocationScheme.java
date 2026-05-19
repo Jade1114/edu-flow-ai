@@ -12,8 +12,6 @@ public class AllocationScheme {
 	private String summary;
 	private Double schemeScore;
 	private String evaluationSummary;
-	private String policy;
-	private String policyParams;
 	private String modelVersion;
 	private String conflictSummary;
 	private Boolean valid;

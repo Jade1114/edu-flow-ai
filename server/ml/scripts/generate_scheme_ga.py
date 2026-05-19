@@ -1488,6 +1488,19 @@ def write_scheme(rows: list[dict[str, Any]], output_path: Path) -> None:
         writer.writeheader()
         writer.writerows(rows)
 
+def write_schemes_json(output_dir: Path, schemes: list[dict[str, Any]]) -> None:
+    """Write all generated schemes as a single JSON file.
+
+    Each entry in schemes should have:
+        items: list[dict] — each item has teaching_task_id, time_slot_id, classroom_id, etc.
+    """
+    output_dir.mkdir(parents=True, exist_ok=True)
+    output_path = output_dir / "schemes.json"
+    output_path.write_text(
+        json.dumps(schemes, ensure_ascii=False, default=str),
+        encoding="utf-8",
+    )
+
 
 def summarize_scheme(rows: list[dict[str, Any]], tasks: list[dict[str, Any]], max_tasks: int | None) -> dict[str, Any]:
     scoped_tasks = tasks[:max_tasks] if max_tasks is not None else tasks
@@ -2153,15 +2166,15 @@ def run_ga_pipeline(args: argparse.Namespace) -> dict[str, Any]:
             mutation_rate=args.mutation_rate,
             fitness_kwargs=fitness_kwargs,
         )
-        write_scheme(rows, args.output)
-        write_teacher_penalties(teacher_penalties, args.output.parent / TEACHER_PENALTIES_FILENAME)
-        ga_summary_path = args.output.parent / "ga_summary.json"
+        write_schemes_json(args.output_dir, [{"items": rows}])
+        write_teacher_penalties(teacher_penalties, args.output_dir / TEACHER_PENALTIES_FILENAME)
+        ga_summary_path = args.output_dir / "ga_summary.json"
         ga_summary_path.write_text(json.dumps(metrics, ensure_ascii=False, indent=2), encoding="utf-8")
-        write_candidate_diagnostics(args.output.parent / "candidate_diagnostics.json")
-        log_chain("单方案生成完成", {"output_path": str(args.output), **summarize_scheme(rows, tasks, args.max_tasks), **summarize_metrics(metrics), "timings_ms": dict(RUN_TIMINGS)})
+        write_candidate_diagnostics(args.output_dir / "candidate_diagnostics.json")
+        log_chain("单方案生成完成", {"output_path": str(args.output_dir), **summarize_scheme(rows, tasks, args.max_tasks), **summarize_metrics(metrics), "timings_ms": dict(RUN_TIMINGS)})
         print_summary(rows, tasks, args.max_tasks)
-        print(f"Output -> {args.output}")
-        print(f"Teacher penalties -> {args.output.parent / TEACHER_PENALTIES_FILENAME}")
+        print(f"Output -> {args.output_dir}")
+        print(f"Teacher penalties -> {args.output_dir / TEACHER_PENALTIES_FILENAME}")
         log_chain("Pipeline 调度完成", {
             "scheme_count": 1,
             "total_fragments": len(rows),
@@ -2189,7 +2202,6 @@ def run_ga_pipeline(args: argparse.Namespace) -> dict[str, Any]:
     args.output_dir.mkdir(parents=True, exist_ok=True)
     write_teacher_penalties(teacher_penalties, args.output_dir / TEACHER_PENALTIES_FILENAME)
     for scheme_no in range(1, args.variant_count + 1):
-        output_path = args.output_dir / f"scheme_{scheme_no:03d}.csv"
         rng = random.Random(args.random_seed + scheme_no)
         rows, _, metrics = generate_scheme(
             tasks=tasks,
@@ -2211,14 +2223,12 @@ def run_ga_pipeline(args: argparse.Namespace) -> dict[str, Any]:
             mutation_rate=args.mutation_rate,
             fitness_kwargs=fitness_kwargs,
         )
-        write_scheme(rows, output_path)
         summary = summarize_scheme(rows, tasks, args.max_tasks)
-        summary_rows.append({"scheme_no": scheme_no, "output_path": str(output_path), **summary, **summarize_metrics(metrics)})
+        summary_rows.append({"scheme_no": scheme_no, **summary, **summarize_metrics(metrics)})
         all_item_rows.append(rows)
 
-    summary_path = args.output_dir / "summary.csv"
+    write_schemes_json(args.output_dir, [{"items": r} for r in all_item_rows])
     ga_summary_path = args.output_dir / "ga_summary.json"
-    write_summary(summary_rows, summary_path)
     ga_summary_path.write_text(json.dumps({"schemes": summary_rows, "timings_ms": dict(RUN_TIMINGS)}, ensure_ascii=False, indent=2), encoding="utf-8")
     write_candidate_diagnostics(args.output_dir / "candidate_diagnostics.json")
     log_chain("多方案生成完成", {"summary_rows": summary_rows, "summary_path": str(summary_path), "ga_summary_path": str(ga_summary_path), "candidate_diagnostics_path": str(args.output_dir / "candidate_diagnostics.json"), "timings_ms": dict(RUN_TIMINGS)})

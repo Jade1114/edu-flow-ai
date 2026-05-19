@@ -22,7 +22,7 @@ public interface AllocationSchemeMapper {
 	@Select("""
 		<script>
 		SELECT id, task_id, scheme_name, summary, scheme_score,
-		       evaluation_summary, policy, policy_params, model_version,
+		       evaluation_summary, model_version,
 		       conflict_summary, valid, status, created_at, updated_at
 		FROM allocation_scheme
 		WHERE 1 = 1
@@ -39,7 +39,7 @@ public interface AllocationSchemeMapper {
 
 	@Select("""
 		SELECT id, task_id, scheme_name, summary, scheme_score,
-		       evaluation_summary, policy, policy_params, model_version,
+		       evaluation_summary, model_version,
 		       conflict_summary, valid, status, created_at, updated_at
 		FROM allocation_scheme
 		WHERE id = #{id}
@@ -49,12 +49,12 @@ public interface AllocationSchemeMapper {
 	@Insert("""
 		INSERT INTO allocation_scheme (
 		    task_id, scheme_name, summary, scheme_score,
-		    evaluation_summary, policy, policy_params, model_version,
+		    evaluation_summary, model_version,
 		    conflict_summary, valid, status
 		)
 		VALUES (
 		    #{taskId}, #{schemeName}, #{summary}, #{schemeScore},
-		    #{evaluationSummary}, #{policy}, #{policyParams}, #{modelVersion},
+		    #{evaluationSummary}, #{modelVersion},
 		    #{conflictSummary}, #{valid}, #{status}
 		)
 		""")

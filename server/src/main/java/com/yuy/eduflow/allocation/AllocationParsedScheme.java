@@ -8,10 +8,9 @@ public record AllocationParsedScheme(
 	List<AllocationParsedItem> items,
 	Double schemeScore,
 	String evaluationSummary,
-	String policy,
 	String modelVersion
 ) {
 	public AllocationParsedScheme(String schemeName, String summary, List<AllocationParsedItem> items) {
-		this(schemeName, summary, items, null, null, null, null);
+		this(schemeName, summary, items, null, null, null);
 	}
 }

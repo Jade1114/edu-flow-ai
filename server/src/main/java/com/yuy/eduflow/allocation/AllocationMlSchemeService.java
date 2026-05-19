@@ -26,8 +26,6 @@ import tools.jackson.databind.ObjectMapper;
 @Service
 public class AllocationMlSchemeService {
 
-	private static final String DEFAULT_POLICY = "BALANCED";
-
 	private final AllocationTaskMapper allocationTaskMapper;
 	private final AllocationSchemeMapper allocationSchemeMapper;
 	private final ObjectMapper objectMapper;
@@ -61,10 +59,9 @@ public class AllocationMlSchemeService {
 		progressReporter.accept(running("eval", "自训练模型评估方案质量...", 62));
 		runEvaluator(outputDir);
 		progressReporter.accept(running("parse", "解析评估后的 CSV 方案...", 68));
-		String resolvedPolicy = policyOrDefault(null);
 		List<AllocationParsedScheme> schemes;
 		try {
-			schemes = parseGeneratedSchemes(outputDir, taskId, resolvedPolicy);
+			schemes = parseGeneratedSchemes(outputDir, taskId);
 		} catch (IOException exception) {
 			throw new BusinessException(500, "解析模型方案 CSV 文件失败：" + exception.getMessage(), exception);
 		}
@@ -173,9 +170,8 @@ public class AllocationMlSchemeService {
 
 	private record EvaluationData(Double schemeScore, String evaluationSummary) {}
 
-	private EvaluationData loadEvaluation(Path outputDir, String schemeFileName) {
-		String jsonFileName = schemeFileName.replace(".csv", ".json");
-		Path jsonPath = outputDir.resolve(jsonFileName);
+	private EvaluationData loadEvaluation(Path outputDir, String schemeBaseName) {
+		Path jsonPath = outputDir.resolve(schemeBaseName + ".json");
 		if (!Files.exists(jsonPath)) {
 			return null;
 		}
@@ -192,131 +188,74 @@ public class AllocationMlSchemeService {
 		}
 	}
 
-	private String policyOrDefault(String policy) {
-		return policy != null && !policy.isBlank() ? policy : DEFAULT_POLICY;
-	}
-
-	private List<AllocationParsedScheme> parseGeneratedSchemes(Path outputDir, Long taskId, String policy) throws IOException {
-		try (var stream = Files.list(outputDir)) {
-			List<Path> schemeFiles = stream
-				.filter(path -> path.getFileName().toString().matches("scheme_\\d+\\.csv"))
-				.sorted(Comparator.comparing(path -> path.getFileName().toString()))
-				.toList();
-			if (schemeFiles.isEmpty()) {
-				throw new ValidationException("自训练模型未生成任何方案 CSV");
-			}
-			log.info("ML generated scheme files discovered: outputDir={}, files={}", outputDir, schemeFiles.stream().map(path -> path.getFileName().toString()).toList());
-			int existingMaxIndex = allocationSchemeMapper.selectMaxSchemeIndex(taskId);
-			log.info("Existing max scheme index for taskId={}: {}", taskId, existingMaxIndex);
-			List<AllocationParsedScheme> schemes = new ArrayList<>();
-			for (int i = 0; i < schemeFiles.size(); i++) {
-				Path schemeFile = schemeFiles.get(i);
-				List<AllocationParsedItem> items = parseSchemeItems(schemeFile);
-				String summary = summarizeScheme(schemeFile, items);
-				EvaluationData evaluation = loadEvaluation(outputDir, schemeFile.getFileName().toString());
-				log.info("ML parsed scheme: file={}, itemCount={}, summary={}, evaluationScore={}", schemeFile.getFileName(), items.size(), summary, evaluation != null ? evaluation.schemeScore() : null);
-				int schemeIndex = existingMaxIndex + i + 1;
-				schemes.add(new AllocationParsedScheme(
-					"自训练模型方案 " + String.format("%03d", schemeIndex),
-					summary,
-					items,
-					evaluation != null ? evaluation.schemeScore() : null,
-					evaluation != null ? evaluation.evaluationSummary() : null,
-					policyOrDefault(policy),
-					"v1"
+	private List<AllocationParsedScheme> parseGeneratedSchemes(Path outputDir, Long taskId) throws IOException {
+		Path schemesJson = outputDir.resolve("schemes.json");
+		if (!Files.exists(schemesJson)) {
+			throw new ValidationException("自训练模型未生成 schemes.json");
+		}
+		String rawJson = Files.readString(schemesJson, StandardCharsets.UTF_8);
+		List<Map<String, Object>> schemesData = objectMapper.readValue(rawJson, new com.fasterxml.jackson.core.type.TypeReference<List<Map<String, Object>>>() {});
+		log.info("ML parsed schemes.json: schemeCount={}", schemesData.size());
+		int existingMaxIndex = allocationSchemeMapper.selectMaxSchemeIndex(taskId);
+		log.info("Existing max scheme index for taskId={}: {}", taskId, existingMaxIndex);
+		List<AllocationParsedScheme> schemes = new ArrayList<>();
+		for (int i = 0; i < schemesData.size(); i++) {
+			Map<String, Object> schemeData = schemesData.get(i);
+			@SuppressWarnings("unchecked")
+			List<Map<String, Object>> itemsData = (List<Map<String, Object>>) schemeData.getOrDefault("items", List.of());
+			List<AllocationParsedItem> items = new ArrayList<>();
+			for (Map<String, Object> itemData : itemsData) {
+				Number teachingTaskId = (Number) itemData.get("teaching_task_id");
+				Number timeSlotId = (Number) itemData.get("time_slot_id");
+				Number classroomId = (Number) itemData.get("classroom_id");
+				Object explanation = itemData.get("teacher_profile_penalty_explanation");
+				items.add(new AllocationParsedItem(
+					teachingTaskId != null ? teachingTaskId.longValue() : null,
+					timeSlotId != null ? timeSlotId.longValue() : null,
+					classroomId != null ? classroomId.longValue() : null,
+					explanation instanceof String s && !s.isBlank() ? s : null
 				));
 			}
-			return schemes;
-		}
-	}
-
-	private List<AllocationParsedItem> parseSchemeItems(Path schemeFile) throws IOException {
-		List<String> lines = Files.readAllLines(schemeFile, StandardCharsets.UTF_8);
-		if (lines.size() <= 1) {
-			throw new ValidationException("模型方案为空：" + schemeFile.getFileName());
-		}
-		List<String> headers = parseCsvLine(lines.get(0));
-		Map<String, Integer> headerIndex = new HashMap<>();
-		for (int i = 0; i < headers.size(); i++) {
-			headerIndex.put(headers.get(i), i);
-		}
-		List<AllocationParsedItem> items = new ArrayList<>();
-		for (int i = 1; i < lines.size(); i++) {
-			List<String> values = parseCsvLine(lines.get(i));
-			items.add(new AllocationParsedItem(
-				requireLong(values, headerIndex, "teaching_task_id", schemeFile),
-				requireLong(values, headerIndex, "time_slot_id", schemeFile),
-				requireLong(values, headerIndex, "classroom_id", schemeFile),
-				optionalValue(values, headerIndex, "teacher_profile_penalty_explanation")
+			String summary = buildSummary(items, itemsData);
+			EvaluationData evaluation = loadEvaluation(outputDir, "scheme_" + String.format("%03d", i + 1));
+			log.info("ML parsed scheme: index={}, itemCount={}, summary={}, evaluationScore={}", i + 1, items.size(), summary, evaluation != null ? evaluation.schemeScore() : null);
+			int schemeIndex = existingMaxIndex + i + 1;
+			schemes.add(new AllocationParsedScheme(
+				"自训练模型方案 " + String.format("%03d", schemeIndex),
+				summary,
+				items,
+				evaluation != null ? evaluation.schemeScore() : null,
+				evaluation != null ? evaluation.evaluationSummary() : null,
+				"v1"
 			));
 		}
-		return items;
+		return schemes;
 	}
 
-	private String summarizeScheme(Path schemeFile, List<AllocationParsedItem> items) throws IOException {
+	private String buildSummary(List<AllocationParsedItem> items, List<Map<String, Object>> itemsData) {
 		Map<Integer, Long> loadByDay = new LinkedHashMap<>();
 		for (int day = 1; day <= 7; day++) {
 			loadByDay.put(day, 0L);
 		}
-		List<String> lines = Files.readAllLines(schemeFile, StandardCharsets.UTF_8);
-		List<String> headers = parseCsvLine(lines.get(0));
-		Map<String, Integer> headerIndex = new HashMap<>();
-		for (int i = 0; i < headers.size(); i++) {
-			headerIndex.put(headers.get(i), i);
-		}
 		BigDecimal totalPredictedScore = BigDecimal.ZERO;
-		for (int i = 1; i < lines.size(); i++) {
-			List<String> values = parseCsvLine(lines.get(i));
-			Integer day = requireLong(values, headerIndex, "day_of_week", schemeFile).intValue();
-			loadByDay.computeIfPresent(day, (ignored, count) -> count + 1);
-			String predictedScore = requireValue(values, headerIndex, "predicted_score", schemeFile);
-			totalPredictedScore = totalPredictedScore.add(new BigDecimal(predictedScore));
-		}
-		BigDecimal avgPredictedScore = items.isEmpty()
-			? BigDecimal.ZERO
-			: totalPredictedScore.divide(BigDecimal.valueOf(items.size()), 4, java.math.RoundingMode.HALF_UP);
-		return "片段 " + items.size() + "，平均模型分 " + avgPredictedScore + "，星期分布 " + loadByDay;
-	}
-
-	private List<String> parseCsvLine(String line) {
-		List<String> values = new ArrayList<>();
-		StringBuilder current = new StringBuilder();
-		boolean quoted = false;
-		for (int i = 0; i < line.length(); i++) {
-			char ch = line.charAt(i);
-			if (ch == '"') {
-				if (quoted && i + 1 < line.length() && line.charAt(i + 1) == '"') {
-					current.append('"');
-					i++;
-				} else {
-					quoted = !quoted;
-				}
-			} else if (ch == ',' && !quoted) {
-				values.add(current.toString());
-				current.setLength(0);
-			} else {
-				current.append(ch);
+		int dayPredictCount = 0;
+		for (Map<String, Object> itemData : itemsData) {
+			Object dayObj = itemData.get("day_of_week");
+			if (dayObj instanceof Number dayNum) {
+				int day = dayNum.intValue();
+				loadByDay.computeIfPresent(day, (ignored, count) -> count + 1);
+			}
+			Object scoreObj = itemData.get("predicted_score");
+			if (scoreObj instanceof Number scoreNum) {
+				totalPredictedScore = totalPredictedScore.add(BigDecimal.valueOf(scoreNum.doubleValue()));
+				dayPredictCount++;
 			}
 		}
-		values.add(current.toString());
-		return values;
+		BigDecimal avgPredictedScore = dayPredictCount == 0
+			? BigDecimal.ZERO
+			: totalPredictedScore.divide(BigDecimal.valueOf(dayPredictCount), 4, java.math.RoundingMode.HALF_UP);
+		return "片段 " + items.size() + "，平均模型分 " + avgPredictedScore + "，星期分布 " + loadByDay;
 	}
-
-	private Long requireLong(List<String> values, Map<String, Integer> headerIndex, String fieldName, Path schemeFile) {
-		return Long.valueOf(requireValue(values, headerIndex, fieldName, schemeFile));
-	}
-
-	private String requireValue(List<String> values, Map<String, Integer> headerIndex, String fieldName, Path schemeFile) {
-		Integer index = headerIndex.get(fieldName);
-		if (index == null || index >= values.size() || values.get(index).isBlank()) {
-			throw new ValidationException("模型方案 " + schemeFile.getFileName() + " 缺少字段：" + fieldName);
-		}
-		return values.get(index).trim();
-	}
-
-	private String optionalValue(List<String> values, Map<String, Integer> headerIndex, String fieldName) {
-		Integer index = headerIndex.get(fieldName);
-		if (index == null || index >= values.size() || values.get(index).isBlank()) {
 			return null;
 		}
 		return values.get(index).trim();
