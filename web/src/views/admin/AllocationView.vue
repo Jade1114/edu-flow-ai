@@ -965,8 +965,8 @@ function openSlotDetail(dayOfWeek, periodIndex) {
 
 // === 快速模板 ===
 const quickTemplates = ref([
-  { id: "qt-1", classroomId: null, classroomName: "模板A" },
-  { id: "qt-2", classroomId: null, classroomName: "模板B" },
+  { id: "qt-1", classroomId: null, teacherName: null, classGroupName: null },
+  { id: "qt-2", classroomId: null, teacherName: null, classGroupName: null },
 ]);
 
 function onTemplateDragStart(e, template) {
@@ -976,6 +976,25 @@ function onTemplateDragStart(e, template) {
 
 function templateLabel(t) {
   return t.classroomName || t.id;
+}
+
+function templateFilterSummary(t) {
+  const parts = [];
+  if (t.teacherName) parts.push("教师:" + t.teacherName);
+  if (t.classGroupName) parts.push("班级:" + t.classGroupName);
+  if (t.classroomName) parts.push("教室:" + t.classroomName);
+  return parts.join(" ") || "未配置";
+}
+
+function applyTemplateToSlot(template, slotItems) {
+  return slotItems.filter((item) => {
+    if (template.teacherName && item.teacherName !== template.teacherName) return false;
+    if (template.classGroupName) {
+      const itemGroups = String(item.classGroupName || "").split(",").map((g) => g.trim());
+      if (!itemGroups.includes(template.classGroupName)) return false;
+    }
+    return true;
+  });
 }
 
 // === 手动编辑排课片段 ===
@@ -1093,7 +1112,7 @@ async function onDrop(e, day, period) {
     return;
   }
 
-  // 模板拖拽 → 批量修改该格所有项目的教室
+  // 模板拖拽 → 批量修改该格匹配项目的教室
   if (dragData && dragData.startsWith("template:")) {
     const templateId = dragData.split(":")[1];
     const template = quickTemplates.value.find(t => t.id === templateId);
@@ -1106,15 +1125,22 @@ async function onDrop(e, day, period) {
       ElMessage.info("该时段没有排课片段");
       return;
     }
+    const targetItems = template.teacherName || template.classGroupName
+      ? applyTemplateToSlot(template, slotItems)
+      : slotItems;
+    if (!targetItems.length) {
+      ElMessage.info("该时段没有符合模板过滤条件的片段");
+      return;
+    }
     savingMove.value = true;
     try {
-      for (const si of slotItems) {
+      for (const si of targetItems) {
         await request.put(
           `/api/allocation-schemes/${schemeDetail.value.id}/items/${si.id}`,
           { classroomId: template.classroomId, timeSlotId: si.timeSlotId },
         );
       }
-      ElMessage.success(`模板已应用到 ${slotItems.length} 个排课片段`);
+      ElMessage.success(`模板已应用到 ${targetItems.length}/${slotItems.length} 个排课片段`);
       const [detail, items] = await Promise.all([
         request.get(`/api/allocation-schemes/${schemeDetail.value.id}`),
         request.get(`/api/allocation-schemes/${schemeDetail.value.id}/items`),
@@ -1815,37 +1841,46 @@ onUnmounted(() => {
         </div>
 
         <!-- 快速模板 -->
-        <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 10px; padding: 4px 10px; background: #f8fafc; border-radius: 6px">
-          <span style="font-size: 12px; color: #909399; white-space: nowrap">快速模板</span>
+        <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 10px; padding: 6px 10px; background: #f8fafc; border-radius: 6px; flex-wrap: wrap">
+          <span style="font-size: 12px; color: #909399; font-weight: 600">快速模板</span>
           <div
             v-for="tpl in quickTemplates"
             :key="tpl.id"
             draggable="true"
             :style="{
-              display: 'flex', alignItems: 'center', gap: '4px', padding: '2px 8px 2px 4px',
+              display: 'flex', alignItems: 'center', gap: '4px', padding: '3px 6px',
               border: '2px dashed #409eff', borderRadius: '6px', cursor: 'grab', fontSize: '12px',
-              background: tpl.classroomId ? '#ecf5ff' : '#fff',
-              opacity: tpl.classroomId ? 1 : 0.6,
+              background: tpl.classroomId ? '#e6f7ff' : '#fff', opacity: tpl.classroomId ? 1 : 0.6,
+              flexWrap: 'wrap',
             }"
             @dragstart="onTemplateDragStart($event, tpl)"
           >
+            <!-- 教师 -->
+            <el-select v-model="tpl.teacherName" filterable clearable placeholder="教师(不限)" size="small" style="width: 100px" @click.stop>
+              <el-option v-for="o in timetableTeacherOptions" :key="o.value" :label="o.label" :value="o.value" />
+            </el-select>
+            <!-- 班级 -->
+            <el-select v-model="tpl.classGroupName" filterable clearable placeholder="班级(不限)" size="small" style="width: 110px" @click.stop>
+              <el-option v-for="n in timetableClassGroupOptions" :key="n" :label="n" :value="n" />
+            </el-select>
+            <!-- 教室 -->
             <el-select
               v-model="tpl.classroomId"
               filterable
-              placeholder="选教室"
+              placeholder="教室(必选)"
               size="small"
-              style="width: 130px"
-              @change="(val) => { const r = classrooms.find(c => c.id === val); tpl.classroomName = r ? (r.name || r.classroomName) : ''; }"
+              style="width: 120px"
               @click.stop
+              @change="(val) => { const r = classrooms.find(c => c.id === val); tpl.classroomName = r ? (r.name || r.classroomName) : ''; }"
             >
               <el-option
                 v-for="room in classrooms"
                 :key="room.id"
-                :label="`${room.name || room.classroomName || room.id} · ${room.capacity || 0}人`"
+                :label="`${room.name || room.classroomName || room.id}·${room.capacity || 0}人`"
                 :value="room.id"
               />
             </el-select>
-            <span style="color: #909399; font-size: 11px">拖到格子覆盖</span>
+            <span style="color: #909399; font-size: 10px; white-space: nowrap">拖到格子覆盖</span>
           </div>
         </div>
 
@@ -1996,16 +2031,6 @@ onUnmounted(() => {
       </div>
       <template #footer>
         <el-button @click="detailVisible = false">关闭</el-button>
-        <el-button
-          type="success"
-          :disabled="!schemeDetail?.valid"
-          @click="confirmScheme(schemeDetail.id)"
-          >{{
-            schemeDetail?.status === SchemeStatus.CONFIRMED
-              ? "重新确认"
-              : "确认方案"
-          }}</el-button
-        >
       </template>
     </el-dialog>
 
