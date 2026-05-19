@@ -966,8 +966,8 @@ function openSlotDetail(dayOfWeek, periodIndex) {
 // === 快速模板 ===
 const dragTemplate = ref(null); // 当前拖拽中的模板
 const quickTemplates = ref([
-  { id: "qt-1", classroomId: null, teacherName: null, classGroupName: null },
-  { id: "qt-2", classroomId: null, teacherName: null, classGroupName: null },
+  { id: "qt-1", classroomId: null, teacherName: null, classGroupNames: [] },
+  { id: "qt-2", classroomId: null, teacherName: null, classGroupNames: [] },
 ]);
 
 // === 手动编辑排课片段 ===
@@ -1069,6 +1069,23 @@ function onTemplateDragStart(e, template) {
   e.dataTransfer.setData("text/plain", "template:" + template.id);
 }
 
+function onTemplateDragEnd() {
+  dragTemplate.value = null;
+}
+
+function templateMatchesItem(template, item) {
+  if (template.teacherName && template.teacherName !== item.teacherName) return false;
+  const selectedClassGroups = template.classGroupNames || [];
+  if (selectedClassGroups.length > 0) {
+    const itemGroups = String(item.classGroupName || "")
+      .split(",")
+      .map((name) => name.trim())
+      .filter(Boolean);
+    if (!selectedClassGroups.some((name) => itemGroups.includes(name))) return false;
+  }
+  return true;
+}
+
 function onDragOver(e, day, period) {
   e.preventDefault();
   e.dataTransfer.dropEffect = "move";
@@ -1080,25 +1097,48 @@ function onDragLeave() {
 }
 
 async function onTemplateDropToCard(e, targetItem) {
-  const template = dragTemplate.value;
+  e.preventDefault();
+  e.stopPropagation();
+
+  const dragData = e.dataTransfer?.getData("text/plain") || "";
+  const templateId = dragData.startsWith("template:") ? dragData.split(":")[1] : null;
+  const template = dragTemplate.value || quickTemplates.value.find((tpl) => tpl.id === templateId);
   dragTemplate.value = null;
-  if (!template || !template.classroomId) {
+
+  if (!template) return;
+  if (!template.classroomId) {
     ElMessage.warning("请先在模板中选择教室");
     return;
   }
+  if (!templateMatchesItem(template, targetItem)) {
+    ElMessage.warning("目标卡片不符合模板的教师/班级条件");
+    return;
+  }
+
+  const room = classrooms.value.find((item) => item.id === template.classroomId);
+  const classroomName = room ? (room.name || room.classroomName) : template.classroomName;
   savingMove.value = true;
   try {
     await request.put(
       `/api/allocation-schemes/${schemeDetail.value.id}/items/${targetItem.id}`,
       { classroomId: template.classroomId, timeSlotId: targetItem.timeSlotId },
     );
-    ElMessage.success(`模板已应用到 ${targetItem.courseName || ''} ${targetItem.teacherName || ''}`);
+
+    if (schemeDetail.value?.items) {
+      schemeDetail.value.items = schemeDetail.value.items.map((item) =>
+        item.id === targetItem.id
+          ? { ...item, classroomId: template.classroomId, classroomName }
+          : item,
+      );
+    }
+
+    ElMessage.success(`已将该卡片教室改为 ${classroomName || template.classroomId}`);
     const [detail, items] = await Promise.all([
       request.get(`/api/allocation-schemes/${schemeDetail.value.id}`),
       request.get(`/api/allocation-schemes/${schemeDetail.value.id}/items`),
     ]);
     schemeDetail.value = { ...schemeDetail.value, ...detail, items };
-  } catch (e) {
+  } catch (error) {
     ElMessage.error("应用模板失败");
   } finally {
     savingMove.value = false;
@@ -1108,7 +1148,7 @@ async function onTemplateDropToCard(e, targetItem) {
 async function onDrop(e, day, period) {
   e.preventDefault();
   dropTarget.value = null;
-  dragTemplate.value = null; // 模板拖拽由卡片级处理，这里清掉避免残留
+  if (dragTemplate.value) return; // 模板只允许落到具体卡片，不能落到整格
   const item = dragItem.value;
   dragItem.value = null;
 
@@ -1819,13 +1859,26 @@ onUnmounted(() => {
               flexWrap: 'wrap',
             }"
             @dragstart="onTemplateDragStart($event, tpl)"
+            @dragend="onTemplateDragEnd"
           >
             <!-- 教师 -->
             <el-select v-model="tpl.teacherName" filterable clearable placeholder="教师(不限)" size="small" style="width: 100px" @click.stop>
               <el-option v-for="o in timetableTeacherOptions" :key="o.value" :label="o.label" :value="o.value" />
             </el-select>
             <!-- 班级 -->
-            <el-select v-model="tpl.classGroupName" filterable clearable placeholder="班级(不限)" size="small" style="width: 110px" @click.stop>
+            <el-select
+              v-model="tpl.classGroupNames"
+              filterable
+              clearable
+              multiple
+              :multiple-limit="2"
+              collapse-tags
+              collapse-tags-tooltip
+              placeholder="班级(最多2个)"
+              size="small"
+              style="width: 150px"
+              @click.stop
+            >
               <el-option v-for="n in timetableClassGroupOptions" :key="n" :label="n" :value="n" />
             </el-select>
             <!-- 教室 -->
@@ -1845,7 +1898,7 @@ onUnmounted(() => {
                 :value="room.id"
               />
             </el-select>
-            <span style="color: #909399; font-size: 10px; white-space: nowrap">拖到格子覆盖</span>
+            <span style="color: #909399; font-size: 10px; white-space: nowrap">拖到卡片覆盖</span>
           </div>
         </div>
 
@@ -1949,8 +2002,8 @@ onUnmounted(() => {
                       }"
                       @dragstart="onDragStart($event, item)"
                       @click.stop="openEditDialog(item)"
-                      @dragover.prevent
-                      @drop.prevent="onTemplateDropToCard($event, item)"
+                      @dragover.prevent.stop
+                      @drop.prevent.stop="onTemplateDropToCard($event, item)"
                     >
                       <div style="font-weight: 600">{{ item.courseName }}</div>
                       <div
