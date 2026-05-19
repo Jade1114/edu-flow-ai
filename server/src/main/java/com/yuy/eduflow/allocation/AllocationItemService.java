@@ -97,13 +97,15 @@ public class AllocationItemService {
 	public List<AllocationItemView> recheckScheme(Long schemeId) {
 		log.info("Rechecking conflicts for schemeId={}", schemeId);
 		List<AllocationItem> allItems = allocationItemMapper.findAll(schemeId, null, null, null);
-		List<AllocationConflictViolation> violations = conflictDetector.detect(allItems);
+		AllocationScheme scheme = allocationSchemeMapper.findById(schemeId);
+		Long allocationTaskId = scheme != null ? scheme.getTaskId() : null;
+		List<AllocationConflictViolation> violations = conflictDetector.detect(allItems, allocationTaskId);
 		log.info("Recheck done: {} violations found", violations.size());
 
 		for (AllocationItem ai : allItems) {
 			List<String> msgs = new ArrayList<>();
 			for (AllocationConflictViolation v : violations) {
-				if (v.itemId().equals(ai.getId())) {
+				if (v.itemId() != null && v.itemId().equals(ai.getId())) {
 					msgs.add(v.message());
 				}
 			}
@@ -118,8 +120,7 @@ public class AllocationItemService {
 			}
 		}
 
-		boolean hasConflicts = violations.stream().anyMatch(v -> allItems.stream()
-			.anyMatch(ai -> ai.getId().equals(v.itemId())));
+		boolean hasConflicts = !violations.isEmpty();
 		String conflictSummary = hasConflicts ? conflictDetector.summarize(violations) : null;
 		allocationSchemeMapper.updateConflictState(schemeId, !hasConflicts, conflictSummary);
 

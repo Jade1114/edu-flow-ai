@@ -68,7 +68,7 @@ public class AllocationSchemeGenerationService {
 			List<AllocationItem> items = persistItems(scheme.getId(), parsedScheme.items());
 			log.info("Persisted {} items for scheme id={}", items.size(), scheme.getId());
 			progressReporter.accept(running("conflict", "检测方案冲突 " + (i + 1) + "/" + parsedSchemes.size() + "...", Math.min(baseProgress + 5, 95)));
-			List<AllocationConflictViolation> violations = conflictDetector.detect(items);
+			List<AllocationConflictViolation> violations = conflictDetector.detect(items, taskId);
 			log.info("Conflict detection: {} violations found", violations.size());
 			applyItemConflictState(items, violations);
 			persistConflictResults(scheme.getId(), violations);
@@ -129,6 +129,7 @@ public class AllocationSchemeGenerationService {
 	private void applyItemConflictState(List<AllocationItem> items, List<AllocationConflictViolation> violations) {
 		Map<Long, List<String>> messagesByItemId = new LinkedHashMap<>();
 		for (AllocationConflictViolation violation : violations) {
+			if (violation.itemId() == null) continue;
 			messagesByItemId.computeIfAbsent(violation.itemId(), ignored -> new ArrayList<>()).add(violation.message());
 		}
 		for (AllocationItem item : items) {
@@ -145,6 +146,7 @@ public class AllocationSchemeGenerationService {
 
 	private void persistConflictResults(Long schemeId, List<AllocationConflictViolation> violations) {
 		for (AllocationConflictViolation violation : violations) {
+			if (violation.itemId() == null) continue;
 			ConflictCheckResult result = new ConflictCheckResult();
 			result.setBizType(CONFLICT_BIZ_TYPE);
 			result.setBizId(violation.itemId());

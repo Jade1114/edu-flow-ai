@@ -18,34 +18,44 @@ public class AllocationSchemeConflictDetector {
 	static final String CLASS_GROUP_TIME = "CLASS_GROUP_TIME";
 	static final String CLASSROOM_TIME = "CLASSROOM_TIME";
 	static final String TEACHER_WORKLOAD = "TEACHER_WORKLOAD";
+	static final String TEACHING_TASK_HOURS = "TEACHING_TASK_HOURS";
 
 	private final AllocationItemMapper allocationItemMapper;
+	private final AllocationTaskMapper allocationTaskMapper;
 	private final com.yuy.eduflow.teachingtask.TeachingTaskMapper teachingTaskMapper;
 	private final TimeSlotService timeSlotService;
 
 	public AllocationSchemeConflictDetector(
 		AllocationItemMapper allocationItemMapper,
+		AllocationTaskMapper allocationTaskMapper,
 		com.yuy.eduflow.teachingtask.TeachingTaskMapper teachingTaskMapper,
 		TimeSlotService timeSlotService
 	) {
 		this.allocationItemMapper = allocationItemMapper;
+		this.allocationTaskMapper = allocationTaskMapper;
 		this.teachingTaskMapper = teachingTaskMapper;
 		this.timeSlotService = timeSlotService;
 	}
 
 	public List<AllocationConflictViolation> detect(List<AllocationItem> items) {
-		if (items == null || items.isEmpty()) {
+		return detect(items, null);
+	}
+
+	public List<AllocationConflictViolation> detect(List<AllocationItem> items, Long allocationTaskId) {
+		if ((items == null || items.isEmpty()) && allocationTaskId == null) {
 			return List.of();
 		}
+		List<AllocationItem> safeItems = items == null ? List.of() : items;
 		// 预加载所有教学任务 + 时间段
-		Map<Long, TeachingTaskDetail> taskDetails = loadTaskDetails(items);
+		Map<Long, TeachingTaskDetail> taskDetails = loadTaskDetails(safeItems, allocationTaskId);
 		Map<Long, Integer> timeSlotWeekMap = loadTimeSlotWeekMap();
 		List<AllocationConflictViolation> violations = new ArrayList<>();
 
-		detectConflicts(items, item -> teacherKey(item, taskDetails), (item, group) -> teacherViolation(item, group, taskDetails), violations);
-		detectConflicts(items, item -> classGroupKey(item, taskDetails), (item, group) -> classGroupViolation(item, group, taskDetails), violations);
-		detectConflicts(items, item -> classroomKey(item), this::classroomViolation, violations);
-		detectWorkloadViolations(items, taskDetails, timeSlotWeekMap, violations);
+		detectConflicts(safeItems, item -> teacherKey(item, taskDetails), (item, group) -> teacherViolation(item, group, taskDetails), violations);
+		detectClassGroupConflicts(safeItems, taskDetails, violations);
+		detectConflicts(safeItems, item -> classroomKey(item), this::classroomViolation, violations);
+		detectWorkloadViolations(safeItems, taskDetails, timeSlotWeekMap, violations);
+		detectTeachingTaskHourViolations(safeItems, taskDetails, violations);
 
 		return violations;
 	}
@@ -65,21 +75,30 @@ public class AllocationSchemeConflictDetector {
 		appendSummary(parts, counts, CLASS_GROUP_TIME, "班级时间冲突");
 		appendSummary(parts, counts, CLASSROOM_TIME, "教室时间冲突");
 		appendSummary(parts, counts, TEACHER_WORKLOAD, "教师工作量冲突");
+		appendSummary(parts, counts, TEACHING_TASK_HOURS, "教学任务课时不匹配");
 		return "发现 " + violations.size() + " 条冲突记录：" + String.join("，", parts);
 	}
 
-	private Map<Long, TeachingTaskDetail> loadTaskDetails(List<AllocationItem> items) {
+	private Map<Long, TeachingTaskDetail> loadTaskDetails(List<AllocationItem> items, Long allocationTaskId) {
 		Map<Long, TeachingTaskDetail> details = new LinkedHashMap<>();
+		if (allocationTaskId != null) {
+			for (AllocationTaskTeachingTaskResult taskResult : allocationTaskMapper.findTeachingTasks(allocationTaskId)) {
+				loadTaskDetail(taskResult.getId(), details);
+			}
+		}
 		for (AllocationItem item : items) {
-			Long taskId = item.getTeachingTaskId();
-			if (taskId == null || details.containsKey(taskId)) continue;
-			var task = teachingTaskMapper.findWithDetails(taskId);
-			if (task == null) continue;
-			int totalStudents = task.getClassGroups() == null ? 0
-				: task.getClassGroups().stream().mapToInt(cg -> cg.getStudentCount() != null ? cg.getStudentCount() : 0).sum();
-			details.put(taskId, new TeachingTaskDetail(task, totalStudents));
+			loadTaskDetail(item.getTeachingTaskId(), details);
 		}
 		return details;
+	}
+
+	private void loadTaskDetail(Long taskId, Map<Long, TeachingTaskDetail> details) {
+		if (taskId == null || details.containsKey(taskId)) return;
+		var task = teachingTaskMapper.findWithDetails(taskId);
+		if (task == null) return;
+		int totalStudents = task.getClassGroups() == null ? 0
+			: task.getClassGroups().stream().mapToInt(cg -> cg.getStudentCount() != null ? cg.getStudentCount() : 0).sum();
+		details.put(taskId, new TeachingTaskDetail(task, totalStudents));
 	}
 
 	private Map<Long, Integer> loadTimeSlotWeekMap() {
@@ -130,6 +149,42 @@ public class AllocationSchemeConflictDetector {
 		}
 	}
 
+	private void detectTeachingTaskHourViolations(
+		List<AllocationItem> items,
+		Map<Long, TeachingTaskDetail> taskDetails,
+		List<AllocationConflictViolation> violations
+	) {
+		Map<Long, List<AllocationItem>> itemsByTaskId = items.stream()
+			.filter(item -> item.getTeachingTaskId() != null)
+			.collect(Collectors.groupingBy(AllocationItem::getTeachingTaskId, LinkedHashMap::new, Collectors.toList()));
+
+		for (TeachingTaskDetail detail : taskDetails.values()) {
+			TeachingTask task = detail.task();
+			if (task.getId() == null || task.getTotalHours() == null) continue;
+			List<AllocationItem> taskItems = itemsByTaskId.getOrDefault(task.getId(), List.of());
+			int actualHours = taskItems.size() * 2;
+			int expectedHours = task.getTotalHours();
+			if (actualHours == expectedHours) continue;
+
+			String taskName = task.getCourse() != null && task.getCourse().getName() != null
+				? task.getCourse().getName()
+				: "教学任务" + task.getId();
+			String message = "教学任务课时不匹配：" + taskName + " 需要 " + expectedHours
+				+ " 课时，当前已排 " + actualHours + " 课时";
+			if (taskItems.isEmpty()) {
+				violations.add(new AllocationConflictViolation(
+					null, TEACHING_TASK_HOURS, message, task.getPrimaryTeacherId(), null, null, null
+				));
+			} else {
+				for (AllocationItem item : taskItems) {
+					violations.add(new AllocationConflictViolation(
+						item.getId(), TEACHING_TASK_HOURS, message, task.getPrimaryTeacherId(), null, item.getClassroomId(), item.getTimeSlotId()
+					));
+				}
+			}
+		}
+	}
+
 	private void detectConflicts(
 		List<AllocationItem> items,
 		Function<AllocationItem, ConflictKey> keyExtractor,
@@ -155,12 +210,24 @@ public class AllocationSchemeConflictDetector {
 		return new ConflictKey(detail.task().getPrimaryTeacherId(), item.getTimeSlotId());
 	}
 
-	private ConflictKey classGroupKey(AllocationItem item, Map<Long, TeachingTaskDetail> taskDetails) {
-		TeachingTaskDetail detail = taskDetails.get(item.getTeachingTaskId());
-		if (detail == null || detail.task().getClassGroups() == null || detail.task().getClassGroups().isEmpty()) return null;
-		// 用第一个班级作为代表，后续 violation 中会列出所有班级
-		Long firstClassGroupId = detail.task().getClassGroups().get(0).getId();
-		return new ConflictKey(firstClassGroupId, item.getTimeSlotId());
+	private void detectClassGroupConflicts(
+		List<AllocationItem> items,
+		Map<Long, TeachingTaskDetail> taskDetails,
+		List<AllocationConflictViolation> violations
+	) {
+		Map<ConflictKey, List<AllocationItem>> groupedItems = new LinkedHashMap<>();
+		for (AllocationItem item : items) {
+			TeachingTaskDetail detail = taskDetails.get(item.getTeachingTaskId());
+			if (detail == null || detail.task().getClassGroups() == null || detail.task().getClassGroups().isEmpty()) continue;
+			for (var classGroup : detail.task().getClassGroups()) {
+				if (classGroup.getId() == null || item.getTimeSlotId() == null) continue;
+				ConflictKey key = new ConflictKey(classGroup.getId(), item.getTimeSlotId());
+				groupedItems.computeIfAbsent(key, ignored -> new ArrayList<>()).add(item);
+			}
+		}
+		groupedItems.entrySet().stream()
+			.filter(entry -> entry.getValue().size() > 1)
+			.forEach(entry -> entry.getValue().forEach(item -> violations.add(classGroupViolation(item, entry.getValue(), entry.getKey().resourceId(), taskDetails))));
 	}
 
 	private ConflictKey classroomKey(AllocationItem item) {
@@ -182,17 +249,20 @@ public class AllocationSchemeConflictDetector {
 		);
 	}
 
-	private AllocationConflictViolation classGroupViolation(AllocationItem item, List<AllocationItem> group, Map<Long, TeachingTaskDetail> taskDetails) {
-		TeachingTaskDetail detail = taskDetails.get(item.getTeachingTaskId());
-		String classNames = detail != null && detail.task().getClassGroups() != null
-			? detail.task().getClassGroups().stream().map(cg -> cg.getName()).collect(Collectors.joining(","))
-			: "班级";
+	private AllocationConflictViolation classGroupViolation(AllocationItem item, List<AllocationItem> group, Long classGroupId, Map<Long, TeachingTaskDetail> taskDetails) {
+		String className = taskDetails.values().stream()
+			.filter(detail -> detail.task().getClassGroups() != null)
+			.flatMap(detail -> detail.task().getClassGroups().stream())
+			.filter(classGroup -> classGroupId.equals(classGroup.getId()))
+			.map(classGroup -> classGroup.getName())
+			.findFirst()
+			.orElse("班级" + classGroupId);
 		return new AllocationConflictViolation(
 			item.getId(),
 			CLASS_GROUP_TIME,
-			"班级时间冲突：" + classNames + " 在时间段ID " + item.getTimeSlotId()
+			"班级时间冲突：" + className + " 在时间段ID " + item.getTimeSlotId()
 				+ " 被重复安排，涉及明细ID：" + itemIds(group),
-			null, null, null, item.getTimeSlotId()
+			null, classGroupId, null, item.getTimeSlotId()
 		);
 	}
 
