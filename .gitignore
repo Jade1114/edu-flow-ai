@@ -15,8 +15,13 @@ server/ml/data/*.json
 server/ml/data/generated_schemes/
 server/ml/data/feedback_exports/
 server/ml/data/feedback_training/
+server/ml/data/training/feedback/exports/
+server/ml/data/training/feedback/samples/*.csv
+server/ml/data/training/feedback/samples/*.json
 server/ml/models/*.txt
 server/ml/models/*.pkl
+server/ml/models/current/*.txt
+server/ml/models/archive/*.txt
 server/ml/models/feedback_versions/
 server/ml/__pycache__/
 server/ml/api/__pycache__/
