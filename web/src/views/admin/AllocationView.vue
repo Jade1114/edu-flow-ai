@@ -1871,7 +1871,7 @@ onUnmounted(() => {
                         cursor: 'grab',
                       }"
                       @dragstart="onDragStart($event, item)"
-                      @click.stop="openSlotDetail(day, period)"
+                      @click.stop="openEditDialog(item)"
                     >
                       <div style="font-weight: 600">{{ item.courseName }}</div>
                       <div
