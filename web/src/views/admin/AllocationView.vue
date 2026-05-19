@@ -964,38 +964,11 @@ function openSlotDetail(dayOfWeek, periodIndex) {
 }
 
 // === 快速模板 ===
+const dragTemplate = ref(null); // 当前拖拽中的模板
 const quickTemplates = ref([
   { id: "qt-1", classroomId: null, teacherName: null, classGroupName: null },
   { id: "qt-2", classroomId: null, teacherName: null, classGroupName: null },
 ]);
-
-function onTemplateDragStart(e, template) {
-  e.dataTransfer.setData("text/plain", "template:" + template.id);
-  e.dataTransfer.effectAllowed = "copy";
-}
-
-function templateLabel(t) {
-  return t.classroomName || t.id;
-}
-
-function templateFilterSummary(t) {
-  const parts = [];
-  if (t.teacherName) parts.push("教师:" + t.teacherName);
-  if (t.classGroupName) parts.push("班级:" + t.classGroupName);
-  if (t.classroomName) parts.push("教室:" + t.classroomName);
-  return parts.join(" ") || "未配置";
-}
-
-function applyTemplateToSlot(template, slotItems) {
-  return slotItems.filter((item) => {
-    if (template.teacherName && item.teacherName !== template.teacherName) return false;
-    if (template.classGroupName) {
-      const itemGroups = String(item.classGroupName || "").split(",").map((g) => g.trim());
-      if (!itemGroups.includes(template.classGroupName)) return false;
-    }
-    return true;
-  });
-}
 
 // === 手动编辑排课片段 ===
 const editDialog = ref(false);
@@ -1084,8 +1057,16 @@ function buildTimeSlotMap(slots) {
 
 function onDragStart(e, item) {
   dragItem.value = item;
+  dragTemplate.value = null;
   e.dataTransfer.effectAllowed = "move";
   e.dataTransfer.setData("text/plain", String(item.id));
+}
+
+function onTemplateDragStart(e, template) {
+  dragTemplate.value = template;
+  dragItem.value = null;
+  e.dataTransfer.effectAllowed = "copy";
+  e.dataTransfer.setData("text/plain", "template:" + template.id);
 }
 
 function onDragOver(e, day, period) {
@@ -1099,10 +1080,8 @@ function onDragLeave() {
 }
 
 async function onTemplateDropToCard(e, targetItem) {
-  const dragData = e.dataTransfer.getData("text/plain");
-  if (!dragData || !dragData.startsWith("template:")) return;
-  const templateId = dragData.split(":")[1];
-  const template = quickTemplates.value.find(t => t.id === templateId);
+  const template = dragTemplate.value;
+  dragTemplate.value = null;
   if (!template || !template.classroomId) {
     ElMessage.warning("请先在模板中选择教室");
     return;
@@ -1129,7 +1108,7 @@ async function onTemplateDropToCard(e, targetItem) {
 async function onDrop(e, day, period) {
   e.preventDefault();
   dropTarget.value = null;
-  const dragData = e.dataTransfer.getData("text/plain");
+  dragTemplate.value = null; // 模板拖拽由卡片级处理，这里清掉避免残留
   const item = dragItem.value;
   dragItem.value = null;
 
