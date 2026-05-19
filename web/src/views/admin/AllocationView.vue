@@ -842,6 +842,34 @@ const timetableFilters = ref({
   teachingTaskId: null,
 });
 
+const activeTeacherLabel = computed(() => {
+  if (!timetableFilters.value.teacherId) return null;
+  const found = timetableTeacherOptions.value.find(
+    (o) => o.value === timetableFilters.value.teacherId,
+  );
+  return found ? found.label : null;
+});
+
+const activeTeachingTaskLabel = computed(() => {
+  if (!timetableFilters.value.teachingTaskId) return null;
+  const found = timetableTeachingTaskOptions.value.find(
+    (o) => o.value === timetableFilters.value.teachingTaskId,
+  );
+  return found ? found.label : null;
+});
+
+const activeClassGroupLabel = computed(() => {
+  if (!timetableFilters.value.classGroupName) return null;
+  return timetableFilters.value.classGroupName;
+});
+
+const hasActiveFilter = computed(
+  () =>
+    timetableFilters.value.teacherId ||
+    timetableFilters.value.classGroupName ||
+    timetableFilters.value.teachingTaskId,
+);
+
 const timetableTeacherOptions = computed(() =>
   uniqueOptions(schemeDetail.value?.items || [], "teacherId", "teacherName"),
 );
@@ -1685,13 +1713,20 @@ onUnmounted(() => {
             （当前视图 {{ weekItems.length }} 个排课片段）
           </span>
           <div style="flex: 1"></div>
+          <div style="display: flex; align-items: center; gap: 6px; background: #f8fafc; padding: 4px 10px 4px 16px; border-radius: 6px; font-size: 12px; color: #909399">
+            <span>筛选</span>
+            <el-tag v-if="activeTeacherLabel" size="small" closable @close="timetableFilters.teacherId = null">{{ activeTeacherLabel }}</el-tag>
+            <el-tag v-if="activeClassGroupLabel" size="small" closable @close="timetableFilters.classGroupName = null">{{ activeClassGroupLabel }}</el-tag>
+            <el-tag v-if="activeTeachingTaskLabel" size="small" closable @close="timetableFilters.teachingTaskId = null">{{ activeTeachingTaskLabel }}</el-tag>
+            <el-button v-if="hasActiveFilter" size="small" text @click="resetTimetableFilters" style="font-size: 12px">× 清除</el-button>
+          </div>
           <el-select
             v-model="timetableFilters.teacherId"
             clearable
             filterable
             size="small"
-            placeholder="按教师"
-            style="width: 150px"
+            placeholder="教师"
+            style="width: 130px"
           >
             <el-option
               v-for="teacher in timetableTeacherOptions"
@@ -1705,8 +1740,8 @@ onUnmounted(() => {
             clearable
             filterable
             size="small"
-            placeholder="按班级"
-            style="width: 160px"
+            placeholder="班级"
+            style="width: 130px"
           >
             <el-option
               v-for="name in timetableClassGroupOptions"
@@ -1720,8 +1755,8 @@ onUnmounted(() => {
             clearable
             filterable
             size="small"
-            placeholder="按教学任务"
-            style="width: 180px"
+            placeholder="教学任务"
+            style="width: 130px"
           >
             <el-option
               v-for="task in timetableTeachingTaskOptions"
@@ -1730,9 +1765,6 @@ onUnmounted(() => {
               :value="task.value"
             />
           </el-select>
-          <el-button size="small" @click="resetTimetableFilters"
-            >重置</el-button
-          >
         </div>
 
         <!-- 课程表表格 -->
