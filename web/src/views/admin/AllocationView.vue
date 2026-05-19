@@ -1098,6 +1098,34 @@ function onDragLeave() {
   dropTarget.value = null;
 }
 
+async function onTemplateDropToCard(e, targetItem) {
+  const dragData = e.dataTransfer.getData("text/plain");
+  if (!dragData || !dragData.startsWith("template:")) return;
+  const templateId = dragData.split(":")[1];
+  const template = quickTemplates.value.find(t => t.id === templateId);
+  if (!template || !template.classroomId) {
+    ElMessage.warning("请先在模板中选择教室");
+    return;
+  }
+  savingMove.value = true;
+  try {
+    await request.put(
+      `/api/allocation-schemes/${schemeDetail.value.id}/items/${targetItem.id}`,
+      { classroomId: template.classroomId, timeSlotId: targetItem.timeSlotId },
+    );
+    ElMessage.success(`模板已应用到 ${targetItem.courseName || ''} ${targetItem.teacherName || ''}`);
+    const [detail, items] = await Promise.all([
+      request.get(`/api/allocation-schemes/${schemeDetail.value.id}`),
+      request.get(`/api/allocation-schemes/${schemeDetail.value.id}/items`),
+    ]);
+    schemeDetail.value = { ...schemeDetail.value, ...detail, items };
+  } catch (e) {
+    ElMessage.error("应用模板失败");
+  } finally {
+    savingMove.value = false;
+  }
+}
+
 async function onDrop(e, day, period) {
   e.preventDefault();
   dropTarget.value = null;
@@ -1109,48 +1137,6 @@ async function onDrop(e, day, period) {
   const targetTimeSlotId = timeSlotMap[key];
   if (!targetTimeSlotId) {
     ElMessage.warning("该时间段不存在");
-    return;
-  }
-
-  // 模板拖拽 → 批量修改该格匹配项目的教室
-  if (dragData && dragData.startsWith("template:")) {
-    const templateId = dragData.split(":")[1];
-    const template = quickTemplates.value.find(t => t.id === templateId);
-    if (!template || !template.classroomId) {
-      ElMessage.warning("请先在模板中选择教室");
-      return;
-    }
-    const slotItems = itemsAtSlot(day, period);
-    if (!slotItems.length) {
-      ElMessage.info("该时段没有排课片段");
-      return;
-    }
-    const targetItems = template.teacherName || template.classGroupName
-      ? applyTemplateToSlot(template, slotItems)
-      : slotItems;
-    if (!targetItems.length) {
-      ElMessage.info("该时段没有符合模板过滤条件的片段");
-      return;
-    }
-    savingMove.value = true;
-    try {
-      for (const si of targetItems) {
-        await request.put(
-          `/api/allocation-schemes/${schemeDetail.value.id}/items/${si.id}`,
-          { classroomId: template.classroomId, timeSlotId: si.timeSlotId },
-        );
-      }
-      ElMessage.success(`模板已应用到 ${targetItems.length}/${slotItems.length} 个排课片段`);
-      const [detail, items] = await Promise.all([
-        request.get(`/api/allocation-schemes/${schemeDetail.value.id}`),
-        request.get(`/api/allocation-schemes/${schemeDetail.value.id}/items`),
-      ]);
-      schemeDetail.value = { ...schemeDetail.value, ...detail, items };
-    } catch (e) {
-      ElMessage.error("应用模板失败");
-    } finally {
-      savingMove.value = false;
-    }
     return;
   }
 
@@ -1984,6 +1970,8 @@ onUnmounted(() => {
                       }"
                       @dragstart="onDragStart($event, item)"
                       @click.stop="openEditDialog(item)"
+                      @dragover.prevent
+                      @drop.prevent="onTemplateDropToCard($event, item)"
                     >
                       <div style="font-weight: 600">{{ item.courseName }}</div>
                       <div
