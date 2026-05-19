@@ -12,6 +12,14 @@ import org.apache.ibatis.annotations.Update;
 public interface AllocationSchemeMapper {
 
 	@Select("""
+		SELECT COALESCE(MAX(CAST(SUBSTRING(scheme_name, 9) AS SIGNED)), 0)
+		FROM allocation_scheme
+		WHERE task_id = #{taskId}
+		  AND scheme_name LIKE '自训练模型方案 %'
+		""")
+	int selectMaxSchemeIndex(@Param("taskId") Long taskId);
+
+	@Select("""
 		<script>
 		SELECT id, task_id, scheme_name, summary, scheme_score,
 		       evaluation_summary, policy, policy_params, model_version,

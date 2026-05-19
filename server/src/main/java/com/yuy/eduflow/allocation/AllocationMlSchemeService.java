@@ -29,15 +29,18 @@ public class AllocationMlSchemeService {
 	private static final String DEFAULT_POLICY = "BALANCED";
 
 	private final AllocationTaskMapper allocationTaskMapper;
+	private final AllocationSchemeMapper allocationSchemeMapper;
 	private final ObjectMapper objectMapper;
 	private final MlApiClient mlApiClient;
 
 	public AllocationMlSchemeService(
 		AllocationTaskMapper allocationTaskMapper,
+		AllocationSchemeMapper allocationSchemeMapper,
 		ObjectMapper objectMapper,
 		MlApiClient mlApiClient
 	) {
 		this.allocationTaskMapper = allocationTaskMapper;
+		this.allocationSchemeMapper = allocationSchemeMapper;
 		this.objectMapper = objectMapper;
 		this.mlApiClient = mlApiClient;
 	}
@@ -61,7 +64,7 @@ public class AllocationMlSchemeService {
 		String resolvedPolicy = policyOrDefault(null);
 		List<AllocationParsedScheme> schemes;
 		try {
-			schemes = parseGeneratedSchemes(outputDir, resolvedPolicy);
+			schemes = parseGeneratedSchemes(outputDir, taskId, resolvedPolicy);
 		} catch (IOException exception) {
 			throw new BusinessException(500, "解析模型方案 CSV 文件失败：" + exception.getMessage(), exception);
 		}
@@ -193,7 +196,7 @@ public class AllocationMlSchemeService {
 		return policy != null && !policy.isBlank() ? policy : DEFAULT_POLICY;
 	}
 
-	private List<AllocationParsedScheme> parseGeneratedSchemes(Path outputDir, String policy) throws IOException {
+	private List<AllocationParsedScheme> parseGeneratedSchemes(Path outputDir, Long taskId, String policy) throws IOException {
 		try (var stream = Files.list(outputDir)) {
 			List<Path> schemeFiles = stream
 				.filter(path -> path.getFileName().toString().matches("scheme_\\d+\\.csv"))
@@ -203,6 +206,8 @@ public class AllocationMlSchemeService {
 				throw new ValidationException("自训练模型未生成任何方案 CSV");
 			}
 			log.info("ML generated scheme files discovered: outputDir={}, files={}", outputDir, schemeFiles.stream().map(path -> path.getFileName().toString()).toList());
+			int existingMaxIndex = allocationSchemeMapper.selectMaxSchemeIndex(taskId);
+			log.info("Existing max scheme index for taskId={}: {}", taskId, existingMaxIndex);
 			List<AllocationParsedScheme> schemes = new ArrayList<>();
 			for (int i = 0; i < schemeFiles.size(); i++) {
 				Path schemeFile = schemeFiles.get(i);
@@ -210,8 +215,9 @@ public class AllocationMlSchemeService {
 				String summary = summarizeScheme(schemeFile, items);
 				EvaluationData evaluation = loadEvaluation(outputDir, schemeFile.getFileName().toString());
 				log.info("ML parsed scheme: file={}, itemCount={}, summary={}, evaluationScore={}", schemeFile.getFileName(), items.size(), summary, evaluation != null ? evaluation.schemeScore() : null);
+				int schemeIndex = existingMaxIndex + i + 1;
 				schemes.add(new AllocationParsedScheme(
-					"自训练模型方案 " + String.format("%03d", i + 1),
+					"自训练模型方案 " + String.format("%03d", schemeIndex),
 					summary,
 					items,
 					evaluation != null ? evaluation.schemeScore() : null,
