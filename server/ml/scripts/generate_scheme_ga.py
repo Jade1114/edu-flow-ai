@@ -2231,9 +2231,9 @@ def run_ga_pipeline(args: argparse.Namespace) -> dict[str, Any]:
     ga_summary_path = args.output_dir / "ga_summary.json"
     ga_summary_path.write_text(json.dumps({"schemes": summary_rows, "timings_ms": dict(RUN_TIMINGS)}, ensure_ascii=False, indent=2), encoding="utf-8")
     write_candidate_diagnostics(args.output_dir / "candidate_diagnostics.json")
-    log_chain("多方案生成完成", {"summary_rows": summary_rows, "summary_path": str(summary_path), "ga_summary_path": str(ga_summary_path), "candidate_diagnostics_path": str(args.output_dir / "candidate_diagnostics.json"), "timings_ms": dict(RUN_TIMINGS)})
+    log_chain("多方案生成完成", {"summary_rows": summary_rows, "schemes_json_path": str(args.output_dir / "schemes.json"), "ga_summary_path": str(ga_summary_path), "candidate_diagnostics_path": str(args.output_dir / "candidate_diagnostics.json"), "timings_ms": dict(RUN_TIMINGS)})
     print(f"Generated {len(summary_rows)} scheme variants -> {args.output_dir}")
-    print(f"Summary -> {summary_path}")
+    print(f"Schemes -> {args.output_dir / 'schemes.json'}")
     log_chain("Pipeline 调度完成", {
         "scheme_count": len(summary_rows),
         "total_fragments": sum(len(r) for r in all_item_rows),
