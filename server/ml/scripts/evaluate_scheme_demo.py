@@ -461,12 +461,35 @@ def evaluate_single_csv_to_json(scheme_path: Path, teacher_penalties: dict[str, 
 
 
 def evaluate_directory_to_json(scheme_dir: Path, teacher_penalties: dict[str, dict[str, Any]] | None = None) -> list[Path]:
+    schemes_json = scheme_dir / "schemes.json"
+    if schemes_json.exists():
+        return _evaluate_schemes_json(schemes_json, teacher_penalties)
     scheme_files = sorted(path for path in scheme_dir.glob("scheme_*.csv") if path.is_file())
     if not scheme_files:
-        raise FileNotFoundError(f"No scheme_*.csv files found in {scheme_dir}")
+        raise FileNotFoundError(f"No scheme_*.csv or schemes.json found in {scheme_dir}")
     json_paths: list[Path] = []
     for scheme_file in scheme_files:
         json_paths.append(evaluate_single_csv_to_json(scheme_file, teacher_penalties))
+    return json_paths
+
+
+def _evaluate_schemes_json(schemes_json: Path, teacher_penalties: dict[str, dict[str, Any]] | None = None) -> list[Path]:
+    """Evaluate all schemes from a schemes.json file and write evaluation JSOns."""
+    data = json.loads(schemes_json.read_text(encoding="utf-8"))
+    json_paths: list[Path] = []
+    for i, scheme_entry in enumerate(data):
+        rows = scheme_entry.get("items", [])
+        if not rows:
+            continue
+        scheme_no = i + 1
+        scheme_path = schemes_json.parent / f"scheme_{scheme_no:03d}.csv"
+        evaluation = evaluate_scheme_to_dict(rows, scheme_path, teacher_penalties)
+        json_path = schemes_json.parent / f"scheme_{scheme_no:03d}.json"
+        write_evaluation_json(evaluation, json_path)
+        print(f"Evaluation JSON → {json_path}")
+        json_paths.append(json_path)
+    if not json_paths:
+        raise ValueError(f"No valid schemes found in {schemes_json}")
     return json_paths
 
 
