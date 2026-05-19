@@ -1904,6 +1904,16 @@ def run_ga_pipeline_by_task(
                           {"scheme_id": scheme_id, "valid": valid, "violations": len(violations)})
 
         log_chain("DB: 全部方案持久化完成", {"task_id": task_id, "scheme_count": len(schemes_data)})
+        log_chain("Pipeline 按任务调度完成", {
+            "task_id": task_id,
+            "scheme_count": len(schemes_data),
+            "output_dir": str(output_dir) if output_dir else None,
+        })
+        ml_logger.pipeline_complete(task_id, {
+            "scheme_count": len(schemes_data),
+            "output_dir": str(output_dir) if output_dir else None,
+            "timings_ms": dict(RUN_TIMINGS),
+        })
     except Exception as exc:
         import traceback as _tb
         log_chain("DB: 方案持久化失败（不影响 CSV 产物）",
@@ -1989,6 +1999,11 @@ def run_ga_pipeline(args: argparse.Namespace) -> dict[str, Any]:
     allowed_weeks = parse_int_set(generation_config.get("allowedWeeks"))
     allowed_weekdays = parse_int_set(generation_config.get("allowedWeekdays"))
     allowed_periods = parse_int_set(generation_config.get("allowedPeriods"))
+    if generation_config:
+        log_chain("Generation Config 解析完成", {"config": generation_config})
+        ml_logger.generation_config_parsed(generation_config)
+    else:
+        log_chain("Generation Config 为空，使用默认配置")
     booster, schema, scoring_mode = load_optional_lightgbm(args.model, args.schema)
     log_chain("排课方案生成链路启动", {
         "scoring_mode": scoring_mode,
@@ -2014,6 +2029,17 @@ def run_ga_pipeline(args: argparse.Namespace) -> dict[str, Any]:
         "allowed_periods": sorted(allowed_periods) if allowed_periods else None,
         "generation_config": generation_config or None,
         "python_log_file": str(args.log_file) if args.log_file else None,
+    })
+    log_chain("Pipeline 调度启动", {"generation_config": generation_config, "python_log_file": str(args.log_file) if args.log_file else None})
+    ml_logger.pipeline_start(None, {
+        "scoring_mode": scoring_mode,
+        "model_path": str(args.model),
+        "variant_count": args.variant_count,
+        "population_size": args.population_size,
+        "generations": args.generations,
+        "policy": args.policy,
+        "exclude_weekends": args.exclude_weekends,
+        "generation_config": generation_config or None,
     })
 
     load_started_at = perf_counter()
@@ -2075,8 +2101,16 @@ def run_ga_pipeline(args: argparse.Namespace) -> dict[str, Any]:
             for task in tasks
         ],
     })
+    log_chain("基础数据加载完成", {
+        "task_count": len(tasks),
+        "classroom_count": len(classrooms),
+        "time_slot_count": len(time_slots),
+        "teacher_profile_count": len(teacher_profiles),
+    })
     teacher_penalties = load_teacher_penalties(args.teacher_penalties)
-    log_chain("教师画像惩罚由编排层提供", summarize_teacher_penalties(teacher_penalties))
+    penalty_summary = summarize_teacher_penalties(teacher_penalties)
+    log_chain("教师画像惩罚由编排层提供", penalty_summary)
+    ml_logger.teacher_profile_summary(len(teacher_penalties), penalty_summary)
 
     custom_params = policy_overrides_from_config(generation_config)
     if args.policy_params:
@@ -2128,6 +2162,18 @@ def run_ga_pipeline(args: argparse.Namespace) -> dict[str, Any]:
         print_summary(rows, tasks, args.max_tasks)
         print(f"Output -> {args.output}")
         print(f"Teacher penalties -> {args.output.parent / TEACHER_PENALTIES_FILENAME}")
+        log_chain("Pipeline 调度完成", {
+            "scheme_count": 1,
+            "total_fragments": len(rows),
+            "output_dir": str(args.output.parent),
+            "timings_ms": dict(RUN_TIMINGS),
+        })
+        ml_logger.pipeline_complete(None, {
+            "scheme_count": 1,
+            "total_fragments": len(rows),
+            "output_dir": str(args.output.parent),
+            "timings_ms": dict(RUN_TIMINGS),
+        })
         return {
             "output_dir": str(args.output.parent),
             "scheme_count": 1,
@@ -2178,6 +2224,18 @@ def run_ga_pipeline(args: argparse.Namespace) -> dict[str, Any]:
     log_chain("多方案生成完成", {"summary_rows": summary_rows, "summary_path": str(summary_path), "ga_summary_path": str(ga_summary_path), "candidate_diagnostics_path": str(args.output_dir / "candidate_diagnostics.json"), "timings_ms": dict(RUN_TIMINGS)})
     print(f"Generated {len(summary_rows)} scheme variants -> {args.output_dir}")
     print(f"Summary -> {summary_path}")
+    log_chain("Pipeline 调度完成", {
+        "scheme_count": len(summary_rows),
+        "total_fragments": sum(len(r) for r in all_item_rows),
+        "output_dir": str(args.output_dir),
+        "timings_ms": dict(RUN_TIMINGS),
+    })
+    ml_logger.pipeline_complete(None, {
+        "scheme_count": len(summary_rows),
+        "total_fragments": sum(len(r) for r in all_item_rows),
+        "output_dir": str(args.output_dir),
+        "timings_ms": dict(RUN_TIMINGS),
+    })
     return {
         "output_dir": str(args.output_dir),
         "scheme_count": len(summary_rows),

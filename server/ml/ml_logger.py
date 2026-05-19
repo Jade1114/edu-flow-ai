@@ -147,6 +147,43 @@ def training_complete(metrics: dict[str, Any], model_path: str) -> None:
     )
 
 
+# ── Pipeline lifecycle ─────────────────────────────────────────────────
+
+def pipeline_start(task_id: int | None, config: dict[str, Any]) -> None:
+    """记录调度流水线启动。"""
+    service.info(
+        "PIPELINE_START task_id=%s config=%s",
+        task_id,
+        json.dumps(config, ensure_ascii=False, default=str),
+    )
+
+
+def pipeline_complete(task_id: int | None, summary: dict[str, Any]) -> None:
+    """记录调度流水线完成。"""
+    service.info(
+        "PIPELINE_COMPLETE task_id=%s summary=%s",
+        task_id,
+        json.dumps(summary, ensure_ascii=False, default=str),
+    )
+
+
+def teacher_profile_summary(teacher_count: int, penalty_summary: dict[str, Any]) -> None:
+    """记录教师画像惩罚摘要。"""
+    service.info(
+        "TEACHER_PROFILE teacher_count=%d summary=%s",
+        teacher_count,
+        json.dumps(penalty_summary, ensure_ascii=False, default=str),
+    )
+
+
+def generation_config_parsed(config: dict[str, Any]) -> None:
+    """记录 generation config 解析结果。"""
+    service.info(
+        "GENERATION_CONFIG %s",
+        json.dumps(config, ensure_ascii=False, default=str),
+    )
+
+
 # ── 日志清理 ──────────────────────────────────────────────────────────
 
 def clean_logs(max_age_days: int = 30) -> int:
