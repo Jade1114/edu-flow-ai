@@ -109,118 +109,118 @@ WHERE NOT EXISTS (
 -- 教学任务（18个）
 -- ============================================================
 
--- TT1: Java程序设计 → 张明 → 软件1班+软件2班 → 48h → 08101(80座)
-INSERT INTO teaching_task (course_id, primary_teacher_id, classroom_id, total_hours, notes, status)
-SELECT c.id, t.id, cr.id, 48, '合班授课，需80座教室', 'ACTIVE'
-FROM course c, teacher t, classroom cr WHERE c.name='Java程序设计' AND t.employee_no='T1001' AND cr.name='08101'
+-- TT1: Java程序设计 → 张明 → 软件1班+软件2班 → 48h
+INSERT INTO teaching_task (course_id, primary_teacher_id, total_hours, notes, status)
+SELECT c.id, t.id, 48, '合班授课，需80座教室', 'ACTIVE'
+FROM course c, teacher t WHERE c.name='Java程序设计' AND t.employee_no='T1001'
 AND NOT EXISTS (SELECT 1 FROM teaching_task x WHERE x.course_id=c.id AND x.primary_teacher_id=t.id);
 
--- TT2: 数据库原理 → 李娜 → 软件1班 → 48h → 08102(80座)
-INSERT INTO teaching_task (course_id, primary_teacher_id, classroom_id, total_hours, notes, status)
-SELECT c.id, t.id, cr.id, 48, NULL, 'ACTIVE'
-FROM course c, teacher t, classroom cr WHERE c.name='数据库原理' AND t.employee_no='T1002' AND cr.name='08102'
+-- TT2: 数据库原理 → 李娜 → 软件1班 → 48h
+INSERT INTO teaching_task (course_id, primary_teacher_id, total_hours, notes, status)
+SELECT c.id, t.id, 48, NULL, 'ACTIVE'
+FROM course c, teacher t WHERE c.name='数据库原理' AND t.employee_no='T1002'
 AND NOT EXISTS (SELECT 1 FROM teaching_task x WHERE x.course_id=c.id AND x.primary_teacher_id=t.id);
 
--- TT3: 数据结构 → 王强 → 计科1班 → 48h → 08103(80座)
-INSERT INTO teaching_task (course_id, primary_teacher_id, classroom_id, total_hours, notes, status)
-SELECT c.id, t.id, cr.id, 48, NULL, 'ACTIVE'
-FROM course c, teacher t, classroom cr WHERE c.name='数据结构' AND t.employee_no='T1003' AND cr.name='08103'
+-- TT3: 数据结构 → 王强 → 计科1班 → 48h
+INSERT INTO teaching_task (course_id, primary_teacher_id, total_hours, notes, status)
+SELECT c.id, t.id, 48, NULL, 'ACTIVE'
+FROM course c, teacher t WHERE c.name='数据结构' AND t.employee_no='T1003'
 AND NOT EXISTS (SELECT 1 FROM teaching_task x WHERE x.course_id=c.id AND x.primary_teacher_id=t.id);
 
--- TT4: 计算机网络 → 赵敏 → 人工智能1班+人工智能2班 → 48h → 08104(100座阶梯)
-INSERT INTO teaching_task (course_id, primary_teacher_id, classroom_id, total_hours, notes, status)
-SELECT c.id, t.id, cr.id, 48, '合班授课', 'ACTIVE'
-FROM course c, teacher t, classroom cr WHERE c.name='计算机网络' AND t.employee_no='T1004' AND cr.name='08104'
+-- TT4: 计算机网络 → 赵敏 → 人工智能1班+人工智能2班 → 48h
+INSERT INTO teaching_task (course_id, primary_teacher_id, total_hours, notes, status)
+SELECT c.id, t.id, 48, '合班授课', 'ACTIVE'
+FROM course c, teacher t WHERE c.name='计算机网络' AND t.employee_no='T1004'
 AND NOT EXISTS (SELECT 1 FROM teaching_task x WHERE x.course_id=c.id AND x.primary_teacher_id=t.id);
 
--- TT5: 操作系统 → 陈涛 → 计科2班 → 48h → 08201(80座)
-INSERT INTO teaching_task (course_id, primary_teacher_id, classroom_id, total_hours, notes, status)
-SELECT c.id, t.id, cr.id, 48, NULL, 'ACTIVE'
-FROM course c, teacher t, classroom cr WHERE c.name='操作系统' AND t.employee_no='T1005' AND cr.name='08201'
+-- TT5: 操作系统 → 陈涛 → 计科2班 → 48h
+INSERT INTO teaching_task (course_id, primary_teacher_id, total_hours, notes, status)
+SELECT c.id, t.id, 48, NULL, 'ACTIVE'
+FROM course c, teacher t WHERE c.name='操作系统' AND t.employee_no='T1005'
 AND NOT EXISTS (SELECT 1 FROM teaching_task x WHERE x.course_id=c.id AND x.primary_teacher_id=t.id);
 
--- TT6: 软件工程导论 → 刘洋 → 数据1班 → 36h → 08203(90座阶梯)
-INSERT INTO teaching_task (course_id, primary_teacher_id, classroom_id, total_hours, notes, status)
-SELECT c.id, t.id, cr.id, 36, NULL, 'ACTIVE'
-FROM course c, teacher t, classroom cr WHERE c.name='软件工程导论' AND t.employee_no='T1006' AND cr.name='08203'
+-- TT6: 软件工程导论 → 刘洋 → 数据1班 → 36h
+INSERT INTO teaching_task (course_id, primary_teacher_id, total_hours, notes, status)
+SELECT c.id, t.id, 36, NULL, 'ACTIVE'
+FROM course c, teacher t WHERE c.name='软件工程导论' AND t.employee_no='T1006'
 AND NOT EXISTS (SELECT 1 FROM teaching_task x WHERE x.course_id=c.id AND x.primary_teacher_id=t.id);
 
--- TT7: Python程序设计 → 孙丽 → 软件2班 → 36h → 08105(60座机房)
-INSERT INTO teaching_task (course_id, primary_teacher_id, classroom_id, total_hours, notes, status)
-SELECT c.id, t.id, cr.id, 36, '上机实践课', 'ACTIVE'
-FROM course c, teacher t, classroom cr WHERE c.name='Python程序设计' AND t.employee_no='T1007' AND cr.name='08105'
+-- TT7: Python程序设计 → 孙丽 → 软件2班 → 36h
+INSERT INTO teaching_task (course_id, primary_teacher_id, total_hours, notes, status)
+SELECT c.id, t.id, 36, '上机实践课', 'ACTIVE'
+FROM course c, teacher t WHERE c.name='Python程序设计' AND t.employee_no='T1007'
 AND NOT EXISTS (SELECT 1 FROM teaching_task x WHERE x.course_id=c.id AND x.primary_teacher_id=t.id);
 
--- TT8: Web前端开发 → 吴芳 → 软件1班 → 36h → 08204(60座机房)
-INSERT INTO teaching_task (course_id, primary_teacher_id, classroom_id, total_hours, notes, status)
-SELECT c.id, t.id, cr.id, 36, '上机实践课', 'ACTIVE'
-FROM course c, teacher t, classroom cr WHERE c.name='Web前端开发' AND t.employee_no='T1009' AND cr.name='08204'
+-- TT8: Web前端开发 → 吴芳 → 软件1班 → 36h
+INSERT INTO teaching_task (course_id, primary_teacher_id, total_hours, notes, status)
+SELECT c.id, t.id, 36, '上机实践课', 'ACTIVE'
+FROM course c, teacher t WHERE c.name='Web前端开发' AND t.employee_no='T1009'
 AND NOT EXISTS (SELECT 1 FROM teaching_task x WHERE x.course_id=c.id AND x.primary_teacher_id=t.id);
 
--- TT9: 算法设计与分析 → 王强 → 计科1班+计科2班 → 48h → 08104(100座阶梯)
-INSERT INTO teaching_task (course_id, primary_teacher_id, classroom_id, total_hours, notes, status)
-SELECT c.id, t.id, cr.id, 48, '合班授课', 'ACTIVE'
-FROM course c, teacher t, classroom cr WHERE c.name='算法设计与分析' AND t.employee_no='T1003' AND cr.name='08104'
+-- TT9: 算法设计与分析 → 王强 → 计科1班+计科2班 → 48h
+INSERT INTO teaching_task (course_id, primary_teacher_id, total_hours, notes, status)
+SELECT c.id, t.id, 48, '合班授课', 'ACTIVE'
+FROM course c, teacher t WHERE c.name='算法设计与分析' AND t.employee_no='T1003'
 AND NOT EXISTS (SELECT 1 FROM teaching_task x WHERE x.course_id=c.id AND x.primary_teacher_id=t.id);
 
--- TT10: 计算机组成原理 → 周伟 → 计科1班 → 48h → 08201(80座)
-INSERT INTO teaching_task (course_id, primary_teacher_id, classroom_id, total_hours, notes, status)
-SELECT c.id, t.id, cr.id, 48, NULL, 'ACTIVE'
-FROM course c, teacher t, classroom cr WHERE c.name='计算机组成原理' AND t.employee_no='T1008' AND cr.name='08201'
+-- TT10: 计算机组成原理 → 周伟 → 计科1班 → 48h
+INSERT INTO teaching_task (course_id, primary_teacher_id, total_hours, notes, status)
+SELECT c.id, t.id, 48, NULL, 'ACTIVE'
+FROM course c, teacher t WHERE c.name='计算机组成原理' AND t.employee_no='T1008'
 AND NOT EXISTS (SELECT 1 FROM teaching_task x WHERE x.course_id=c.id AND x.primary_teacher_id=t.id);
 
--- TT11: 人工智能导论 → 郑宇 → 人工智能1班 → 36h → 08203(90座阶梯)
-INSERT INTO teaching_task (course_id, primary_teacher_id, classroom_id, total_hours, notes, status)
-SELECT c.id, t.id, cr.id, 36, NULL, 'ACTIVE'
-FROM course c, teacher t, classroom cr WHERE c.name='人工智能导论' AND t.employee_no='T1010' AND cr.name='08203'
+-- TT11: 人工智能导论 → 郑宇 → 人工智能1班 → 36h
+INSERT INTO teaching_task (course_id, primary_teacher_id, total_hours, notes, status)
+SELECT c.id, t.id, 36, NULL, 'ACTIVE'
+FROM course c, teacher t WHERE c.name='人工智能导论' AND t.employee_no='T1010'
 AND NOT EXISTS (SELECT 1 FROM teaching_task x WHERE x.course_id=c.id AND x.primary_teacher_id=t.id);
 
--- TT12: 大数据技术基础 → 李娜 → 数据2班 → 36h → 08205(60座机房)
-INSERT INTO teaching_task (course_id, primary_teacher_id, classroom_id, total_hours, notes, status)
-SELECT c.id, t.id, cr.id, 36, NULL, 'ACTIVE'
-FROM course c, teacher t, classroom cr WHERE c.name='大数据技术基础' AND t.employee_no='T1002' AND cr.name='08205'
+-- TT12: 大数据技术基础 → 李娜 → 数据2班 → 36h
+INSERT INTO teaching_task (course_id, primary_teacher_id, total_hours, notes, status)
+SELECT c.id, t.id, 36, NULL, 'ACTIVE'
+FROM course c, teacher t WHERE c.name='大数据技术基础' AND t.employee_no='T1002'
 AND NOT EXISTS (SELECT 1 FROM teaching_task x WHERE x.course_id=c.id AND x.primary_teacher_id=t.id);
 
--- TT13: Linux系统应用 → 陈涛 → 计科2班 → 24h → 08204(60座机房)
-INSERT INTO teaching_task (course_id, primary_teacher_id, classroom_id, total_hours, notes, status)
-SELECT c.id, t.id, cr.id, 24, '上机实践课', 'ACTIVE'
-FROM course c, teacher t, classroom cr WHERE c.name='Linux系统应用' AND t.employee_no='T1005' AND cr.name='08204'
+-- TT13: Linux系统应用 → 陈涛 → 计科2班 → 24h
+INSERT INTO teaching_task (course_id, primary_teacher_id, total_hours, notes, status)
+SELECT c.id, t.id, 24, '上机实践课', 'ACTIVE'
+FROM course c, teacher t WHERE c.name='Linux系统应用' AND t.employee_no='T1005'
 AND NOT EXISTS (SELECT 1 FROM teaching_task x WHERE x.course_id=c.id AND x.primary_teacher_id=t.id);
 
--- TT14: 项目管理 → 刘洋 → 数据1班 → 24h → 08202(80座)
-INSERT INTO teaching_task (course_id, primary_teacher_id, classroom_id, total_hours, notes, status)
-SELECT c.id, t.id, cr.id, 24, NULL, 'ACTIVE'
-FROM course c, teacher t, classroom cr WHERE c.name='项目管理' AND t.employee_no='T1006' AND cr.name='08202'
+-- TT14: 项目管理 → 刘洋 → 数据1班 → 24h
+INSERT INTO teaching_task (course_id, primary_teacher_id, total_hours, notes, status)
+SELECT c.id, t.id, 24, NULL, 'ACTIVE'
+FROM course c, teacher t WHERE c.name='项目管理' AND t.employee_no='T1006'
 AND NOT EXISTS (SELECT 1 FROM teaching_task x WHERE x.course_id=c.id AND x.primary_teacher_id=t.id);
 
--- TT15: 数据库原理 → 李娜 → 数据1班 → 48h → 08102(80座)（李娜带两门课：DB给软工+DB给数据）
-INSERT INTO teaching_task (course_id, primary_teacher_id, classroom_id, total_hours, notes, status)
-SELECT c.id, t.id, cr.id, 48, '数据专业单独开班', 'ACTIVE'
-FROM course c, teacher t, classroom cr WHERE c.name='数据库原理' AND t.employee_no='T1002' AND cr.name='08102'
+-- TT15: 数据库原理 → 李娜 → 数据1班 → 48h（李娜带两门课：DB给软工+DB给数据）
+INSERT INTO teaching_task (course_id, primary_teacher_id, total_hours, notes, status)
+SELECT c.id, t.id, 48, '数据专业单独开班', 'ACTIVE'
+FROM course c, teacher t WHERE c.name='数据库原理' AND t.employee_no='T1002'
 AND NOT EXISTS (
     SELECT 1 FROM teaching_task x
     WHERE x.course_id=c.id AND x.primary_teacher_id=t.id AND x.notes='数据专业单独开班'
 );
 
--- TT16: 数据结构 → 王强 → 计科2班 → 48h → 08103(80座)（王强也带两门）
-INSERT INTO teaching_task (course_id, primary_teacher_id, classroom_id, total_hours, notes, status)
-SELECT c.id, t.id, cr.id, 48, '计科2班单独开班', 'ACTIVE'
-FROM course c, teacher t, classroom cr WHERE c.name='数据结构' AND t.employee_no='T1003' AND cr.name='08103'
+-- TT16: 数据结构 → 王强 → 计科2班 → 48h（王强也带两门）
+INSERT INTO teaching_task (course_id, primary_teacher_id, total_hours, notes, status)
+SELECT c.id, t.id, 48, '计科2班单独开班', 'ACTIVE'
+FROM course c, teacher t WHERE c.name='数据结构' AND t.employee_no='T1003'
 AND NOT EXISTS (
     SELECT 1 FROM teaching_task x
     WHERE x.course_id=c.id AND x.primary_teacher_id=t.id AND x.notes='计科2班单独开班'
 );
 
--- TT17: 操作系统 → 周伟 → 人工智能2班 → 48h → 08202(80座)（周伟同时带组成原理和操作系统）
-INSERT INTO teaching_task (course_id, primary_teacher_id, classroom_id, total_hours, notes, status)
-SELECT c.id, t.id, cr.id, 48, NULL, 'ACTIVE'
-FROM course c, teacher t, classroom cr WHERE c.name='操作系统' AND t.employee_no='T1008' AND cr.name='08202'
+-- TT17: 操作系统 → 周伟 → 人工智能2班 → 48h（周伟同时带组成原理和操作系统）
+INSERT INTO teaching_task (course_id, primary_teacher_id, total_hours, notes, status)
+SELECT c.id, t.id, 48, NULL, 'ACTIVE'
+FROM course c, teacher t WHERE c.name='操作系统' AND t.employee_no='T1008'
 AND NOT EXISTS (SELECT 1 FROM teaching_task x WHERE x.course_id=c.id AND x.primary_teacher_id=t.id);
 
--- TT18: Java程序设计 → 张明 → 数据2班 → 48h → 08101(80座)（张明Java带两拨）
-INSERT INTO teaching_task (course_id, primary_teacher_id, classroom_id, total_hours, notes, status)
-SELECT c.id, t.id, cr.id, 48, '数据专业单独开班', 'ACTIVE'
-FROM course c, teacher t, classroom cr WHERE c.name='Java程序设计' AND t.employee_no='T1001' AND cr.name='08101'
+-- TT18: Java程序设计 → 张明 → 数据2班 → 48h（张明Java带两拨）
+INSERT INTO teaching_task (course_id, primary_teacher_id, total_hours, notes, status)
+SELECT c.id, t.id, 48, '数据专业单独开班', 'ACTIVE'
+FROM course c, teacher t WHERE c.name='Java程序设计' AND t.employee_no='T1001'
 AND NOT EXISTS (
     SELECT 1 FROM teaching_task x
     WHERE x.course_id=c.id AND x.primary_teacher_id=t.id AND x.notes='数据专业单独开班'
@@ -393,93 +393,6 @@ CROSS JOIN class_group cg
 WHERE c.name='Java程序设计' AND t.employee_no='T1001' AND tt.notes='数据专业单独开班'
   AND cg.name='23级数据科学与大数据技术2班';
 
--- ============================================================
--- 为教学任务绑定固定教室
--- ============================================================
--- TT1: Java程序设计 → 张明 → 软件1班+2班 → 08101(普通教室,80座)
-UPDATE teaching_task tt SET tt.classroom_id = (SELECT id FROM classroom WHERE name='08101')
-WHERE tt.course_id = (SELECT id FROM course WHERE name='Java程序设计')
-  AND tt.primary_teacher_id = (SELECT id FROM teacher WHERE employee_no='T1001')
-  AND tt.notes = '合班授课，需80座教室';
-
--- TT2: 数据库原理 → 李娜 → 软件1班 → 08102(普通教室,80座)
-UPDATE teaching_task tt SET tt.classroom_id = (SELECT id FROM classroom WHERE name='08102')
-WHERE tt.course_id = (SELECT id FROM course WHERE name='数据库原理')
-  AND tt.primary_teacher_id = (SELECT id FROM teacher WHERE employee_no='T1002')
-  AND tt.notes IS NULL;
-
--- TT3: 数据结构 → 王强 → 计科1班 → 08103(普通教室,80座)
-UPDATE teaching_task tt SET tt.classroom_id = (SELECT id FROM classroom WHERE name='08103')
-WHERE tt.course_id = (SELECT id FROM course WHERE name='数据结构')
-  AND tt.primary_teacher_id = (SELECT id FROM teacher WHERE employee_no='T1003')
-  AND tt.notes IS NULL;
-
--- TT4: 计算机网络 → 赵敏 → AI1+2班 → 08104(阶梯教室,100座)
-UPDATE teaching_task tt SET tt.classroom_id = (SELECT id FROM classroom WHERE name='08104')
-WHERE tt.course_id = (SELECT id FROM course WHERE name='计算机网络');
-
--- TT5: 操作系统 → 陈涛 → 计科2班 → 08201(普通教室,80座)
-UPDATE teaching_task tt SET tt.classroom_id = (SELECT id FROM classroom WHERE name='08201')
-WHERE tt.course_id = (SELECT id FROM course WHERE name='操作系统')
-  AND tt.primary_teacher_id = (SELECT id FROM teacher WHERE employee_no='T1005');
-
--- TT6: 软件工程导论 → 刘洋 → 数据1班 → 08203(阶梯教室,90座)
-UPDATE teaching_task tt SET tt.classroom_id = (SELECT id FROM classroom WHERE name='08203')
-WHERE tt.course_id = (SELECT id FROM course WHERE name='软件工程导论')
-  AND tt.primary_teacher_id = (SELECT id FROM teacher WHERE employee_no='T1006');
-
--- TT7: Python → 孙丽 → 软件2班 → 08105(机房)
-UPDATE teaching_task tt SET tt.classroom_id = (SELECT id FROM classroom WHERE name='08105')
-WHERE tt.course_id = (SELECT id FROM course WHERE name='Python程序设计');
-
--- TT8: Web前端 → 吴芳 → 软件1班 → 08204(机房)
-UPDATE teaching_task tt SET tt.classroom_id = (SELECT id FROM classroom WHERE name='08204')
-WHERE tt.course_id = (SELECT id FROM course WHERE name='Web前端开发');
-
--- TT9: 算法 → 王强 → 计科1+2班合班 → 08203(阶梯教室,90座)
-UPDATE teaching_task tt SET tt.classroom_id = (SELECT id FROM classroom WHERE name='08203')
-WHERE tt.course_id = (SELECT id FROM course WHERE name='算法设计与分析');
-
--- TT10: 组成原理 → 周伟 → 计科1班 → 08202(普通教室,80座)
-UPDATE teaching_task tt SET tt.classroom_id = (SELECT id FROM classroom WHERE name='08202')
-WHERE tt.course_id = (SELECT id FROM course WHERE name='计算机组成原理');
-
--- TT11: AI导论 → 郑宇 → AI1班 → 08203(阶梯教室,90座)
-UPDATE teaching_task tt SET tt.classroom_id = (SELECT id FROM classroom WHERE name='08203')
-WHERE tt.course_id = (SELECT id FROM course WHERE name='人工智能导论');
-
--- TT12: 大数据 → 李娜 → 数据2班 → 08205(机房)
-UPDATE teaching_task tt SET tt.classroom_id = (SELECT id FROM classroom WHERE name='08205')
-WHERE tt.course_id = (SELECT id FROM course WHERE name='大数据技术基础');
-
--- TT13: Linux → 陈涛 → 计科2班 → 08204(机房)
-UPDATE teaching_task tt SET tt.classroom_id = (SELECT id FROM classroom WHERE name='08204')
-WHERE tt.course_id = (SELECT id FROM course WHERE name='Linux系统应用');
-
--- TT14: 项目管理 → 刘洋 → 数据1班 → 08202(普通教室,80座)
-UPDATE teaching_task tt SET tt.classroom_id = (SELECT id FROM classroom WHERE name='08202')
-WHERE tt.course_id = (SELECT id FROM course WHERE name='项目管理');
-
--- TT15: 数据库 → 李娜 → 数据1班 → 08102(普通教室,80座)
-UPDATE teaching_task tt SET tt.classroom_id = (SELECT id FROM classroom WHERE name='08102')
-WHERE tt.course_id = (SELECT id FROM course WHERE name='数据库原理')
-  AND tt.notes = '数据专业单独开班';
-
--- TT16: 数据结构 → 王强 → 计科2班 → 08103(普通教室,80座)
-UPDATE teaching_task tt SET tt.classroom_id = (SELECT id FROM classroom WHERE name='08103')
-WHERE tt.course_id = (SELECT id FROM course WHERE name='数据结构')
-  AND tt.notes = '计科2班单独开班';
-
--- TT17: 操作系统 → 周伟 → AI2班 → 08202(普通教室,80座)
-UPDATE teaching_task tt SET tt.classroom_id = (SELECT id FROM classroom WHERE name='08202')
-WHERE tt.course_id = (SELECT id FROM course WHERE name='操作系统')
-  AND tt.primary_teacher_id = (SELECT id FROM teacher WHERE employee_no='T1008');
-
--- TT18: Java → 张明 → 数据2班 → 08101(普通教室,80座)
-UPDATE teaching_task tt SET tt.classroom_id = (SELECT id FROM classroom WHERE name='08101')
-WHERE tt.course_id = (SELECT id FROM course WHERE name='Java程序设计')
-  AND tt.notes = '数据专业单独开班';
-
 COMMIT;
 
 -- ============================================================
@@ -554,95 +467,95 @@ ON DUPLICATE KEY UPDATE building = VALUES(building);
 -- 新教师 + 新课程 + 2024级班级
 -- ============================================================
 
--- TT19: 编译原理 → 马超 → 软件1班(23级) → 48h → 08301(80座)
-INSERT INTO teaching_task (course_id, primary_teacher_id, classroom_id, total_hours, notes, status)
-SELECT c.id, t.id, cr.id, 48, NULL, 'ACTIVE'
-FROM course c, teacher t, classroom cr WHERE c.name='编译原理' AND t.employee_no='T1011' AND cr.name='08301';
+-- TT19: 编译原理 → 马超 → 软件1班(23级) → 48h
+INSERT INTO teaching_task (course_id, primary_teacher_id, total_hours, notes, status)
+SELECT c.id, t.id, 48, NULL, 'ACTIVE'
+FROM course c, teacher t WHERE c.name='编译原理' AND t.employee_no='T1011';
 
--- TT20: 计算机图形学 → 黄丽 → 计科1班(23级) → 36h → 08304(60座机房)
-INSERT INTO teaching_task (course_id, primary_teacher_id, classroom_id, total_hours, notes, status)
-SELECT c.id, t.id, cr.id, 36, '上机实践课', 'ACTIVE'
-FROM course c, teacher t, classroom cr WHERE c.name='计算机图形学' AND t.employee_no='T1012' AND cr.name='08304';
+-- TT20: 计算机图形学 → 黄丽 → 计科1班(23级) → 36h
+INSERT INTO teaching_task (course_id, primary_teacher_id, total_hours, notes, status)
+SELECT c.id, t.id, 36, '上机实践课', 'ACTIVE'
+FROM course c, teacher t WHERE c.name='计算机图形学' AND t.employee_no='T1012';
 
--- TT21: 嵌入式系统 → 林杰 → 人工智能1班+2班(23级) → 48h → 08304(60座机房)
-INSERT INTO teaching_task (course_id, primary_teacher_id, classroom_id, total_hours, notes, status)
-SELECT c.id, t.id, cr.id, 48, '合班授课，上机实践', 'ACTIVE'
-FROM course c, teacher t, classroom cr WHERE c.name='嵌入式系统' AND t.employee_no='T1013' AND cr.name='08304';
+-- TT21: 嵌入式系统 → 林杰 → 人工智能1班+2班(23级) → 48h
+INSERT INTO teaching_task (course_id, primary_teacher_id, total_hours, notes, status)
+SELECT c.id, t.id, 48, '合班授课，上机实践', 'ACTIVE'
+FROM course c, teacher t WHERE c.name='嵌入式系统' AND t.employee_no='T1013';
 
--- TT22: 数字图像处理 → 何雪 → 数据1班(23级) → 36h → 08305(60座机房)
-INSERT INTO teaching_task (course_id, primary_teacher_id, classroom_id, total_hours, notes, status)
-SELECT c.id, t.id, cr.id, 36, '上机实践课', 'ACTIVE'
-FROM course c, teacher t, classroom cr WHERE c.name='数字图像处理' AND t.employee_no='T1014' AND cr.name='08305';
+-- TT22: 数字图像处理 → 何雪 → 数据1班(23级) → 36h
+INSERT INTO teaching_task (course_id, primary_teacher_id, total_hours, notes, status)
+SELECT c.id, t.id, 36, '上机实践课', 'ACTIVE'
+FROM course c, teacher t WHERE c.name='数字图像处理' AND t.employee_no='T1014';
 
--- TT23: 分布式系统 → 胡刚 → 软件2班(23级) → 36h → 08302(80座)
-INSERT INTO teaching_task (course_id, primary_teacher_id, classroom_id, total_hours, notes, status)
-SELECT c.id, t.id, cr.id, 36, NULL, 'ACTIVE'
-FROM course c, teacher t, classroom cr WHERE c.name='分布式系统' AND t.employee_no='T1015' AND cr.name='08302';
+-- TT23: 分布式系统 → 胡刚 → 软件2班(23级) → 36h
+INSERT INTO teaching_task (course_id, primary_teacher_id, total_hours, notes, status)
+SELECT c.id, t.id, 36, NULL, 'ACTIVE'
+FROM course c, teacher t WHERE c.name='分布式系统' AND t.employee_no='T1015';
 
--- TT24: 软件测试 → 徐静 → 软件1班(23级) → 36h → 08305(60座机房)
-INSERT INTO teaching_task (course_id, primary_teacher_id, classroom_id, total_hours, notes, status)
-SELECT c.id, t.id, cr.id, 36, '上机实践课', 'ACTIVE'
-FROM course c, teacher t, classroom cr WHERE c.name='软件测试' AND t.employee_no='T1016' AND cr.name='08305';
+-- TT24: 软件测试 → 徐静 → 软件1班(23级) → 36h
+INSERT INTO teaching_task (course_id, primary_teacher_id, total_hours, notes, status)
+SELECT c.id, t.id, 36, '上机实践课', 'ACTIVE'
+FROM course c, teacher t WHERE c.name='软件测试' AND t.employee_no='T1016';
 
--- TT25: 信息安全概论 → 叶枫 → 计科1班+计科2班(23级) → 48h → 08106(120座阶梯)
-INSERT INTO teaching_task (course_id, primary_teacher_id, classroom_id, total_hours, notes, status)
-SELECT c.id, t.id, cr.id, 48, '合班授课', 'ACTIVE'
-FROM course c, teacher t, classroom cr WHERE c.name='信息安全概论' AND t.employee_no='T1017' AND cr.name='08106';
+-- TT25: 信息安全概论 → 叶枫 → 计科1班+计科2班(23级) → 48h
+INSERT INTO teaching_task (course_id, primary_teacher_id, total_hours, notes, status)
+SELECT c.id, t.id, 48, '合班授课', 'ACTIVE'
+FROM course c, teacher t WHERE c.name='信息安全概论' AND t.employee_no='T1017';
 
--- TT26: 移动应用开发 → 罗敏 → 软件2班(23级) → 36h → 08305(60座机房)
-INSERT INTO teaching_task (course_id, primary_teacher_id, classroom_id, total_hours, notes, status)
-SELECT c.id, t.id, cr.id, 36, '上机实践课', 'ACTIVE'
-FROM course c, teacher t, classroom cr WHERE c.name='移动应用开发' AND t.employee_no='T1018' AND cr.name='08305';
+-- TT26: 移动应用开发 → 罗敏 → 软件2班(23级) → 36h
+INSERT INTO teaching_task (course_id, primary_teacher_id, total_hours, notes, status)
+SELECT c.id, t.id, 36, '上机实践课', 'ACTIVE'
+FROM course c, teacher t WHERE c.name='移动应用开发' AND t.employee_no='T1018';
 
--- TT27: 云计算概论 → 邓辉 → 数据2班(23级) → 36h → 08302(80座)
-INSERT INTO teaching_task (course_id, primary_teacher_id, classroom_id, total_hours, notes, status)
-SELECT c.id, t.id, cr.id, 36, NULL, 'ACTIVE'
-FROM course c, teacher t, classroom cr WHERE c.name='云计算概论' AND t.employee_no='T1019' AND cr.name='08302';
+-- TT27: 云计算概论 → 邓辉 → 数据2班(23级) → 36h
+INSERT INTO teaching_task (course_id, primary_teacher_id, total_hours, notes, status)
+SELECT c.id, t.id, 36, NULL, 'ACTIVE'
+FROM course c, teacher t WHERE c.name='云计算概论' AND t.employee_no='T1019';
 
--- TT28: 数据挖掘 → 沈婷 → 数据1班(23级) → 36h → 08304(60座机房)
-INSERT INTO teaching_task (course_id, primary_teacher_id, classroom_id, total_hours, notes, status)
-SELECT c.id, t.id, cr.id, 36, '上机实践课', 'ACTIVE'
-FROM course c, teacher t, classroom cr WHERE c.name='数据挖掘' AND t.employee_no='T1020' AND cr.name='08304';
+-- TT28: 数据挖掘 → 沈婷 → 数据1班(23级) → 36h
+INSERT INTO teaching_task (course_id, primary_teacher_id, total_hours, notes, status)
+SELECT c.id, t.id, 36, '上机实践课', 'ACTIVE'
+FROM course c, teacher t WHERE c.name='数据挖掘' AND t.employee_no='T1020';
 
--- TT29: 编译原理 → 马超 → 软件1班+2班(24级) → 48h → 08303(100座阶梯)
-INSERT INTO teaching_task (course_id, primary_teacher_id, classroom_id, total_hours, notes, status)
-SELECT c.id, t.id, cr.id, 48, '合班授课，24级', 'ACTIVE'
-FROM course c, teacher t, classroom cr WHERE c.name='编译原理' AND t.employee_no='T1011' AND cr.name='08303';
+-- TT29: 编译原理 → 马超 → 软件1班+2班(24级) → 48h
+INSERT INTO teaching_task (course_id, primary_teacher_id, total_hours, notes, status)
+SELECT c.id, t.id, 48, '合班授课，24级', 'ACTIVE'
+FROM course c, teacher t WHERE c.name='编译原理' AND t.employee_no='T1011';
 
--- TT30: 嵌入式系统 → 林杰 → 计科1班(24级) → 48h → 08206(70座)
-INSERT INTO teaching_task (course_id, primary_teacher_id, classroom_id, total_hours, notes, status)
-SELECT c.id, t.id, cr.id, 48, '24级单独开班', 'ACTIVE'
-FROM course c, teacher t, classroom cr WHERE c.name='嵌入式系统' AND t.employee_no='T1013' AND cr.name='08206';
+-- TT30: 嵌入式系统 → 林杰 → 计科1班(24级) → 48h
+INSERT INTO teaching_task (course_id, primary_teacher_id, total_hours, notes, status)
+SELECT c.id, t.id, 48, '24级单独开班', 'ACTIVE'
+FROM course c, teacher t WHERE c.name='嵌入式系统' AND t.employee_no='T1013';
 
--- TT31: 信息安全概论 → 叶枫 → 软件1班(24级) → 48h → 08207(70座)
-INSERT INTO teaching_task (course_id, primary_teacher_id, classroom_id, total_hours, notes, status)
-SELECT c.id, t.id, cr.id, 48, '24级单独开班', 'ACTIVE'
-FROM course c, teacher t, classroom cr WHERE c.name='信息安全概论' AND t.employee_no='T1017' AND cr.name='08207';
+-- TT31: 信息安全概论 → 叶枫 → 软件1班(24级) → 48h
+INSERT INTO teaching_task (course_id, primary_teacher_id, total_hours, notes, status)
+SELECT c.id, t.id, 48, '24级单独开班', 'ACTIVE'
+FROM course c, teacher t WHERE c.name='信息安全概论' AND t.employee_no='T1017';
 
--- TT32: 计算机图形学 → 黄丽 → 人工智能1班(24级) → 36h → 08105(60座机房)
-INSERT INTO teaching_task (course_id, primary_teacher_id, classroom_id, total_hours, notes, status)
-SELECT c.id, t.id, cr.id, 36, '上机实践课，24级', 'ACTIVE'
-FROM course c, teacher t, classroom cr WHERE c.name='计算机图形学' AND t.employee_no='T1012' AND cr.name='08105';
+-- TT32: 计算机图形学 → 黄丽 → 人工智能1班(24级) → 36h
+INSERT INTO teaching_task (course_id, primary_teacher_id, total_hours, notes, status)
+SELECT c.id, t.id, 36, '上机实践课，24级', 'ACTIVE'
+FROM course c, teacher t WHERE c.name='计算机图形学' AND t.employee_no='T1012';
 
--- TT33: 数字图像处理 → 何雪 → 人工智能2班(24级) → 36h → 08205(60座机房)
-INSERT INTO teaching_task (course_id, primary_teacher_id, classroom_id, total_hours, notes, status)
-SELECT c.id, t.id, cr.id, 36, '上机实践课，24级', 'ACTIVE'
-FROM course c, teacher t, classroom cr WHERE c.name='数字图像处理' AND t.employee_no='T1014' AND cr.name='08205';
+-- TT33: 数字图像处理 → 何雪 → 人工智能2班(24级) → 36h
+INSERT INTO teaching_task (course_id, primary_teacher_id, total_hours, notes, status)
+SELECT c.id, t.id, 36, '上机实践课，24级', 'ACTIVE'
+FROM course c, teacher t WHERE c.name='数字图像处理' AND t.employee_no='T1014';
 
--- TT34: 分布式系统 → 胡刚 → 计科2班(24级) → 36h → 08206(70座)
-INSERT INTO teaching_task (course_id, primary_teacher_id, classroom_id, total_hours, notes, status)
-SELECT c.id, t.id, cr.id, 36, '24级单独开班', 'ACTIVE'
-FROM course c, teacher t, classroom cr WHERE c.name='分布式系统' AND t.employee_no='T1015' AND cr.name='08206';
+-- TT34: 分布式系统 → 胡刚 → 计科2班(24级) → 36h
+INSERT INTO teaching_task (course_id, primary_teacher_id, total_hours, notes, status)
+SELECT c.id, t.id, 36, '24级单独开班', 'ACTIVE'
+FROM course c, teacher t WHERE c.name='分布式系统' AND t.employee_no='T1015';
 
--- TT35: 软件测试 → 徐静 → 数据2班(24级) → 36h → 08205(60座机房)
-INSERT INTO teaching_task (course_id, primary_teacher_id, classroom_id, total_hours, notes, status)
-SELECT c.id, t.id, cr.id, 36, '上机实践课，24级', 'ACTIVE'
-FROM course c, teacher t, classroom cr WHERE c.name='软件测试' AND t.employee_no='T1016' AND cr.name='08205';
+-- TT35: 软件测试 → 徐静 → 数据2班(24级) → 36h
+INSERT INTO teaching_task (course_id, primary_teacher_id, total_hours, notes, status)
+SELECT c.id, t.id, 36, '上机实践课，24级', 'ACTIVE'
+FROM course c, teacher t WHERE c.name='软件测试' AND t.employee_no='T1016';
 
--- TT36: 数据挖掘 → 沈婷 → 数据1班(24级) → 36h → 08105(60座机房)
-INSERT INTO teaching_task (course_id, primary_teacher_id, classroom_id, total_hours, notes, status)
-SELECT c.id, t.id, cr.id, 36, '上机实践课，24级', 'ACTIVE'
-FROM course c, teacher t, classroom cr WHERE c.name='数据挖掘' AND t.employee_no='T1020' AND cr.name='08105';
+-- TT36: 数据挖掘 → 沈婷 → 数据1班(24级) → 36h
+INSERT INTO teaching_task (course_id, primary_teacher_id, total_hours, notes, status)
+SELECT c.id, t.id, 36, '上机实践课，24级', 'ACTIVE'
+FROM course c, teacher t WHERE c.name='数据挖掘' AND t.employee_no='T1020';
 
 -- ============================================================
 -- 扩展教学任务-班级关联
@@ -793,3 +706,20 @@ WHERE c.name='数据挖掘' AND t.employee_no='T1020' AND tt.notes='上机实践
   AND cg.name='24级数据科学与大数据技术1班';
 
 COMMIT;
+�术1班';
+
+COMMIT;
+';
+
+COMMIT;
+
+�术1班';
+
+COMMIT;
+';
+
+COMMIT;
+
+
+COMMIT;
+MMIT;
