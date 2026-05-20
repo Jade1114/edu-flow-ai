@@ -48,12 +48,16 @@ function openTeachingTaskDialog(row) {
   }
   teachingTaskDialog.value = true
 }
+function optionalId(value) {
+  return value === '' || value === undefined ? null : value
+}
+
 async function saveTeachingTask() {
   const valid = await teachingTaskFormRef.value?.validate().catch(() => false)
   if (!valid) return
   const payload = { ...teachingTaskForm.value }
-  if (payload.classroomId === '') payload.classroomId = null
-  if (payload.assistantTeacherId === '') payload.assistantTeacherId = null
+  payload.classroomId = optionalId(payload.classroomId)
+  payload.assistantTeacherId = optionalId(payload.assistantTeacherId)
   if (payload.id) {
     await request.put(`/api/teaching-tasks/${payload.id}`, payload)
   } else {
@@ -498,8 +502,8 @@ onMounted(() => {
           <el-input-number v-model="teachingTaskForm.totalHours" :min="2" :step="2" />
           <span style="color: #909399; font-size: 12px; margin-left: 8px">必须是2的倍数</span>
         </el-form-item>
-        <el-form-item label="固定教室" prop="classroomId">
-          <el-select v-model="teachingTaskForm.classroomId" placeholder="可选，不选则由排课自动分配" clearable style="width: 100%">
+        <el-form-item label="推荐教室">
+          <el-select v-model="teachingTaskForm.classroomId" placeholder="可选，不选则由排课自动分配" clearable :value-on-clear="null" style="width: 100%">
             <el-option v-for="cr in classrooms" :key="cr.id" :label="`${cr.name}(${cr.building}, ${cr.capacity}座, ${cr.classroomType})`" :value="cr.id" />
           </el-select>
         </el-form-item>
