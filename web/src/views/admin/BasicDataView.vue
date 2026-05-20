@@ -115,23 +115,6 @@ async function deleteTeacher(id) {
   loadTeachers()
 }
 
-const indexing = ref(false)
-async function runIndexAll() {
-  indexing.value = true
-  let success = 0
-  let fail = 0
-  for (const t of teachers.value) {
-    try {
-      await request.post(`/api/teachers/${t.id}/profile/vector-index`)
-      success++
-    } catch {
-      fail++
-    }
-  }
-  ElMessage.success(`索引完成：成功 ${success} 个${fail ? `，失败 ${fail} 个` : ''}`)
-  indexing.value = false
-}
-
 // Course
 const courses = ref([])
 const courseDialog = ref(false)
@@ -279,7 +262,6 @@ onMounted(() => {
       <el-tab-pane label="教师管理" name="teacher">
         <div style="margin-bottom: 12px; display: flex; gap: 8px; align-items: center;">
           <el-button type="primary" @click="openTeacherDialog()">新增教师</el-button>
-          <el-button size="small" :loading="indexing" @click="runIndexAll">更新索引</el-button>
         </div>
         <el-table :data="teachers" border size="small">
           <el-table-column prop="employeeNo" label="工号" width="100" />

@@ -120,16 +120,12 @@ LightGBM 对合法候选或完整方案做偏好重排
 
 ## 教师画像惩罚
 
-当前实现优先走 LLM/RAG，失败时回退 MySQL 画像解析：
+当前实现直接读取 MySQL 中已结构化的教师画像偏好，不再走 Embedding / Qdrant 检索：
 
 ```text
 教学任务上下文
 ↓
-Embedding Query
-↓
-Qdrant 检索教师画像
-↓
-LLM 读取画像全文并结构化
+读取 teacher_profile.profile_preference_json
 ↓
 teacher_penalties.json
 ↓
@@ -141,9 +137,9 @@ teacher_penalties.json
 - `server/src/main/resources/prompts/teacher-penalty-system.md`
 - `server/src/main/resources/prompts/teacher-penalty-user-template.md`
 
-Python 侧旧画像 RAG prompt 已删除；教师画像解析只保留 Java resources 中的一份 prompt。
+Python 侧旧画像 RAG prompt 已删除；教师画像“其他说明”的 LLM 解析只保留 Java resources 中的一份 prompt。
 
-需要的环境变量包括：`OPENAI_API_KEY`、`OPENAI_BASE_URL`、`OPENAI_EMBEDDING_MODEL`、`OPENAI_CHAT_API_KEY`、`OPENAI_CHAT_BASE_URL`、`OPENAI_CHAT_MODEL`、`QDRANT_URL`、`QDRANT_API_KEY`、`QDRANT_COLLECTION`。
+需要的环境变量包括：`OPENAI_CHAT_API_KEY`、`OPENAI_CHAT_BASE_URL`、`OPENAI_CHAT_MODEL`。
 
 ## 与业务表对应
 
@@ -152,7 +148,7 @@ Python 侧旧画像 RAG prompt 已删除；教师画像解析只保留 Java reso
 | 教学任务 | `teaching_task` / `TeachingTask` |
 | 课程 | `course` / `Course` |
 | 教师 | `teacher` / `Teacher` |
-| 教师画像 | `teacher_profile` / Qdrant `teacher_profiles` |
+| 教师画像 | `teacher_profile` |
 | 教学班 | `class_group` / `ClassGroup` |
 | 教室 | `classroom` / `Classroom` |
 | 时间片 | `time_slot` / `TimeSlot` |

@@ -1,7 +1,6 @@
 package com.yuy.eduflow.teacher;
 
 import com.yuy.eduflow.common.ApiResponse;
-import com.yuy.eduflow.rag.TeacherProfileVectorService;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -14,14 +13,9 @@ import org.springframework.web.bind.annotation.RestController;
 @RequestMapping("/api/teachers/{teacherId}/profile")
 public class TeacherProfileController {
 	private final TeacherProfileService teacherProfileService;
-	private final TeacherProfileVectorService teacherProfileVectorService;
 
-	public TeacherProfileController(
-		TeacherProfileService teacherProfileService,
-		TeacherProfileVectorService teacherProfileVectorService
-	) {
+	public TeacherProfileController(TeacherProfileService teacherProfileService) {
 		this.teacherProfileService = teacherProfileService;
-		this.teacherProfileVectorService = teacherProfileVectorService;
 	}
 
 	@GetMapping
@@ -45,12 +39,4 @@ public class TeacherProfileController {
 		return ApiResponse.success(teacherProfileService.save(teacherId, request));
 	}
 
-	@PostMapping("/vector-index")
-	public ApiResponse<String> indexVector(@PathVariable Long teacherId) {
-		TeacherProfile result = teacherProfileVectorService.indexTeacherProfile(teacherId);
-		if (result == null) {
-			return ApiResponse.success("该教师没有画像数据，已跳过向量索引");
-		}
-		return ApiResponse.success("向量索引完成，teacherId=" + teacherId);
-	}
 }

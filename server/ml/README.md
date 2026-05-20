@@ -182,7 +182,7 @@ python scripts/evaluate_scheme_demo.py --scheme-dir data/generated --json --teac
 ```text
 Java:
   task orchestration
-  teacher profile RAG parsing
+  teacher profile preference parsing
   teacher_penalties.json writing
   Python script invocation
   conflict check
@@ -196,7 +196,7 @@ Python:
   CSV / summary output
 ```
 
-Python does not own LLM/RAG orchestration anymore. Teacher profile parsing belongs to Java, and Python consumes only `teacher_penalties.json`.
+Python does not own teacher profile parsing. Teacher profile preference parsing belongs to Java, and Python consumes only `teacher_penalties.json`.
 
 ## Related Project Docs
 

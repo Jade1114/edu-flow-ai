@@ -248,7 +248,8 @@ public class AllocationSchemeConflictDetector {
 			"教师时间冲突：" + teacherName + " 在时间段ID " + item.getTimeSlotId()
 				+ " 被重复安排，涉及明细ID：" + itemIds(group),
 			detail != null ? detail.task().getPrimaryTeacherId() : null,
-			null, null, item.getTimeSlotId()
+			null, null, item.getTimeSlotId(),
+			null, null, null, null
 		);
 	}
 
@@ -265,7 +266,8 @@ public class AllocationSchemeConflictDetector {
 			CLASS_GROUP_TIME,
 			"班级时间冲突：" + className + " 在时间段ID " + item.getTimeSlotId()
 				+ " 被重复安排，涉及明细ID：" + itemIds(group),
-			null, classGroupId, null, item.getTimeSlotId()
+			null, classGroupId, null, item.getTimeSlotId(),
+			null, null, null, null
 		);
 	}
 
@@ -275,7 +277,8 @@ public class AllocationSchemeConflictDetector {
 			CLASSROOM_TIME,
 			"教室时间冲突：教室ID " + item.getClassroomId() + " 在时间段ID " + item.getTimeSlotId()
 				+ " 被重复占用，涉及明细ID：" + itemIds(group),
-			null, null, item.getClassroomId(), item.getTimeSlotId()
+			null, null, item.getClassroomId(), item.getTimeSlotId(),
+			null, null, null, null
 		);
 	}
 

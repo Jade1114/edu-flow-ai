@@ -85,13 +85,6 @@ const actions = [
     method: 'GET',
     path: () => `/api/teachers/${required(form.teacherId, '教师 ID')}/course-assignments`,
   },
-  {
-    group: '工具',
-    key: 'vector-index',
-    label: '教师向量索引',
-    method: 'POST',
-    path: () => `/api/teachers/${required(form.teacherId, '教师 ID')}/profile/vector-index`,
-  },
 ]
 
 const groupedActions = computed(() => {
@@ -117,11 +110,6 @@ const prettyJson = computed(() => {
     return JSON.stringify(result.value.body, null, 2)
   }
   return result.value.rawText || ''
-})
-
-const ragTeachers = computed(() => {
-  const data = responseData.value
-  return Array.isArray(data?.teachers) ? data.teachers : []
 })
 
 const schemes = computed(() => {
@@ -162,7 +150,6 @@ const loginUser = computed(() => {
 const hasStructuredView = computed(() => {
   return (
     loginUser.value ||
-    ragTeachers.value.length > 0 ||
     schemes.value.length > 0 ||
     assignments.value.length > 0 ||
     promptPreview.value
@@ -400,7 +387,7 @@ function pickRows(rows, keys) {
 
           <div v-if="promptPreview" class="prompt-grid">
             <article v-if="promptPreview.query" class="text-block">
-              <h3>RAG Query</h3>
+              <h3>Query</h3>
               <pre>{{ promptPreview.query }}</pre>
             </article>
             <article v-if="promptPreview.systemPrompt" class="text-block">
@@ -417,19 +404,6 @@ function pickRows(rows, keys) {
             </article>
           </div>
 
-          <section v-if="ragTeachers.length" class="cards-section">
-            <h3>RAG Teachers</h3>
-            <div class="teacher-grid">
-              <article v-for="teacher in ragTeachers" :key="teacher.id || teacher.teacherId" class="teacher-card">
-                <div class="teacher-card-head">
-                  <strong>{{ teacher.teacherName || `Teacher #${teacher.teacherId}` }}</strong>
-                  <span>{{ tableValue(teacher.score) }}</span>
-                </div>
-                <p>{{ tableValue(teacher.department) }} / {{ tableValue(teacher.title) }}</p>
-                <p class="muted">{{ tableValue(teacher.vectorText) }}</p>
-              </article>
-            </div>
-          </section>
 
           <section v-if="schemes.length" class="table-section">
             <h3>候选方案</h3>

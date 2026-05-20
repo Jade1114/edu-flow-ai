@@ -1,9 +1,8 @@
 """Generate scheduling schemes with GA + LightGBM.
 
 LightGBM scores local scheduling candidates. The genetic algorithm searches complete
-scheme combinations globally. Java persists the CSV output and does not call
-LLM/RAG services — this script may call LLM to parse teacher profile texts
-into structured penalties.
+scheme combinations globally. Java persists the CSV output and writes
+teacher profile penalties. This script consumes the prepared penalty file only.
 """
 
 from __future__ import annotations
