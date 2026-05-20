@@ -92,7 +92,7 @@ CREATE TABLE IF NOT EXISTS teaching_task (
     course_id BIGINT NOT NULL,
     primary_teacher_id BIGINT NOT NULL,
     assistant_teacher_id BIGINT NULL,
-    classroom_id BIGINT NOT NULL,
+    classroom_id BIGINT NULL,
     total_hours INT NOT NULL,
     required_room_type VARCHAR(50) NULL,
     notes TEXT NULL,
@@ -106,7 +106,7 @@ CREATE TABLE IF NOT EXISTS teaching_task (
     CONSTRAINT fk_teaching_task_course FOREIGN KEY (course_id) REFERENCES course (id),
     CONSTRAINT fk_teaching_task_teacher FOREIGN KEY (primary_teacher_id) REFERENCES teacher (id),
     CONSTRAINT fk_teaching_task_assistant FOREIGN KEY (assistant_teacher_id) REFERENCES teacher (id),
-    CONSTRAINT fk_teaching_task_classroom FOREIGN KEY (classroom_id) REFERENCES classroom (id)
+    CONSTRAINT fk_teaching_task_classroom FOREIGN KEY (classroom_id) REFERENCES classroom (id) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- v2: 教学任务-班级关联（1-2个班级）

@@ -153,7 +153,6 @@ public class TeachingTaskService {
     private void validateRequest(TeachingTaskRequest request) {
         Assert.positiveId(request.courseId(), "课程ID");
         Assert.positiveId(request.primaryTeacherId(), "主讲教师ID");
-        Assert.positiveId(request.classroomId(), "教室ID");
 
         // 课时校验：MVP 阶段要求必须是 2 的倍数（时间块排课需求）
         if (request.totalHours() == null || request.totalHours() <= 0) {
@@ -175,20 +174,22 @@ public class TeachingTaskService {
         courseService.findById(request.courseId());
         teacherService.findById(request.primaryTeacherId());
 
-        // 教室容量校验：班级总人数不能超过教室容量
-        Classroom classroom = classroomService.findById(request.classroomId());
-        int totalStudents = 0;
-        for (Long classGroupId : request.classGroupIds()) {
-            ClassGroup classGroup = classGroupService.findById(classGroupId);
-            if (classGroup.getStudentCount() != null) {
-                totalStudents += classGroup.getStudentCount();
+        // 教室容量校验（仅当绑定了固定教室时）
+        if (request.classroomId() != null) {
+            Classroom classroom = classroomService.findById(request.classroomId());
+            int totalStudents = 0;
+            for (Long classGroupId : request.classGroupIds()) {
+                ClassGroup classGroup = classGroupService.findById(classGroupId);
+                if (classGroup.getStudentCount() != null) {
+                    totalStudents += classGroup.getStudentCount();
+                }
             }
-        }
-        if (classroom.getCapacity() != null && totalStudents > classroom.getCapacity()) {
-            throw new ValidationException(
-                "教室容量不足：教室「" + classroom.getName() + "」最多容纳 " + classroom.getCapacity() + " 人，"
-                + "但所选班级合计 " + totalStudents + " 人"
-            );
+            if (classroom.getCapacity() != null && totalStudents > classroom.getCapacity()) {
+                throw new ValidationException(
+                    "教室容量不足：教室「" + classroom.getName() + "」最多容纳 " + classroom.getCapacity() + " 人，"
+                    + "但所选班级合计 " + totalStudents + " 人"
+                );
+            }
         }
 
         // 协作教师校验

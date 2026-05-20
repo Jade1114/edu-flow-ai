@@ -12,13 +12,13 @@ const teachingTaskDialog = ref(false)
 const teachingTaskFormRef = ref()
 const teachingTaskForm = ref({
   id: null, courseId: '', primaryTeacherId: '', assistantTeacherId: '',
-  classroomId: '', totalHours: 32, notes: '', status: ActiveStatus.ACTIVE,
+  classroomId: '',
+  totalHours: 32, notes: '', status: ActiveStatus.ACTIVE,
   classGroupIds: []
 })
 const teachingTaskRules = {
   courseId: [{ required: true, message: '请选择课程', trigger: 'change' }],
   primaryTeacherId: [{ required: true, message: '请选择主讲教师', trigger: 'change' }],
-  classroomId: [{ required: true, message: '请选择教室', trigger: 'change' }],
   totalHours: [{ required: true, message: '请输入总课时', trigger: 'blur' }],
   classGroupIds: [{ required: true, message: '请选择班级', trigger: 'change' }],
 }
@@ -497,7 +497,7 @@ onMounted(() => {
           <span style="color: #909399; font-size: 12px; margin-left: 8px">必须是2的倍数</span>
         </el-form-item>
         <el-form-item label="固定教室" prop="classroomId">
-          <el-select v-model="teachingTaskForm.classroomId" placeholder="请选择教室" style="width: 100%">
+          <el-select v-model="teachingTaskForm.classroomId" placeholder="可选，不选则由排课自动分配" clearable style="width: 100%">
             <el-option v-for="cr in classrooms" :key="cr.id" :label="`${cr.name}(${cr.building}, ${cr.capacity}座, ${cr.classroomType})`" :value="cr.id" />
           </el-select>
         </el-form-item>
