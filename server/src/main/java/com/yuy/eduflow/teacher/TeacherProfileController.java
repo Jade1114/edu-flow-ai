@@ -29,6 +29,14 @@ public class TeacherProfileController {
 		return ApiResponse.success(teacherProfileService.findByTeacherId(teacherId));
 	}
 
+    @PostMapping("/parse")
+    public ApiResponse<TeacherProfileParseResult> parse(
+        @PathVariable Long teacherId,
+        @RequestBody TeacherProfileParseRequest request
+    ) {
+        return ApiResponse.success(teacherProfileService.parseProfile(teacherId, request));
+    }
+
 	@PutMapping
 	public ApiResponse<TeacherProfile> save(
 		@PathVariable Long teacherId,

@@ -1,27 +1,33 @@
 package com.yuy.eduflow.teacher;
 
-import com.yuy.eduflow.rag.TeacherProfileVectorService;
-import java.util.ArrayList;
+import com.yuy.eduflow.common.exception.BusinessException;
+import com.yuy.eduflow.rag.OpenAiChatClient;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
+import tools.jackson.databind.ObjectMapper;
 
 @Slf4j
 @Service
 public class TeacherProfileService {
 	private final TeacherService teacherService;
 	private final TeacherProfileMapper teacherProfileMapper;
-	private final TeacherProfileVectorService teacherProfileVectorService;
+    private final OpenAiChatClient chatClient;
+    private final ObjectMapper objectMapper;
 
 	public TeacherProfileService(
 		TeacherService teacherService,
 		TeacherProfileMapper teacherProfileMapper,
-		TeacherProfileVectorService teacherProfileVectorService
+        OpenAiChatClient chatClient,
+        ObjectMapper objectMapper
 	) {
 		this.teacherService = teacherService;
 		this.teacherProfileMapper = teacherProfileMapper;
-		this.teacherProfileVectorService = teacherProfileVectorService;
+        this.chatClient = chatClient;
+        this.objectMapper = objectMapper;
 	}
 
 	public TeacherProfile findByTeacherId(Long teacherId) {
@@ -29,13 +35,51 @@ public class TeacherProfileService {
 		return teacherProfileMapper.findByTeacherId(teacherId);
 	}
 
+    public TeacherProfileParseResult parseProfile(Long teacherId, TeacherProfileParseRequest request) {
+        Teacher teacher = teacherService.findById(teacherId);
+        String profileNote = clean(request.profileNote());
+        if (!StringUtils.hasText(profileNote)) {
+            throw new BusinessException(400, "其他说明不能为空，写点人话我才好解析嘛");
+        }
+        String systemPrompt = """
+            你是教务排课系统中的教师画像解析器。请把教师自然语言排课说明解析成 JSON。
+            固定周可用性矩阵已经由系统结构化维护，不需要你解析为硬约束。
+            你只能输出 JSON object，不要输出 markdown。
+            所有从自然语言得到的偏好默认都是软约束，不要把它们标记成硬约束。
+            如果教师表达“不能排某时间”，请放入 avoidSlots，并在 warnings 中提醒需要回填到矩阵确认后才会成为硬约束。
+            输出字段：preferredMaxWeeklyHours, preferredMaxDailyHours, preferredMaxConsecutiveHours,
+            avoidFirstPeriod, avoidLastPeriod, preferCompactSchedule, preferredWeekdays, avoidSlots,
+            courseTypePreferences, summary, warnings。
+            unavailableSlots 不允许输出，硬不可用只来自 availabilityMatrix 中的 -1。
+            """;
+        String userPrompt = """
+            教师：%s
+            固定周矩阵 JSON：%s
+            其他说明：%s
+            """.formatted(teacher.getName(), clean(request.availabilityMatrixJson()), profileNote);
+        try {
+            String raw = chatClient.generate(systemPrompt, userPrompt);
+            @SuppressWarnings("unchecked")
+            Map<String, Object> parsed = objectMapper.readValue(raw, Map.class);
+            Map<String, Object> normalized = normalizeParsedPreference(parsed);
+            String preferenceJson = objectMapper.writeValueAsString(normalized);
+            String interpretation = String.valueOf(normalized.getOrDefault("summary", "已解析教师排课偏好"));
+            return new TeacherProfileParseResult(preferenceJson, normalized, interpretation);
+        } catch (Exception e) {
+            log.error("Teacher profile parse failed: teacherId={}", teacherId, e);
+            throw new BusinessException(500, "教师画像解析失败: " + e.getMessage(), e);
+        }
+    }
+
 	public TeacherProfile save(Long teacherId, TeacherProfileRequest request) {
+        if (StringUtils.hasText(request.profileNote()) && !StringUtils.hasText(request.profilePreferenceJson())) {
+            throw new BusinessException(400, "请先通过 LLM 解析并确认其他说明，再保存教师画像");
+        }
 		log.info("=== save() start === teacherId={}", teacherId);
 		log.info("request={}", request);
 		Teacher teacher = teacherService.findById(teacherId);
 		log.info("teacher found: id={}, name={}", teacher.getId(), teacher.getName());
 		TeacherProfile profile = toProfile(teacher, request);
-		log.debug("vectorText built: [{}]", profile.getVectorText());
 		TeacherProfile existing = teacherProfileMapper.findByTeacherId(teacherId);
 		log.info("existing profile: {}", existing);
 		if (existing == null) {
@@ -45,11 +89,7 @@ public class TeacherProfileService {
 			int rows = teacherProfileMapper.updateByTeacherId(profile);
 			log.info("UPDATE affected rows={}", rows);
 		}
-		TeacherProfile result = teacherProfileVectorService.indexTeacherProfile(teacherId);
-		if (result == null) {
-			log.warn("indexTeacherProfile returned null for teacherId={}, using un-indexed profile", teacherId);
-			result = existing != null ? existing : profile;
-		}
+        TeacherProfile result = teacherProfileMapper.findByTeacherId(teacherId);
 		log.info("=== save() end === profile={}", result);
 		return result;
 	}
@@ -57,30 +97,26 @@ public class TeacherProfileService {
     private TeacherProfile toProfile(Teacher teacher, TeacherProfileRequest request) {
         TeacherProfile profile = new TeacherProfile();
         profile.setTeacherId(teacher.getId());
-        profile.setAvailableTimeText(clean(request.availableTimeText()));
-        profile.setUnavailableTimeText(clean(request.unavailableTimeText()));
-        profile.setWorkloadRequirement(clean(request.workloadRequirement()));
-        profile.setSpecialNote(clean(request.specialNote()));
-        profile.setVectorText(buildVectorText(teacher, profile));
-        profile.setVectorIndexed(false);
+        profile.setAvailabilityMatrixJson(clean(request.availabilityMatrixJson()));
+        profile.setProfileNote(clean(request.profileNote()));
+        profile.setProfilePreferenceJson(clean(request.profilePreferenceJson()));
         return profile;
     }
 
-    private String buildVectorText(Teacher teacher, TeacherProfile profile) {
-        List<String> lines = new ArrayList<>();
-        if (StringUtils.hasText(profile.getAvailableTimeText())) {
-            lines.add(teacher.getName() + "可用时间：" + profile.getAvailableTimeText() + "。");
-        }
-        if (StringUtils.hasText(profile.getUnavailableTimeText())) {
-            lines.add(teacher.getName() + "不可用时间：" + profile.getUnavailableTimeText() + "。");
-        }
-        if (StringUtils.hasText(profile.getWorkloadRequirement())) {
-            lines.add(teacher.getName() + "课时要求：" + profile.getWorkloadRequirement() + "。");
-        }
-        if (StringUtils.hasText(profile.getSpecialNote())) {
-            lines.add(teacher.getName() + "特殊说明：" + profile.getSpecialNote() + "。");
-        }
-        return String.join("\n", lines);
+    private Map<String, Object> normalizeParsedPreference(Map<String, Object> parsed) {
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("preferredMaxWeeklyHours", parsed.get("preferredMaxWeeklyHours"));
+        result.put("preferredMaxDailyHours", parsed.get("preferredMaxDailyHours"));
+        result.put("preferredMaxConsecutiveHours", parsed.get("preferredMaxConsecutiveHours"));
+        result.put("avoidFirstPeriod", parsed.getOrDefault("avoidFirstPeriod", false));
+        result.put("avoidLastPeriod", parsed.getOrDefault("avoidLastPeriod", false));
+        result.put("preferCompactSchedule", parsed.getOrDefault("preferCompactSchedule", false));
+        result.put("preferredWeekdays", parsed.getOrDefault("preferredWeekdays", List.of()));
+        result.put("avoidSlots", parsed.getOrDefault("avoidSlots", List.of()));
+        result.put("courseTypePreferences", parsed.getOrDefault("courseTypePreferences", List.of()));
+        result.put("summary", parsed.getOrDefault("summary", "已解析教师排课偏好"));
+        result.put("warnings", parsed.getOrDefault("warnings", List.of()));
+        return result;
     }
 
 	private String clean(String value) {

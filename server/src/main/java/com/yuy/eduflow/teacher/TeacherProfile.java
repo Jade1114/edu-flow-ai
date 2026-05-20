@@ -7,12 +7,9 @@ import lombok.Data;
 public class TeacherProfile {
 	private Long id;
 	private Long teacherId;
-    private String availableTimeText;
-	private String unavailableTimeText;
-	private String workloadRequirement;
-	private String specialNote;
-	private String vectorText;
-	private Boolean vectorIndexed;
+    private String availabilityMatrixJson;
+    private String profileNote;
+    private String profilePreferenceJson;
 	private LocalDateTime createdAt;
 	private LocalDateTime updatedAt;
 }

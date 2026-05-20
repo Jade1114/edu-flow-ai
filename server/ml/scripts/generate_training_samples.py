@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import argparse
 import csv
+import json
 import os
 from collections import defaultdict
 from dataclasses import dataclass
@@ -246,12 +247,12 @@ def fetch_time_slots(connection) -> list[dict[str, Any]]:
 
 
 def fetch_teacher_profiles(connection) -> dict[int, dict[str, object]]:
-    """Return {teacher_id: {unavailable_slots, max_weekly_hours, vector_text, ...}}."""
+    """Return {teacher_id: {unavailable_slots, max_weekly_hours, profile_preference, ...}}."""
     rows = fetch_all(
         connection,
         """
-        SELECT p.teacher_id, p.unavailable_time_text, p.workload_requirement,
-               p.vector_text, p.special_note,
+        SELECT p.teacher_id, p.availability_matrix_json,
+               p.profile_note, p.profile_preference_json,
                t.max_weekly_hours, t.name AS teacher_name,
                t.department
         FROM teacher_profile p
@@ -262,27 +263,26 @@ def fetch_teacher_profiles(connection) -> dict[int, dict[str, object]]:
     profiles: dict[int, dict[str, object]] = {}
     for row in rows:
         tid = int(row["teacher_id"])
-        unavailable = parse_unavailable_time(row.get("unavailable_time_text") or "")
-        max_hours = parse_workload_max_hours(row.get("workload_requirement") or "")
+        unavailable = parse_availability_matrix_unavailable(row.get("availability_matrix_json") or "")
+        parsed_preference = parse_profile_preference(row.get("profile_preference_json") or "")
+        max_hours = parse_optional_int(parsed_preference.get("preferredMaxWeeklyHours"))
         # Fallback to teacher.max_weekly_hours if profile doesn't specify
         if max_hours is None:
             db_max = row.get("max_weekly_hours")
             max_hours = int(db_max) if db_max is not None else None
-        # Build raw text for LLM parsing (prefer vector_text, fallback to manual concat)
-        raw_text = (row.get("vector_text") or "").strip()
-        if not raw_text:
-            parts = [
-                f"教师: {row.get('teacher_name') or tid}",
-                f"部门: {row.get('department') or '未知'}",
-                f"不可用时间: {row.get('unavailable_time_text') or '无'}",
-                f"工作量要求: {row.get('workload_requirement') or '无'}",
-                f"特殊备注: {row.get('special_note') or '无'}",
-            ]
-            raw_text = "\n".join(parts)
+        parts = [
+            f"教师: {row.get('teacher_name') or tid}",
+            f"部门: {row.get('department') or '未知'}",
+            f"固定周可用性矩阵: {'已维护' if row.get('availability_matrix_json') else '未维护'}",
+            f"其他排课说明: {row.get('profile_note') or '无'}",
+            f"LLM结构化偏好: {row.get('profile_preference_json') or '无'}",
+        ]
+        raw_text = "\n".join(parts)
         profiles[tid] = {
             "unavailable_slots": unavailable,
             "max_weekly_hours": max_hours,
-            "vector_text": raw_text,
+            "profile_preference": parsed_preference,
+            "raw_text": raw_text,
             "teacher_name": row.get("teacher_name") or "",
             "department": row.get("department") or "",
         }
@@ -361,6 +361,45 @@ def parse_unavailable_time(text: str) -> set[tuple[int, int]]:
                 for p in periods:
                     slots.add((day_idx, p))
                 break
+    return slots
+
+
+def parse_optional_int(value: Any) -> int | None:
+    if value is None or value == "":
+        return None
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def parse_profile_preference(raw_json: str) -> dict[str, Any]:
+    if not raw_json or not raw_json.strip():
+        return {}
+    try:
+        payload = json.loads(raw_json)
+    except json.JSONDecodeError:
+        return {}
+    return payload if isinstance(payload, dict) else {}
+
+
+def parse_availability_matrix_unavailable(raw_json: str) -> set[tuple[int, int]]:
+    """Parse 5x7 matrix[period-1][weekday-1]; -1 means fixed weekly unavailable."""
+    slots: set[tuple[int, int]] = set()
+    if not raw_json or not raw_json.strip():
+        return slots
+    try:
+        matrix = json.loads(raw_json)
+    except json.JSONDecodeError:
+        return slots
+    if not isinstance(matrix, list):
+        return slots
+    for period_index, row in enumerate(matrix[:5], start=1):
+        if not isinstance(row, list):
+            continue
+        for weekday_index, value in enumerate(row[:7], start=1):
+            if value == -1:
+                slots.add((weekday_index, period_index))
     return slots
 
 

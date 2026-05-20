@@ -1,6 +1,5 @@
 package com.yuy.eduflow.rag;
 
-import com.yuy.eduflow.common.exception.ResourceNotFoundException;
 import com.yuy.eduflow.common.exception.ValidationException;
 import com.yuy.eduflow.teacher.Teacher;
 import com.yuy.eduflow.teacher.TeacherProfile;
@@ -43,19 +42,19 @@ public class TeacherProfileVectorService {
 			log.warn("teacher id={} has no teacher_profile, skipping vector index (probably ADMIN or no profile set)", teacherId);
 			return null;
 		}
-		if (!StringUtils.hasText(profile.getVectorText())) {
+        String vectorText = buildVectorText(teacher, profile);
+		if (!StringUtils.hasText(vectorText)) {
 			log.error("vectorText is empty for profile id={}", profile.getId());
 			throw new ValidationException("教师画像文本不能为空");
 		}
-		log.debug("embedding vectorText=[{}]...", profile.getVectorText());
-		List<Double> vector = embeddingClient.embed(profile.getVectorText());
+		log.debug("embedding vectorText=[{}]...", vectorText);
+		List<Double> vector = embeddingClient.embed(vectorText);
 		log.info("embedding done, vector size={}", vector.size());
 		log.info("upserting to Qdrant... profileId={}", profile.getId());
-		vectorStoreClient.upsert(profile.getId(), vector, buildPayload(teacher, profile));
-		log.info("Qdrant upsert done, updating vector_indexed=true");
-		teacherProfileMapper.updateVectorIndexedByTeacherId(teacherId, true);
+		vectorStoreClient.upsert(profile.getId(), vector, buildPayload(teacher, profile, vectorText));
+		log.info("Qdrant upsert done");
 		TeacherProfile result = teacherProfileMapper.findByTeacherId(teacherId);
-		log.info("=== indexTeacherProfile() end === vectorIndexed={}", result.getVectorIndexed());
+		log.info("=== indexTeacherProfile() end === teacherId={}", teacherId);
 		return result;
 	}
 
@@ -78,7 +77,21 @@ public class TeacherProfileVectorService {
 		return results;
 	}
 
-	private Map<String, Object> buildPayload(Teacher teacher, TeacherProfile profile) {
+    private String buildVectorText(Teacher teacher, TeacherProfile profile) {
+        StringBuilder builder = new StringBuilder();
+        if (StringUtils.hasText(profile.getAvailabilityMatrixJson())) {
+            builder.append(teacher.getName()).append("已维护固定周可用性矩阵，-1 表示明确不可用，0 表示随意分配，1 表示明确可用。\n");
+        }
+        if (StringUtils.hasText(profile.getProfileNote())) {
+            builder.append(teacher.getName()).append("其他排课说明：").append(profile.getProfileNote()).append("。\n");
+        }
+        if (StringUtils.hasText(profile.getProfilePreferenceJson())) {
+            builder.append(teacher.getName()).append("LLM 结构化软约束：").append(profile.getProfilePreferenceJson());
+        }
+        return builder.toString().trim();
+    }
+
+	private Map<String, Object> buildPayload(Teacher teacher, TeacherProfile profile, String vectorText) {
 		Map<String, Object> payload = new LinkedHashMap<>();
 		payload.put("teacherId", teacher.getId());
 		payload.put("profileId", profile.getId());
@@ -86,11 +99,10 @@ public class TeacherProfileVectorService {
 		payload.put("department", teacher.getDepartment());
 		payload.put("title", teacher.getTitle());
 		payload.put("status", teacher.getStatus().code());
-        payload.put("availableTimeText", profile.getAvailableTimeText());
-		payload.put("unavailableTimeText", profile.getUnavailableTimeText());
-		payload.put("workloadRequirement", profile.getWorkloadRequirement());
-		payload.put("specialNote", profile.getSpecialNote());
-		payload.put("vectorText", profile.getVectorText());
+        payload.put("availabilityMatrixJson", profile.getAvailabilityMatrixJson());
+        payload.put("profileNote", profile.getProfileNote());
+        payload.put("profilePreferenceJson", profile.getProfilePreferenceJson());
+		payload.put("vectorText", vectorText);
 		return payload;
 	}
 }

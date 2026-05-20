@@ -3,7 +3,6 @@ package com.yuy.eduflow.teacher;
 import org.apache.ibatis.annotations.Insert;
 import org.apache.ibatis.annotations.Mapper;
 import org.apache.ibatis.annotations.Options;
-import org.apache.ibatis.annotations.Param;
 import org.apache.ibatis.annotations.Select;
 import org.apache.ibatis.annotations.Update;
 
@@ -11,8 +10,8 @@ import org.apache.ibatis.annotations.Update;
 public interface TeacherProfileMapper {
 
     @Select("""
-        SELECT id, teacher_id, available_time_text, unavailable_time_text,
-               workload_requirement, special_note, vector_text, vector_indexed,
+        SELECT id, teacher_id,
+               availability_matrix_json, profile_note, profile_preference_json,
                created_at, updated_at
         FROM teacher_profile
         WHERE teacher_id = #{teacherId}
@@ -21,12 +20,10 @@ public interface TeacherProfileMapper {
 
     @Insert("""
         INSERT INTO teacher_profile (
-            teacher_id, available_time_text, unavailable_time_text,
-            workload_requirement, special_note, vector_text, vector_indexed
+            teacher_id, availability_matrix_json, profile_note, profile_preference_json
         )
         VALUES (
-            #{teacherId}, #{availableTimeText}, #{unavailableTimeText},
-            #{workloadRequirement}, #{specialNote}, #{vectorText}, #{vectorIndexed}
+            #{teacherId}, #{availabilityMatrixJson}, #{profileNote}, #{profilePreferenceJson}
         )
         """)
 	@Options(useGeneratedKeys = true, keyProperty = "id")
@@ -34,20 +31,10 @@ public interface TeacherProfileMapper {
 
     @Update("""
         UPDATE teacher_profile
-        SET available_time_text = #{availableTimeText},
-            unavailable_time_text = #{unavailableTimeText},
-            workload_requirement = #{workloadRequirement},
-            special_note = #{specialNote},
-            vector_text = #{vectorText},
-            vector_indexed = #{vectorIndexed}
+        SET availability_matrix_json = #{availabilityMatrixJson},
+            profile_note = #{profileNote},
+            profile_preference_json = #{profilePreferenceJson}
         WHERE teacher_id = #{teacherId}
         """)
 	int updateByTeacherId(TeacherProfile profile);
-
-	@Update("""
-		UPDATE teacher_profile
-		SET vector_indexed = #{vectorIndexed}
-		WHERE teacher_id = #{teacherId}
-		""")
-	int updateVectorIndexedByTeacherId(@Param("teacherId") Long teacherId, @Param("vectorIndexed") Boolean vectorIndexed);
 }

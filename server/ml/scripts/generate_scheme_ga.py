@@ -1642,7 +1642,7 @@ def _parse_teacher_penalties_via_llm(
     # Build prompt: list all teachers with their raw profile text
     teacher_entries = []
     for tid, profile in sorted(teacher_profiles.items()):
-        text = profile.get("vector_text") or profile.get("raw_text") or ""
+        text = profile.get("raw_text") or ""
         if not text.strip():
             continue
         teacher_entries.append(f"Teacher ID {tid}:\n{text.strip()}")
