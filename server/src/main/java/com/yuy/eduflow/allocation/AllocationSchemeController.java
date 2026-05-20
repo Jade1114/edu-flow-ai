@@ -1,6 +1,7 @@
 package com.yuy.eduflow.allocation;
 
 import com.yuy.eduflow.common.ApiResponse;
+import com.yuy.eduflow.conflict.ConflictDiagnosis;
 import java.util.List;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -49,6 +50,12 @@ public class AllocationSchemeController {
 	public ApiResponse<List<AllocationItemView>> findItems(@PathVariable Long id) {
 		allocationSchemeService.findById(id);
 		return ApiResponse.success(allocationItemService.findViewsBySchemeId(id));
+	}
+
+	@GetMapping("/{id}/conflicts")
+	public ApiResponse<ConflictDiagnosis> findConflicts(@PathVariable Long id) {
+		allocationSchemeService.findById(id);
+		return ApiResponse.success(allocationSchemeService.findConflictDiagnosis(id));
 	}
 
 	@PostMapping

@@ -14,6 +14,10 @@ public class ConflictCheckResult {
 	private Long relatedClassGroupId;
 	private Long relatedClassroomId;
 	private Long relatedTimeSlotId;
+	private String relatedTeacherName;
+	private String relatedClassGroupName;
+	private String relatedClassroomName;
+	private String relatedTimeSlotLabel;
 	private Boolean resolved;
 	private LocalDateTime createdAt;
 }

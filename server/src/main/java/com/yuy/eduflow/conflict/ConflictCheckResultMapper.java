@@ -50,6 +50,32 @@ public interface ConflictCheckResultMapper {
 		""")
 	ConflictCheckResult findById(Long id);
 
+	@Select("""
+		SELECT ccr.id, ccr.biz_type, ccr.biz_id, ccr.conflict_type, ccr.message,
+		       ccr.related_teacher_id, ccr.related_class_group_id,
+		       ccr.related_classroom_id, ccr.related_time_slot_id,
+		       t.name AS related_teacher_name,
+		       cg.name AS related_class_group_name,
+		       cr.name AS related_classroom_name,
+		       CONCAT('第', ts.week_number, '周 ',
+		              CASE ts.day_of_week
+		                  WHEN 1 THEN '周一' WHEN 2 THEN '周二' WHEN 3 THEN '周三'
+		                  WHEN 4 THEN '周四' WHEN 5 THEN '周五' WHEN 6 THEN '周六'
+		                  WHEN 7 THEN '周日'
+		              END, ' 第', ts.period_index, '节') AS related_time_slot_label,
+		       ccr.resolved, ccr.created_at
+		FROM conflict_check_result ccr
+		JOIN allocation_item ai ON ccr.biz_id = ai.id
+		LEFT JOIN teacher t ON ccr.related_teacher_id = t.id
+		LEFT JOIN class_group cg ON ccr.related_class_group_id = cg.id
+		LEFT JOIN classroom cr ON ccr.related_classroom_id = cr.id
+		LEFT JOIN time_slot ts ON ccr.related_time_slot_id = ts.id
+		WHERE ai.scheme_id = #{schemeId}
+		  AND ccr.biz_type = 'ALLOCATION_ITEM'
+		ORDER BY ccr.conflict_type, ccr.id DESC
+		""")
+	List<ConflictCheckResult> findBySchemeId(@Param("schemeId") Long schemeId);
+
 	@Insert("""
 		INSERT INTO conflict_check_result (
 		    biz_type, biz_id, conflict_type, message, related_teacher_id,

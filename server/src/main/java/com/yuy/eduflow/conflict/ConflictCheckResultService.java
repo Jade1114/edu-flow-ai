@@ -20,6 +20,11 @@ public class ConflictCheckResultService {
 		return conflictCheckResultMapper.findAll(bizType, bizId, conflictType, resolved);
 	}
 
+	public List<ConflictCheckResult> findBySchemeId(Long schemeId) {
+		Assert.positiveId(schemeId, "方案ID");
+		return conflictCheckResultMapper.findBySchemeId(schemeId);
+	}
+
 	public ConflictCheckResult findById(Long id) {
 		ConflictCheckResult result = conflictCheckResultMapper.findById(id);
 		if (result == null) {

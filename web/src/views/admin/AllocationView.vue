@@ -826,6 +826,7 @@ async function confirmScheme(schemeId) {
 
 const detailVisible = ref(false);
 const schemeDetail = ref(null);
+const conflictDiagnosis = ref(null);
 
 const schemeScores = computed(() => {
   if (!schemeDetail.value?.evaluationSummary) return null;
@@ -976,6 +977,18 @@ const editingItem = ref(null);
 const classrooms = ref([]);
 const timeSlots = ref([]);
 const savingMove = ref(false);
+const conflictCollapseActive = ref([]);
+
+function conflictTypeLabel(type) {
+  const map = {
+    TEACHER_TIME: '教师时间冲突',
+    CLASS_GROUP_TIME: '班级时间冲突',
+    CLASSROOM_TIME: '教室时间冲突',
+    TEACHER_WORKLOAD: '教师工作量冲突',
+    TEACHING_TASK_HOURS: '教学任务课时不匹配',
+  };
+  return map[type] || type;
+}
 
 async function loadClassrooms() {
   classrooms.value = await request.get(
@@ -1182,12 +1195,14 @@ async function onDrop(e, day, period) {
 }
 
 async function viewSchemeDetail(schemeId) {
-  const [detail, items, allTimeSlots, allRooms] = await Promise.all([
+  const [detail, items, conflicts, allTimeSlots, allRooms] = await Promise.all([
     request.get(`/api/allocation-schemes/${schemeId}`),
     request.get(`/api/allocation-schemes/${schemeId}/items`),
+    request.get(`/api/allocation-schemes/${schemeId}/conflicts`),
     request.get("/api/time-slots"),
     request.get(`/api/classrooms?status=ACTIVE`),
   ]);
+  conflictDiagnosis.value = conflicts || null;
   classrooms.value = allRooms;
   // 从任务列表中找到对应任务的周次范围
   const task = tasks.value.find((t) => t.id === detail.taskId);
@@ -1753,6 +1768,99 @@ onUnmounted(() => {
               >冲突: {{ schemeDetail.conflictSummary }}</el-tag
             >
           </div>
+        </div>
+
+        <!-- 冲突诊断面板 -->
+        <div v-if="conflictDiagnosis" style="margin-bottom: 12px">
+          <el-collapse v-model="conflictCollapseActive">
+            <el-collapse-item name="conflicts">
+              <template #title>
+                <div style="display: flex; align-items: center; gap: 10px; width: 100%; padding-right: 12px">
+                  <el-tag
+                    :type="conflictDiagnosis.clean ? 'success' : 'danger'"
+                    size="small"
+                    effect="dark"
+                  >
+                    {{ conflictDiagnosis.clean ? '✓ 无冲突' : '⚠ ' + conflictDiagnosis.total + ' 条问题' }}
+                  </el-tag>
+                  <span style="font-size: 13px; color: #606266; flex: 1">{{ conflictDiagnosis.summary }}</span>
+                </div>
+              </template>
+
+              <!-- 分类摘要标签 -->
+              <div style="display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 12px">
+                <el-tag
+                  v-for="(items, type) in conflictDiagnosis.groups"
+                  :key="type"
+                  :type="items.length > 0 ? 'warning' : 'info'"
+                  size="small"
+                >
+                  {{ conflictTypeLabel(type) }}: {{ items.length }} 条
+                </el-tag>
+                <el-tag
+                  v-if="conflictDiagnosis.hoursMismatch?.length"
+                  type="danger"
+                  size="small"
+                >
+                  课时不匹配: {{ conflictDiagnosis.hoursMismatch.length }} 条
+                </el-tag>
+              </div>
+
+              <!-- 各类型冲突详情 -->
+              <div
+                v-for="(items, type) in conflictDiagnosis.groups"
+                :key="type"
+                style="margin-bottom: 14px"
+              >
+                <div style="font-weight: 600; font-size: 13px; color: #303133; margin-bottom: 6px">
+                  {{ conflictTypeLabel(type) }} ({{ items.length }})
+                </div>
+                <el-table :data="items" size="small" border style="width: 100%">
+                  <el-table-column prop="message" label="说明" show-overflow-tooltip min-width="200" />
+                  <el-table-column prop="relatedTeacherName" label="教师" width="100">
+                    <template #default="{ row }">
+                      <el-tag v-if="row.relatedTeacherName" size="small" type="primary">{{ row.relatedTeacherName }}</el-tag>
+                      <span v-else style="color: #909399">-</span>
+                    </template>
+                  </el-table-column>
+                  <el-table-column prop="relatedClassGroupName" label="班级" width="120">
+                    <template #default="{ row }">
+                      <span v-if="row.relatedClassGroupName" style="font-size: 12px">{{ row.relatedClassGroupName }}</span>
+                      <span v-else style="color: #909399">-</span>
+                    </template>
+                  </el-table-column>
+                  <el-table-column prop="relatedClassroomName" label="教室" width="120">
+                    <template #default="{ row }">
+                      <span v-if="row.relatedClassroomName" style="font-size: 12px">{{ row.relatedClassroomName }}</span>
+                      <span v-else style="color: #909399">-</span>
+                    </template>
+                  </el-table-column>
+                  <el-table-column prop="relatedTimeSlotLabel" label="时间" width="140">
+                    <template #default="{ row }">
+                      <span v-if="row.relatedTimeSlotLabel" style="font-size: 12px; color: #f56c6c">{{ row.relatedTimeSlotLabel }}</span>
+                      <span v-else style="color: #909399">-</span>
+                    </template>
+                  </el-table-column>
+                </el-table>
+              </div>
+
+              <!-- 课时不匹配单独高亮 -->
+              <div v-if="conflictDiagnosis.hoursMismatch?.length" style="margin-bottom: 14px">
+                <div style="font-weight: 600; font-size: 13px; color: #f56c6c; margin-bottom: 6px">
+                  ⚠ 教学任务课时不匹配 ({{ conflictDiagnosis.hoursMismatch.length }})
+                </div>
+                <el-table :data="conflictDiagnosis.hoursMismatch" size="small" border style="width: 100%">
+                  <el-table-column prop="message" label="说明" show-overflow-tooltip min-width="280" />
+                  <el-table-column prop="relatedTeacherName" label="教师" width="100">
+                    <template #default="{ row }">
+                      <el-tag v-if="row.relatedTeacherName" size="small" type="primary">{{ row.relatedTeacherName }}</el-tag>
+                      <span v-else style="color: #909399">-</span>
+                    </template>
+                  </el-table-column>
+                </el-table>
+              </div>
+            </el-collapse-item>
+          </el-collapse>
         </div>
 
         <!-- 周次分页 & 筛选 -->
