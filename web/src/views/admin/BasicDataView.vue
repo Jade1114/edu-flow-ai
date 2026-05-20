@@ -52,6 +52,8 @@ async function saveTeachingTask() {
   const valid = await teachingTaskFormRef.value?.validate().catch(() => false)
   if (!valid) return
   const payload = { ...teachingTaskForm.value }
+  if (payload.classroomId === '') payload.classroomId = null
+  if (payload.assistantTeacherId === '') payload.assistantTeacherId = null
   if (payload.id) {
     await request.put(`/api/teaching-tasks/${payload.id}`, payload)
   } else {
