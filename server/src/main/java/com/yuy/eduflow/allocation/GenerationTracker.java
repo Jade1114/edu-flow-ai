@@ -97,6 +97,10 @@ public class GenerationTracker {
 		for (SseEmitter emitter : taskEmitters) {
 			sendStatus(taskId, emitter, status);
 		}
+		// 终态（COMPLETED/FAILED）广播后完成所有 emitter，防止前端卡住
+		if ("COMPLETED".equals(status.getStatus()) || "FAILED".equals(status.getStatus())) {
+			completeEmitters(taskId);
+		}
 	}
 
 	private void sendStatus(Long taskId, SseEmitter emitter, GenerationStatus status) {
