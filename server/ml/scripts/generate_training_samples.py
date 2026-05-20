@@ -65,8 +65,17 @@ FIELDNAMES = [
     "is_morning",
     "is_afternoon",
     "is_evening",
+    "is_weekend",
     "is_early_period",
     "is_late_period",
+    "required_fragments",
+    "teacher_matrix_value",
+    "teacher_preferred_max_weekly_hours",
+    "teacher_avoid_first_period",
+    "teacher_avoid_last_period",
+    "teacher_prefer_compact_schedule",
+    "teacher_preferred_weekday_match",
+    "teacher_avoid_slot_match",
     "teacher_occupied_at_slot",
     "class_occupied_at_slot",
     "room_occupied_at_slot",
@@ -74,6 +83,10 @@ FIELDNAMES = [
     "class_day_load",
     "teacher_week_load",
     "class_week_load",
+    "scheme_day_load",
+    "room_day_load",
+    "room_week_load",
+    "task_day_load",
     "is_capacity_enough",
     "is_room_type_match",
     "has_teacher_conflict",
@@ -496,8 +509,11 @@ def build_occupied_indexes(assignments: list[PseudoAssignment]) -> dict[str, Any
         "teacher_day_load": defaultdict(int),
         "class_day_load": defaultdict(int),
         "room_day_load": defaultdict(int),
+        "scheme_day_load": defaultdict(int),
+        "task_day_load": defaultdict(int),
         "teacher_week_load": defaultdict(int),
         "class_week_load": defaultdict(int),
+        "room_week_load": defaultdict(int),
     }
     for assignment in assignments:
         slot_id = assignment.time_slot_id
@@ -505,12 +521,17 @@ def build_occupied_indexes(assignments: list[PseudoAssignment]) -> dict[str, Any
         teacher_day = (assignment.teacher_id, *week_day)
         room_day = (assignment.classroom_id, *week_day)
         teacher_week = (assignment.teacher_id, assignment.week_number)
+        room_week = (assignment.classroom_id, assignment.week_number)
+        task_day = (assignment.task_id, *week_day)
 
         indexes["teacher_slot"][(assignment.teacher_id, slot_id)].add(assignment.task_id)
         indexes["room_slot"][(assignment.classroom_id, slot_id)].add(assignment.task_id)
         indexes["teacher_day_load"][teacher_day] += 1
         indexes["room_day_load"][room_day] += 1
+        indexes["scheme_day_load"][week_day] += 1
+        indexes["task_day_load"][task_day] += 1
         indexes["teacher_week_load"][teacher_week] += 1
+        indexes["room_week_load"][room_week] += 1
 
         for class_group_id in assignment.class_group_ids:
             class_day = (class_group_id, *week_day)
@@ -579,6 +600,7 @@ def generate_rows(
     tasks: list[dict[str, Any]],
     classrooms: list[dict[str, Any]],
     time_slots: list[dict[str, Any]],
+    teacher_profiles: dict[int, dict[str, object]],
     max_rows: int | None,
 ) -> list[dict[str, Any]]:
     pseudo_assignments = build_pseudo_assignments(tasks, classrooms, time_slots)
@@ -593,6 +615,16 @@ def generate_rows(
         required_room_type = effective_required_room_type(task)
         total_student_count = int(task.get("total_student_count") or 0)
         teacher_max_weekly_hours = task.get("teacher_max_weekly_hours")
+        required_fragments = periods_needed(task)
+        profile = teacher_profiles.get(teacher_id, {})
+        profile_preference = profile.get("profile_preference") if isinstance(profile.get("profile_preference"), dict) else {}
+        teacher_unavailable_slots = set(profile.get("unavailable_slots") or [])
+        teacher_preferred_weekdays = set(profile_preference.get("preferredWeekdays") or [])
+        teacher_avoid_slots = parse_unavailable_time(",".join(str(item) for item in profile_preference.get("avoidSlots") or []))
+        preferred_max_weekly_hours = parse_optional_int(profile_preference.get("preferredMaxWeeklyHours")) or parse_optional_int(profile.get("max_weekly_hours")) or 0
+        avoid_first_period = int(bool(profile_preference.get("avoidFirstPeriod")))
+        avoid_last_period = int(bool(profile_preference.get("avoidLastPeriod")))
+        prefer_compact_schedule = int(bool(profile_preference.get("preferCompactSchedule")))
 
         for slot in time_slots:
             slot_id = int(slot["id"])
@@ -602,8 +634,12 @@ def generate_rows(
             is_morning = int(period_index in (1, 2))
             is_afternoon = int(period_index in (3, 4))
             is_evening = int(period_index >= 5)
+            is_weekend = int(day_of_week >= 6)
             is_early_period = int(period_index == 1)
             is_late_period = int(period_index >= 5)
+            teacher_matrix_value = -1 if (day_of_week, period_index) in teacher_unavailable_slots else 0
+            teacher_preferred_weekday_match = int(day_of_week in teacher_preferred_weekdays) if teacher_preferred_weekdays else 0
+            teacher_avoid_slot_match = int((day_of_week, period_index) in teacher_avoid_slots)
 
             teacher_slot_tasks = indexes["teacher_slot"][(teacher_id, slot_id)] - {task_id}
             class_slot_tasks: set[int] = set()
@@ -622,6 +658,8 @@ def generate_rows(
                 [indexes["class_week_load"][(class_group_id, week_number)] for class_group_id in class_group_ids]
                 or [0]
             )
+            scheme_day_load = indexes["scheme_day_load"][(week_number, day_of_week)]
+            task_day_load = indexes["task_day_load"][(task_id, week_number, day_of_week)]
 
             for room in classrooms:
                 room_id = int(room["id"])
@@ -636,6 +674,8 @@ def generate_rows(
                 teacher_conflict = teacher_occupied
                 class_conflict = class_occupied
                 room_conflict = room_occupied
+                room_day_load = indexes["room_day_load"][(room_id, week_number, day_of_week)]
+                room_week_load = indexes["room_week_load"][(room_id, week_number)]
                 has_hard_conflict = teacher_conflict or class_conflict or room_conflict or not capacity_enough or not type_match
                 row_score = score_sample(
                     has_hard_conflict=has_hard_conflict,
@@ -674,8 +714,17 @@ def generate_rows(
                         "is_morning": is_morning,
                         "is_afternoon": is_afternoon,
                         "is_evening": is_evening,
+                        "is_weekend": is_weekend,
                         "is_early_period": is_early_period,
                         "is_late_period": is_late_period,
+                        "required_fragments": required_fragments,
+                        "teacher_matrix_value": teacher_matrix_value,
+                        "teacher_preferred_max_weekly_hours": preferred_max_weekly_hours,
+                        "teacher_avoid_first_period": avoid_first_period,
+                        "teacher_avoid_last_period": avoid_last_period,
+                        "teacher_prefer_compact_schedule": prefer_compact_schedule,
+                        "teacher_preferred_weekday_match": teacher_preferred_weekday_match,
+                        "teacher_avoid_slot_match": teacher_avoid_slot_match,
                         "teacher_occupied_at_slot": int(teacher_occupied),
                         "class_occupied_at_slot": int(class_occupied),
                         "room_occupied_at_slot": int(room_occupied),
@@ -683,6 +732,10 @@ def generate_rows(
                         "class_day_load": class_day_load,
                         "teacher_week_load": teacher_week_load,
                         "class_week_load": class_week_load,
+                        "scheme_day_load": scheme_day_load,
+                        "room_day_load": room_day_load,
+                        "room_week_load": room_week_load,
+                        "task_day_load": task_day_load,
                         "is_capacity_enough": int(capacity_enough),
                         "is_room_type_match": int(type_match),
                         "has_teacher_conflict": int(teacher_conflict),
@@ -727,6 +780,7 @@ def main() -> None:
         tasks = fetch_tasks(connection)
         classrooms = fetch_classrooms(connection)
         time_slots = fetch_time_slots(connection)
+        teacher_profiles = fetch_teacher_profiles(connection)
 
     if not tasks:
         raise RuntimeError("No active teaching tasks found. Seed or create teaching tasks before generating samples.")
@@ -735,7 +789,7 @@ def main() -> None:
     if not time_slots:
         raise RuntimeError("No time slots found. Seed or create time slots before generating samples.")
 
-    rows = generate_rows(tasks, classrooms, time_slots, args.max_rows)
+    rows = generate_rows(tasks, classrooms, time_slots, teacher_profiles, args.max_rows)
     write_csv(rows, args.output)
     print(f"Generated {len(rows)} samples -> {args.output}")
 

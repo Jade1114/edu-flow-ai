@@ -41,6 +41,8 @@ from generate_training_samples import (
     is_room_type_match,
     load_db_config,
     parse_id_tuple,
+    parse_optional_int,
+    parse_unavailable_time,
     periods_needed,
     reject_reason,
     score_sample,
@@ -324,9 +326,18 @@ def build_candidate_rows(
     total_student_count = int(task.get("total_student_count") or 0)
     teacher_max_weekly_hours = task.get("teacher_max_weekly_hours")
     bound_classroom_id = task.get("bound_classroom_id")
+    required_fragments = periods_needed(task)
+    profile = teacher_profile or {}
+    profile_preference = profile.get("profile_preference") if isinstance(profile.get("profile_preference"), dict) else {}
     unavailable_slots = {
-        tuple(slot) for slot in normalize_unavailable_slots((teacher_profile or {}).get("unavailable_slots"))
+        tuple(slot) for slot in normalize_unavailable_slots(profile.get("unavailable_slots"))
     }
+    teacher_preferred_weekdays = set(profile_preference.get("preferredWeekdays") or [])
+    teacher_avoid_slots = parse_unavailable_time(",".join(str(item) for item in profile_preference.get("avoidSlots") or []))
+    preferred_max_weekly_hours = parse_optional_int(profile_preference.get("preferredMaxWeeklyHours")) or parse_optional_int(profile.get("max_weekly_hours")) or 0
+    avoid_first_period = int(bool(profile_preference.get("avoidFirstPeriod")))
+    avoid_last_period = int(bool(profile_preference.get("avoidLastPeriod")))
+    prefer_compact_schedule = int(bool(profile_preference.get("preferCompactSchedule")))
     filter_started_at = perf_counter()
     filtered_time_slots = [
         slot for slot in time_slots
@@ -352,6 +363,9 @@ def build_candidate_rows(
         is_weekend = int(day_of_week >= 6)
         is_early_period = int(period_index == 1)
         is_late_period = int(period_index >= 5)
+        teacher_matrix_value = -1 if (day_of_week, period_index) in unavailable_slots else 0
+        teacher_preferred_weekday_match = int(day_of_week in teacher_preferred_weekdays) if teacher_preferred_weekdays else 0
+        teacher_avoid_slot_match = int((day_of_week, period_index) in teacher_avoid_slots)
 
         teacher_occupied = bool(indexes["teacher_slot"][(teacher_id, slot_id)])
         class_occupied = any(bool(indexes["class_slot"][(class_group_id, slot_id)]) for class_group_id in class_group_ids)
@@ -418,6 +432,14 @@ def build_candidate_rows(
                     "is_weekend": is_weekend,
                     "is_early_period": is_early_period,
                     "is_late_period": is_late_period,
+                    "required_fragments": required_fragments,
+                    "teacher_matrix_value": teacher_matrix_value,
+                    "teacher_preferred_max_weekly_hours": preferred_max_weekly_hours,
+                    "teacher_avoid_first_period": avoid_first_period,
+                    "teacher_avoid_last_period": avoid_last_period,
+                    "teacher_prefer_compact_schedule": prefer_compact_schedule,
+                    "teacher_preferred_weekday_match": teacher_preferred_weekday_match,
+                    "teacher_avoid_slot_match": teacher_avoid_slot_match,
                     "teacher_occupied_at_slot": int(teacher_occupied),
                     "class_occupied_at_slot": int(class_occupied),
                     "room_occupied_at_slot": int(room_occupied),
@@ -574,7 +596,7 @@ def apply_selection_scores(
         candidate["teacher_profile_penalty"] = round(teacher_profile_penalty, 4)
         candidate["teacher_profile_penalty_breakdown"] = teacher_profile_penalty_breakdown
         candidate["random_jitter_value"] = round(random_jitter, 6)
-        candidate["selection_score_formula"] = "predicted_score + rule_score*0.02 - distribution_penalty + compact_bonus + stickiness_bonus - teacher_profile_penalty + random_jitter"
+        candidate["selection_score_formula"] = "predicted_score + rule_score*0.02 - distribution_penalty + compact_bonus + stickiness_bonus + random_jitter"
         candidate["selection_score"] = max(
             0.0,
             float(candidate["predicted_score"])
@@ -582,7 +604,6 @@ def apply_selection_scores(
             - candidate["distribution_penalty"]
             + compact_bonus
             + stickiness_bonus
-            - teacher_profile_penalty
             + random_jitter,
         )
 
@@ -802,6 +823,7 @@ def normalize_teacher_penalties(raw: dict[str, Any]) -> dict[int, dict[str, Any]
             "max_weekly_hours": int(value["max_weekly_hours"]) if value.get("max_weekly_hours") is not None else None,
             "penalty_weight": float(value.get("penalty_weight") or 0.05),
             "reason": str(value.get("reason") or value.get("note") or ""),
+            "profile_preference": value.get("profile_preference") if isinstance(value.get("profile_preference"), dict) else {},
         }
     return penalties
 
@@ -1260,7 +1282,6 @@ def evaluate_individual(
     predicted_score_weight: float,
     rule_score_weight: float,
     hard_conflict_penalty: float,
-    teacher_profile_penalty_scale: float,
     distribution_penalty_scale: float,
     classroom_stickiness_weight: float,
     compact_bonus_weight: float,
@@ -1313,7 +1334,6 @@ def evaluate_individual(
     soft_score = (
         avg_predicted * predicted_score_weight
         + avg_rule * rule_score_weight
-        - teacher_profile_penalty_total * teacher_profile_penalty_scale
         - distribution_penalty * distribution_penalty_scale
         - classroom_switches * classroom_stickiness_weight
         + compact_bonus * compact_bonus_weight
@@ -2125,24 +2145,27 @@ def run_ga_pipeline(args: argparse.Namespace) -> dict[str, Any]:
     log_chain("教师画像惩罚由编排层提供", penalty_summary)
     ml_logger.teacher_profile_summary(len(teacher_penalties), penalty_summary)
 
-    custom_params = policy_overrides_from_config(generation_config)
-    if args.policy_params:
-        custom_params.update(json.loads(args.policy_params))
+    custom_params = json.loads(args.policy_params) if args.policy_params else {}
+    ignored_task_weight_keys = [
+        key for key in generation_config
+        if key.endswith("Penalty") or key.endswith("PenaltyScale") or key.endswith("Weight") or key.endswith("Bonus")
+    ]
     policy = load_policy(args.policy, custom_params)
     fitness_kwargs = {
         "predicted_score_weight": args.predicted_score_weight,
         "rule_score_weight": args.rule_score_weight,
         "hard_conflict_penalty": args.hard_conflict_penalty,
-        "teacher_profile_penalty_scale": config_float(generation_config, "teacherProfilePenaltyScale", args.teacher_profile_penalty_scale),
-        "distribution_penalty_scale": config_float(generation_config, "distributionPenaltyScale", args.distribution_penalty_scale),
-        "classroom_stickiness_weight": config_float(generation_config, "classroomStickinessWeight", args.classroom_stickiness_weight),
-        "compact_bonus_weight": config_float(generation_config, "compactBonusWeight", args.compact_bonus_weight),
+        "distribution_penalty_scale": args.distribution_penalty_scale,
+        "classroom_stickiness_weight": args.classroom_stickiness_weight,
+        "compact_bonus_weight": args.compact_bonus_weight,
     }
     log_chain("策略权重与 GA 适应度参数生效", {
         "policy": args.policy,
         "custom_params": custom_params,
         "effective_weights": policy,
         "fitness_weights": fitness_kwargs,
+        "ignored_task_weight_keys": ignored_task_weight_keys,
+        "teacher_profile_penalty_used_in_fitness": False,
     })
 
     if args.variant_count <= 1:
