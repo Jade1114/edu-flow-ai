@@ -200,6 +200,8 @@ CREATE TABLE IF NOT EXISTS allocation_scheme (
     summary TEXT NULL,
     scheme_score DOUBLE NULL COMMENT '评估器综合分 0-100',
     evaluation_summary TEXT NULL COMMENT '评估结果 JSON',
+    policy VARCHAR(32) NULL COMMENT '生成策略名称',
+    policy_params TEXT NULL COMMENT '生成策略参数 JSON',
     model_version VARCHAR(16) NULL COMMENT '模型版本 v1/v2',
     conflict_summary TEXT NULL,
     valid BOOLEAN NOT NULL DEFAULT TRUE,

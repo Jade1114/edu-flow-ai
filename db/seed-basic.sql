@@ -706,20 +706,3 @@ WHERE c.name='数据挖掘' AND t.employee_no='T1020' AND tt.notes='上机实践
   AND cg.name='24级数据科学与大数据技术1班';
 
 COMMIT;
-�术1班';
-
-COMMIT;
-';
-
-COMMIT;
-
-�术1班';
-
-COMMIT;
-';
-
-COMMIT;
-
-
-COMMIT;
-MMIT;
