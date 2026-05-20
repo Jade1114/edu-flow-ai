@@ -52,10 +52,14 @@ from generate_training_samples import (
 ROOT_DIR = Path(__file__).resolve().parents[1]
 PROJECT_ROOT = ROOT_DIR.parents[1]
 PROJECT_LOG_DIR = PROJECT_ROOT / "logs" / "python"
-MODEL_PATH = ROOT_DIR / "models" / "base" / "schedule_ranker_v1.txt"
-FEATURE_SCHEMA_PATH = ROOT_DIR / "data" / "training" / "feature_schema.json"
-OUTPUT_PATH = ROOT_DIR / "data" / "generated_scheme_ga.csv"
-OUTPUT_DIR = ROOT_DIR / "data" / "generated_schemes"
+BASE_MODEL_PATH = ROOT_DIR / "models" / "base" / "schedule_ranker_v1.txt"
+BASE_FEATURE_SCHEMA_PATH = ROOT_DIR / "models" / "base" / "feature_schema.json"
+FEEDBACK_MODEL_PATH = ROOT_DIR / "models" / "feedback" / "current" / "schedule_ranker.txt"
+FEEDBACK_FEATURE_SCHEMA_PATH = ROOT_DIR / "models" / "feedback" / "current" / "feature_schema.json"
+MODEL_PATH = FEEDBACK_MODEL_PATH if FEEDBACK_MODEL_PATH.exists() else BASE_MODEL_PATH
+FEATURE_SCHEMA_PATH = FEEDBACK_FEATURE_SCHEMA_PATH if FEEDBACK_FEATURE_SCHEMA_PATH.exists() else BASE_FEATURE_SCHEMA_PATH
+OUTPUT_DIR = ROOT_DIR / "data" / "generated"
+OUTPUT_PATH = OUTPUT_DIR / "generated_scheme_ga.csv"
 SUMMARY_PATH = OUTPUT_DIR / "summary.csv"
 GA_SUMMARY_PATH = OUTPUT_DIR / "ga_summary.json"
 
@@ -1779,7 +1783,7 @@ def run_ga_pipeline_by_task(
     from datetime import datetime as _dt
     ROOT_DIR = Path(__file__).resolve().parents[1]
     timestamp = _dt.now().strftime("%Y%m%d%H%M%S%f")[:-3]
-    output_dir = ROOT_DIR / "data" / "generated_schemes" / f"task_{task_id}_{timestamp}"
+    output_dir = ROOT_DIR / "data" / "generated" / f"task_{task_id}_{timestamp}"
 
     effective_db = db_config or load_db_config()
     with connect(effective_db) as connection:

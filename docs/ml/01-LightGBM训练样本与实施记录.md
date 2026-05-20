@@ -94,8 +94,8 @@ server/ml/
 样本数：113400
 特征数：34
 类别特征数：6
-模型文件：server/ml/models/schedule_ranker_v1.txt
-特征 schema：server/ml/data/feature_schema.json
+模型文件：server/ml/models/base/schedule_ranker_v1.txt
+特征 schema：server/ml/models/base/feature_schema.json
 ```
 
 评估结果接近满分，是因为第一版标签由规则自动生成，模型主要学习规则评分逻辑；这不代表已经学习到真实教务偏好。真实偏好需要通过反馈训练闭环逐步积累。
@@ -169,8 +169,8 @@ cd server/ml
 source .venv/bin/activate
 python scripts/generate_training_samples.py
 python scripts/train_lightgbm.py
-python scripts/generate_scheme_ga.py --variant-count 5 --policy BALANCED --exclude-weekends --population-size 80 --generations 80 --teacher-penalties data/generated_schemes/teacher_penalties.json
-python scripts/evaluate_scheme_demo.py --scheme-dir data/generated_schemes --json --teacher-penalties data/generated_schemes/teacher_penalties.json
+python scripts/generate_scheme_ga.py --variant-count 5 --policy BALANCED --exclude-weekends --population-size 80 --generations 80 --teacher-penalties data/generated/teacher_penalties.json
+python scripts/evaluate_scheme_demo.py --scheme-dir data/generated --json --teacher-penalties data/generated/teacher_penalties.json
 ```
 
 后端触发反馈训练见 `docs/architecture/02-模型反馈训练闭环.md`。

@@ -17,7 +17,9 @@ router = APIRouter(tags=["health"])
 @router.get("/health", response_model=HealthResponse)
 async def health(request: Request) -> HealthResponse:
     ml_dir: Path = request.app.state.ml_dir
-    model_path = ml_dir / "models" / "base" / "schedule_ranker_v1.txt"
+    feedback_model_path = ml_dir / "models" / "feedback" / "current" / "schedule_ranker.txt"
+    base_model_path = ml_dir / "models" / "base" / "schedule_ranker_v1.txt"
+    model_path = feedback_model_path if feedback_model_path.exists() else base_model_path
     available = model_path.exists()
     ml_logger.service.debug("Health check: lightgbm=%s model=%s", available, model_path)
     return HealthResponse(

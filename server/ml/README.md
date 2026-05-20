@@ -47,12 +47,26 @@ server/ml/
 ├── README.md
 ├── requirements.txt
 ├── data/                         # generated data, ignored by git
+│   ├── base/                     # DB-derived base samples
+│   │   └── samples.csv
+│   ├── feedback/
+│   │   ├── exports/              # backend feedback JSON exports
+│   │   ├── samples/              # feedback positive/negative sample CSVs
+│   │   └── merged/               # optional base + feedback merged datasets
+│   ├── generated/                # GA run outputs: schemes, summaries, diagnostics
+│   └── tmp/
 ├── models/                       # generated model artifacts, ignored by git
+│   ├── base/                     # initial model + matching feature schema
+│   │   ├── schedule_ranker_v1.txt
+│   │   └── feature_schema.json
+│   ├── feedback/
+│   │   ├── current/              # model used first by generation
+│   │   └── archive/              # timestamped feedback model versions
+│   └── tmp/
 └── scripts/
     ├── generate_training_samples.py
     ├── build_feedback_training_samples.py
     ├── train_lightgbm.py
-    ├── predict_demo.py
     ├── evaluate_model.py
     ├── generate_scheme_ga.py      # main generation entry
     └── evaluate_scheme_demo.py
@@ -85,7 +99,7 @@ Generates rule-based candidate scheduling samples from current project data.
 Output:
 
 ```text
-data/training_samples.csv
+data/base/samples.csv
 ```
 
 Example:
@@ -111,23 +125,15 @@ Trains the LightGBM scoring model.
 Outputs include:
 
 ```text
-models/schedule_ranker_v1.txt
-models/feedback_versions/schedule_ranker_feedback_<timestamp>.txt
-data/feature_schema.json
-data/feedback_feature_schema_<timestamp>.json
+models/base/schedule_ranker_v1.txt
+models/base/feature_schema.json
+models/feedback/current/schedule_ranker.txt
+models/feedback/current/feature_schema.json
+models/feedback/archive/<timestamp>/schedule_ranker.txt
+models/feedback/archive/<timestamp>/feature_schema.json
 ```
 
-The backend selects the latest successful training record when generating schemes.
-
-### `scripts/predict_demo.py`
-
-Loads the trained model and runs a local prediction demo against sample candidate rows.
-
-Example:
-
-```bash
-python scripts/predict_demo.py --limit 12
-```
+Generation prefers `models/feedback/current/` when present, falls back to `models/base/`, then falls back to rule scoring if no model/schema exists.
 
 ### `scripts/evaluate_model.py`
 
@@ -154,10 +160,10 @@ Example:
 
 ```bash
 python scripts/generate_scheme_ga.py \
-  --model models/schedule_ranker_v1.txt \
-  --schema data/feature_schema.json \
+  --model models/base/schedule_ranker_v1.txt \
+  --schema models/base/feature_schema.json \
   --variant-count 3 \
-  --teacher-penalties data/generated_schemes/teacher_penalties.json \
+  --teacher-penalties data/generated/teacher_penalties.json \
   --exclude-weekends
 ```
 
@@ -168,7 +174,7 @@ Evaluates generated schemes with scheme-level quality metrics. It is generator-a
 Example:
 
 ```bash
-python scripts/evaluate_scheme_demo.py --scheme-dir data/generated_schemes --json --teacher-penalties data/generated_schemes/teacher_penalties.json
+python scripts/evaluate_scheme_demo.py --scheme-dir data/generated --json --teacher-penalties data/generated/teacher_penalties.json
 ```
 
 ## Responsibility Boundary

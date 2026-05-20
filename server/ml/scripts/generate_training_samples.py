@@ -1,7 +1,7 @@
 """Generate LightGBM training samples for Edu-Flow-AI scheduling.
 
 Output:
-    ../data/training_samples.csv
+    ../data/base/samples.csv
 
 A single row represents:
     TeachingTask + candidate TimeSlot + candidate Classroom + current schedule state -> score
@@ -32,7 +32,7 @@ ROOT_DIR = Path(__file__).resolve().parents[1]
 SERVER_DIR = ROOT_DIR.parent
 PROJECT_DIR = SERVER_DIR.parent
 DATA_DIR = ROOT_DIR / "data"
-OUTPUT_PATH = DATA_DIR / "training_samples.csv"
+OUTPUT_PATH = DATA_DIR / "base" / "samples.csv"
 
 DEFAULT_DB_URL = (
     "jdbc:mysql://localhost:3306/edu_flow_ai?useUnicode=true&characterEncoding=utf8"

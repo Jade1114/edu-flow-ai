@@ -1,11 +1,11 @@
 """Train the first LightGBM schedule scoring model.
 
 Input:
-    ../data/training_samples.csv
+    ../data/base/samples.csv
 
 Outputs:
-    ../models/schedule_ranker_v1.txt
-    ../data/feature_schema.json
+    ../models/base/schedule_ranker_v1.txt
+    ../models/base/feature_schema.json
 """
 
 from __future__ import annotations
@@ -27,9 +27,9 @@ from sklearn.model_selection import train_test_split
 
 
 ROOT_DIR = Path(__file__).resolve().parents[1]
-DATA_PATH = ROOT_DIR / "data" / "training" / "samples.csv"
+DATA_PATH = ROOT_DIR / "data" / "base" / "samples.csv"
 MODEL_PATH = ROOT_DIR / "models" / "base" / "schedule_ranker_v1.txt"
-FEATURE_SCHEMA_PATH = ROOT_DIR / "data" / "training" / "feature_schema.json"
+FEATURE_SCHEMA_PATH = ROOT_DIR / "models" / "base" / "feature_schema.json"
 TARGET_COLUMN = "score"
 EXCLUDED_COLUMNS = {
     "sample_id",

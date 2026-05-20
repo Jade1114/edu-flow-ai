@@ -1,9 +1,9 @@
 """Evaluate the trained LightGBM schedule scoring model.
 
 Inputs:
-    ../models/schedule_ranker_v1.txt
-    ../data/feature_schema.json
-    ../data/training_samples.csv
+    ../models/base/schedule_ranker_v1.txt
+    ../models/base/feature_schema.json
+    ../data/base/samples.csv
 
 This script focuses on distribution-level checks, not only aggregate metrics.
 """
@@ -23,8 +23,8 @@ from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
 
 ROOT_DIR = Path(__file__).resolve().parents[1]
 MODEL_PATH = ROOT_DIR / "models" / "base" / "schedule_ranker_v1.txt"
-FEATURE_SCHEMA_PATH = ROOT_DIR / "data" / "training" / "feature_schema.json"
-DATA_PATH = ROOT_DIR / "data" / "training" / "samples.csv"
+FEATURE_SCHEMA_PATH = ROOT_DIR / "models" / "base" / "feature_schema.json"
+DATA_PATH = ROOT_DIR / "data" / "base" / "samples.csv"
 TARGET_COLUMN = "score"
 
 GROUP_COLUMNS = [

@@ -2,7 +2,7 @@
 
 Inputs:
     ../data/generated_scheme_demo.csv
-    or ../data/generated_schemes/*.csv
+    or ../data/generated/*.csv
 
 The script evaluates scheme-level quality, not single-fragment prediction quality.
 """
@@ -21,7 +21,7 @@ from typing import Any
 
 ROOT_DIR = Path(__file__).resolve().parents[1]
 SCHEME_PATH = ROOT_DIR / "data" / "generated_scheme_demo.csv"
-SCHEME_DIR = ROOT_DIR / "data" / "generated_schemes"
+SCHEME_DIR = ROOT_DIR / "data" / "generated"
 RANKED_SUMMARY_PATH = SCHEME_DIR / "ranked_summary.csv"
 LOG_PREFIX = "[SCHEDULE-EVAL]"
 

@@ -36,7 +36,7 @@ public class MlFeedbackTrainingService {
 
 	public MlFeedbackExportResult exportFeedback(Long taskId) {
 		Path serverDir = resolveServerDir();
-		Path exportDir = serverDir.resolve("ml/data/training/feedback/exports");
+		Path exportDir = serverDir.resolve("ml/data/feedback/exports");
 		String suffix = taskId == null ? "all" : "task_" + taskId;
 		Path exportPath = exportDir.resolve("feedback_" + suffix + "_" + FILE_TIME_FORMAT.format(LocalDateTime.now()) + ".json");
 		return exportFeedback(taskId, exportPath, null);
@@ -44,7 +44,7 @@ public class MlFeedbackTrainingService {
 
 	public MlFeedbackExportResult latestFeedbackExport(Long taskId) {
 		Path serverDir = resolveServerDir();
-		Path exportDir = serverDir.resolve("ml/data/training/feedback/exports");
+		Path exportDir = serverDir.resolve("ml/data/feedback/exports");
 		Path exportPath = latestFeedbackExportPath(exportDir, taskId);
 		if (exportPath == null) {
 			return null;
@@ -70,17 +70,17 @@ public class MlFeedbackTrainingService {
 		LocalDateTime startedAt = LocalDateTime.now();
 		Path serverDir = resolveServerDir();
 		Path dataDir = serverDir.resolve("ml/data");
-		Path exportDir = dataDir.resolve("training/feedback/exports");
-		Path trainingDataDir = dataDir.resolve("training/feedback/samples");
+		Path exportDir = dataDir.resolve("feedback/exports");
+		Path sampleDir = dataDir.resolve("feedback/samples");
 		String suffix = taskId == null ? "all" : "task_" + taskId;
 		String time = FILE_TIME_FORMAT.format(startedAt);
 		Path exportPath = latestFeedbackExportPath(exportDir, taskId);
-		Path samplePath = trainingDataDir.resolve("feedback_training_samples_" + suffix + "_" + time + ".csv");
-		Path activeModelPath = serverDir.resolve("ml/models/current/schedule_ranker_feedback.txt");
-		Path activeSchemaPath = trainingDataDir.resolve("feedback_feature_schema.json");
-		Path versionDir = serverDir.resolve("ml/models/archive");
-		Path modelPath = versionDir.resolve("schedule_ranker_feedback_" + time + ".txt");
-		Path schemaPath = trainingDataDir.resolve("feedback_feature_schema_" + time + ".json");
+		Path samplePath = sampleDir.resolve("feedback_samples_" + suffix + "_" + time + ".csv");
+		Path activeModelPath = serverDir.resolve("ml/models/feedback/current/schedule_ranker.txt");
+		Path activeSchemaPath = serverDir.resolve("ml/models/feedback/current/feature_schema.json");
+		Path versionDir = serverDir.resolve("ml/models/feedback/archive").resolve(time);
+		Path modelPath = versionDir.resolve("schedule_ranker.txt");
+		Path schemaPath = versionDir.resolve("feature_schema.json");
 		Path previousModelPath = Files.exists(activeModelPath)
 			? activeModelPath
 			: serverDir.resolve("ml/models/base/schedule_ranker_v1.txt");
