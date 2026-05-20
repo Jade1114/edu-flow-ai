@@ -18,6 +18,10 @@ public class ConflictCheckResult {
 	private String relatedClassGroupName;
 	private String relatedClassroomName;
 	private String relatedTimeSlotLabel;
+	private Long teachingTaskId;
+	private String courseName;
+	private Integer expectedHours;
+	private Integer actualHours;
 	private Boolean resolved;
 	private LocalDateTime createdAt;
 }

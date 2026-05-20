@@ -166,19 +166,22 @@ public class AllocationSchemeConflictDetector {
 			int expectedHours = task.getTotalHours();
 			if (actualHours == expectedHours) continue;
 
-			String taskName = task.getCourse() != null && task.getCourse().getName() != null
+			String courseName = task.getCourse() != null && task.getCourse().getName() != null
 				? task.getCourse().getName()
 				: "教学任务" + task.getId();
-			String message = "教学任务课时不匹配：" + taskName + " 需要 " + expectedHours
-				+ " 课时，当前已排 " + actualHours + " 课时";
+			int diff = expectedHours - actualHours;
+			String message = "课程《" + courseName + "》计划 " + expectedHours + " 课时，实际只排了 "
+				+ actualHours + " 课时（缺 " + diff + " 课时），请返回方案调整页面增加排课片段";
 			if (taskItems.isEmpty()) {
 				violations.add(new AllocationConflictViolation(
-					null, TEACHING_TASK_HOURS, message, task.getPrimaryTeacherId(), null, null, null
+					null, TEACHING_TASK_HOURS, message, task.getPrimaryTeacherId(), null, null, null,
+					task.getId(), courseName, expectedHours, actualHours
 				));
 			} else {
 				for (AllocationItem item : taskItems) {
 					violations.add(new AllocationConflictViolation(
-						item.getId(), TEACHING_TASK_HOURS, message, task.getPrimaryTeacherId(), null, item.getClassroomId(), item.getTimeSlotId()
+						item.getId(), TEACHING_TASK_HOURS, message, task.getPrimaryTeacherId(), null, item.getClassroomId(), item.getTimeSlotId(),
+						task.getId(), courseName, expectedHours, actualHours
 					));
 				}
 			}

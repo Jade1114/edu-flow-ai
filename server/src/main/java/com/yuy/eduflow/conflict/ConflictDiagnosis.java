@@ -25,7 +25,11 @@ public record ConflictDiagnosis(
         Long relatedClassroomId,
         String relatedClassroomName,
         Long relatedTimeSlotId,
-        String relatedTimeSlotLabel
+        String relatedTimeSlotLabel,
+        Long teachingTaskId,
+        String courseName,
+        Integer expectedHours,
+        Integer actualHours
     ) {
     }
 }

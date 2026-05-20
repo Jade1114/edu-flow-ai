@@ -16,6 +16,7 @@ public interface ConflictCheckResultMapper {
 		<script>
 		SELECT id, biz_type, biz_id, conflict_type, message, related_teacher_id,
 		       related_class_group_id, related_classroom_id, related_time_slot_id,
+		       teaching_task_id, course_name, expected_hours, actual_hours,
 		       resolved, created_at
 		FROM conflict_check_result
 		WHERE 1 = 1
@@ -44,6 +45,7 @@ public interface ConflictCheckResultMapper {
 	@Select("""
 		SELECT id, biz_type, biz_id, conflict_type, message, related_teacher_id,
 		       related_class_group_id, related_classroom_id, related_time_slot_id,
+		       teaching_task_id, course_name, expected_hours, actual_hours,
 		       resolved, created_at
 		FROM conflict_check_result
 		WHERE id = #{id}
@@ -54,6 +56,7 @@ public interface ConflictCheckResultMapper {
 		SELECT ccr.id, ccr.biz_type, ccr.biz_id, ccr.conflict_type, ccr.message,
 		       ccr.related_teacher_id, ccr.related_class_group_id,
 		       ccr.related_classroom_id, ccr.related_time_slot_id,
+		       ccr.teaching_task_id, ccr.course_name, ccr.expected_hours, ccr.actual_hours,
 		       t.name AS related_teacher_name,
 		       cg.name AS related_class_group_name,
 		       cr.name AS related_classroom_name,
@@ -65,13 +68,13 @@ public interface ConflictCheckResultMapper {
 		              END, ' 第', ts.period_index, '节') AS related_time_slot_label,
 		       ccr.resolved, ccr.created_at
 		FROM conflict_check_result ccr
-		JOIN allocation_item ai ON ccr.biz_id = ai.id
+		LEFT JOIN allocation_item ai ON ccr.biz_id = ai.id
 		LEFT JOIN teacher t ON ccr.related_teacher_id = t.id
 		LEFT JOIN class_group cg ON ccr.related_class_group_id = cg.id
 		LEFT JOIN classroom cr ON ccr.related_classroom_id = cr.id
 		LEFT JOIN time_slot ts ON ccr.related_time_slot_id = ts.id
-		WHERE ai.scheme_id = #{schemeId}
-		  AND ccr.biz_type = 'ALLOCATION_ITEM'
+		WHERE (ai.scheme_id = #{schemeId} OR ccr.biz_id = #{schemeId})
+		  AND ccr.biz_type IN ('ALLOCATION_ITEM', 'SCHEME')
 		ORDER BY ccr.conflict_type, ccr.id DESC
 		""")
 	List<ConflictCheckResult> findBySchemeId(@Param("schemeId") Long schemeId);
@@ -80,11 +83,13 @@ public interface ConflictCheckResultMapper {
 		INSERT INTO conflict_check_result (
 		    biz_type, biz_id, conflict_type, message, related_teacher_id,
 		    related_class_group_id, related_classroom_id, related_time_slot_id,
+		    teaching_task_id, course_name, expected_hours, actual_hours,
 		    resolved
 		)
 		VALUES (
 		    #{bizType}, #{bizId}, #{conflictType}, #{message}, #{relatedTeacherId},
 		    #{relatedClassGroupId}, #{relatedClassroomId}, #{relatedTimeSlotId},
+		    #{teachingTaskId}, #{courseName}, #{expectedHours}, #{actualHours},
 		    #{resolved}
 		)
 		""")
@@ -101,6 +106,10 @@ public interface ConflictCheckResultMapper {
 		    related_class_group_id = #{relatedClassGroupId},
 		    related_classroom_id = #{relatedClassroomId},
 		    related_time_slot_id = #{relatedTimeSlotId},
+		    teaching_task_id = #{teachingTaskId},
+		    course_name = #{courseName},
+		    expected_hours = #{expectedHours},
+		    actual_hours = #{actualHours},
 		    resolved = #{resolved}
 		WHERE id = #{id}
 		""")

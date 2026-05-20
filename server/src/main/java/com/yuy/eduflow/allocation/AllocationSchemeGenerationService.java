@@ -146,16 +146,24 @@ public class AllocationSchemeGenerationService {
 
 	private void persistConflictResults(Long schemeId, List<AllocationConflictViolation> violations) {
 		for (AllocationConflictViolation violation : violations) {
-			if (violation.itemId() == null) continue;
 			ConflictCheckResult result = new ConflictCheckResult();
-			result.setBizType(CONFLICT_BIZ_TYPE);
-			result.setBizId(violation.itemId());
+			if (violation.itemId() != null) {
+				result.setBizType(CONFLICT_BIZ_TYPE);
+				result.setBizId(violation.itemId());
+			} else {
+				result.setBizType("SCHEME");
+				result.setBizId(schemeId);
+			}
 			result.setConflictType(violation.conflictType());
 			result.setMessage("方案ID " + schemeId + "：" + violation.message());
 			result.setRelatedTeacherId(violation.relatedTeacherId());
 			result.setRelatedClassGroupId(violation.relatedClassGroupId());
 			result.setRelatedClassroomId(violation.relatedClassroomId());
 			result.setRelatedTimeSlotId(violation.relatedTimeSlotId());
+			result.setTeachingTaskId(violation.teachingTaskId());
+			result.setCourseName(violation.courseName());
+			result.setExpectedHours(violation.expectedHours());
+			result.setActualHours(violation.actualHours());
 			result.setResolved(false);
 			conflictCheckResultMapper.insert(result);
 		}

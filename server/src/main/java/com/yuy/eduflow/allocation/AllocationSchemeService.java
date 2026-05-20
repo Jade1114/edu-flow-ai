@@ -89,7 +89,11 @@ public class AllocationSchemeService {
 				r.getRelatedClassroomId(),
 				r.getRelatedClassroomName(),
 				r.getRelatedTimeSlotId(),
-				r.getRelatedTimeSlotLabel()
+				r.getRelatedTimeSlotLabel(),
+				r.getTeachingTaskId(),
+				r.getCourseName(),
+				r.getExpectedHours(),
+				r.getActualHours()
 			);
 			if ("TEACHING_TASK_HOURS".equals(r.getConflictType())) {
 				hoursMismatch.add(item);

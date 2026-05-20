@@ -1847,10 +1847,33 @@ onUnmounted(() => {
               <!-- 课时不匹配单独高亮 -->
               <div v-if="conflictDiagnosis.hoursMismatch?.length" style="margin-bottom: 14px">
                 <div style="font-weight: 600; font-size: 13px; color: #f56c6c; margin-bottom: 6px">
-                  ⚠ 教学任务课时不匹配 ({{ conflictDiagnosis.hoursMismatch.length }})
+                  ⚠ 教学任务课时不匹配（{{ conflictDiagnosis.hoursMismatch.length }} 条）
                 </div>
                 <el-table :data="conflictDiagnosis.hoursMismatch" size="small" border style="width: 100%">
-                  <el-table-column prop="message" label="说明" show-overflow-tooltip min-width="280" />
+                  <el-table-column label="课程" min-width="160">
+                    <template #default="{ row }">
+                      <span style="font-weight: 500">{{ row.courseName || '-' }}</span>
+                    </template>
+                  </el-table-column>
+                  <el-table-column label="计划课时" width="90" align="center">
+                    <template #default="{ row }">
+                      <span v-if="row.expectedHours != null">{{ row.expectedHours }}</span>
+                      <span v-else style="color: #909399">-</span>
+                    </template>
+                  </el-table-column>
+                  <el-table-column label="已排课时" width="90" align="center">
+                    <template #default="{ row }">
+                      <span v-if="row.actualHours != null" style="color: #f56c6c">{{ row.actualHours }}</span>
+                      <span v-else style="color: #909399">-</span>
+                    </template>
+                  </el-table-column>
+                  <el-table-column label="缺少" width="80" align="center">
+                    <template #default="{ row }">
+                      <span v-if="row.expectedHours != null && row.actualHours != null" style="color: #f56c6c; font-weight: 600">{{ row.expectedHours - row.actualHours }}</span>
+                      <span v-else style="color: #909399">-</span>
+                    </template>
+                  </el-table-column>
+                  <el-table-column prop="message" label="说明" show-overflow-tooltip min-width="200" />
                   <el-table-column prop="relatedTeacherName" label="教师" width="100">
                     <template #default="{ row }">
                       <el-tag v-if="row.relatedTeacherName" size="small" type="primary">{{ row.relatedTeacherName }}</el-tag>

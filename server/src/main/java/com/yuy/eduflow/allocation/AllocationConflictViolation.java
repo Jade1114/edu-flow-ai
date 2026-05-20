@@ -7,6 +7,10 @@ record AllocationConflictViolation(
 	Long relatedTeacherId,
 	Long relatedClassGroupId,
 	Long relatedClassroomId,
-	Long relatedTimeSlotId
+	Long relatedTimeSlotId,
+	Long teachingTaskId,
+	String courseName,
+	Integer expectedHours,
+	Integer actualHours
 ) {
 }
