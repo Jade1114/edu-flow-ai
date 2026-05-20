@@ -237,7 +237,7 @@ SELECT tt.id, cg.id FROM teaching_task tt
 JOIN course c ON tt.course_id = c.id
 JOIN teacher t ON tt.primary_teacher_id = t.id
 CROSS JOIN class_group cg
-WHERE c.name='Java程序设计' AND t.employee_no='T1001' AND tt.notes='合班授课，需80座教室'
+WHERE c.name='Java程序设计' AND t.employee_no='T1001' AND tt.notes='合班授课'
   AND cg.name IN ('23级软件工程1班','23级软件工程2班');
 
 -- TT2: 数据库原理 → 李娜 → 软件1班
@@ -574,7 +574,7 @@ INSERT IGNORE INTO teaching_task_class_group (teaching_task_id, class_group_id)
 SELECT tt.id, cg.id FROM teaching_task tt
 JOIN course c ON tt.course_id = c.id JOIN teacher t ON tt.primary_teacher_id = t.id
 CROSS JOIN class_group cg
-WHERE c.name='计算机图形学' AND t.employee_no='T1012'
+WHERE c.name='计算机图形学' AND t.employee_no='T1012' AND tt.notes='上机实践课'
   AND cg.name='23级计算机科学与技术1班';
 
 -- TT21: 嵌入式系统 → 林杰 → AI1+AI2(23级)
@@ -582,7 +582,7 @@ INSERT IGNORE INTO teaching_task_class_group (teaching_task_id, class_group_id)
 SELECT tt.id, cg.id FROM teaching_task tt
 JOIN course c ON tt.course_id = c.id JOIN teacher t ON tt.primary_teacher_id = t.id
 CROSS JOIN class_group cg
-WHERE c.name='嵌入式系统' AND t.employee_no='T1013'
+WHERE c.name='嵌入式系统' AND t.employee_no='T1013' AND tt.notes='合班授课，上机实践'
   AND cg.name IN ('23级人工智能1班','23级人工智能2班');
 
 -- TT22: 数字图像处理 → 何雪 → 数据1班(23级)
@@ -590,7 +590,7 @@ INSERT IGNORE INTO teaching_task_class_group (teaching_task_id, class_group_id)
 SELECT tt.id, cg.id FROM teaching_task tt
 JOIN course c ON tt.course_id = c.id JOIN teacher t ON tt.primary_teacher_id = t.id
 CROSS JOIN class_group cg
-WHERE c.name='数字图像处理' AND t.employee_no='T1014'
+WHERE c.name='数字图像处理' AND t.employee_no='T1014' AND tt.notes='上机实践课'
   AND cg.name='23级数据科学与大数据技术1班';
 
 -- TT23: 分布式系统 → 胡刚 → 软件2班(23级)
@@ -598,7 +598,7 @@ INSERT IGNORE INTO teaching_task_class_group (teaching_task_id, class_group_id)
 SELECT tt.id, cg.id FROM teaching_task tt
 JOIN course c ON tt.course_id = c.id JOIN teacher t ON tt.primary_teacher_id = t.id
 CROSS JOIN class_group cg
-WHERE c.name='分布式系统' AND t.employee_no='T1015'
+WHERE c.name='分布式系统' AND t.employee_no='T1015' AND tt.notes IS NULL
   AND cg.name='23级软件工程2班';
 
 -- TT24: 软件测试 → 徐静 → 软件1班(23级)
@@ -606,7 +606,7 @@ INSERT IGNORE INTO teaching_task_class_group (teaching_task_id, class_group_id)
 SELECT tt.id, cg.id FROM teaching_task tt
 JOIN course c ON tt.course_id = c.id JOIN teacher t ON tt.primary_teacher_id = t.id
 CROSS JOIN class_group cg
-WHERE c.name='软件测试' AND t.employee_no='T1016'
+WHERE c.name='软件测试' AND t.employee_no='T1016' AND tt.notes='上机实践课'
   AND cg.name='23级软件工程1班';
 
 -- TT25: 信息安全概论 → 叶枫 → 计科1+2(23级)
@@ -614,7 +614,7 @@ INSERT IGNORE INTO teaching_task_class_group (teaching_task_id, class_group_id)
 SELECT tt.id, cg.id FROM teaching_task tt
 JOIN course c ON tt.course_id = c.id JOIN teacher t ON tt.primary_teacher_id = t.id
 CROSS JOIN class_group cg
-WHERE c.name='信息安全概论' AND t.employee_no='T1017'
+WHERE c.name='信息安全概论' AND t.employee_no='T1017' AND tt.notes='合班授课'
   AND cg.name IN ('23级计算机科学与技术1班','23级计算机科学与技术2班');
 
 -- TT26: 移动应用开发 → 罗敏 → 软件2班(23级)
@@ -638,7 +638,7 @@ INSERT IGNORE INTO teaching_task_class_group (teaching_task_id, class_group_id)
 SELECT tt.id, cg.id FROM teaching_task tt
 JOIN course c ON tt.course_id = c.id JOIN teacher t ON tt.primary_teacher_id = t.id
 CROSS JOIN class_group cg
-WHERE c.name='数据挖掘' AND t.employee_no='T1020'
+WHERE c.name='数据挖掘' AND t.employee_no='T1020' AND tt.notes='上机实践课'
   AND cg.name='23级数据科学与大数据技术1班';
 
 -- TT29: 编译原理 → 马超 → 软件1+2班(24级)
