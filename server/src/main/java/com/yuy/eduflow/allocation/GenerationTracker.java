@@ -47,11 +47,11 @@ public class GenerationTracker {
 					status -> updateStatus(taskId, status)
 				);
 				updateStatus(taskId, new GenerationStatus("COMPLETED", "done", "生成完成", 100, null, result.schemeCount(), null));
-				completeEmitters(taskId);
 				log.info("Generation completed for taskId={}, schemeCount={}", taskId, result.schemeCount());
 			} catch (Exception e) {
 				log.error("Generation failed for taskId={}", taskId, e);
 				updateStatus(taskId, new GenerationStatus("FAILED", "error", "生成失败", 100, e.getMessage(), 0, null));
+			} finally {
 				completeEmitters(taskId);
 			}
 		});

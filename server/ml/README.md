@@ -156,16 +156,9 @@ Main scheme generator. Responsibilities:
 - preserve teacher-profile penalty explanation columns;
 - write `summary.csv` and `ga_summary.json`.
 
-Example:
+Usage:
 
-```bash
-python scripts/generate_scheme_ga.py \
-  --model models/base/schedule_ranker_v1.txt \
-  --schema models/base/feature_schema.json \
-  --variant-count 3 \
-  --teacher-penalties data/generated/teacher_penalties.json \
-  --exclude-weekends
-```
+`generate_scheme_ga.py` is no longer started from CLI. Java submits an allocation task to the ML API, and the API calls `run_ga_pipeline_by_task(task_id)` so generation reads task config, teaching-task bindings, and teacher profile penalties from the database.
 
 ### `scripts/evaluate_scheme_demo.py`
 

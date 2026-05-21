@@ -99,7 +99,7 @@ const policyLabelMap = {
   CUSTOM: "自定义",
 };
 
-// === 预设权重（与 Python POLICY_PROFILES 保持一致）===
+// === 预设权重（前端模板，保存后由任务配置表驱动 Python 生成）===
 const PRESET_WEIGHTS = {
   BALANCED: {
     weekend_penalty: 0.01,

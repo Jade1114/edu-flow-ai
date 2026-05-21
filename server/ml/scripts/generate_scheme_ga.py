@@ -7,15 +7,15 @@ teacher profile penalties. This script consumes the prepared penalty file only.
 
 from __future__ import annotations
 
-import argparse
 import csv
 import json
 import random
 import sys
-from collections import Counter
+from collections import Counter, defaultdict
 from datetime import datetime
 from pathlib import Path
 from time import perf_counter
+from types import SimpleNamespace
 from typing import Any, Optional
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
@@ -86,7 +86,7 @@ TEACHER_PENALTIES_FILENAME = "teacher_penalties.json"
 LOG_PREFIX = "[SCHEDULE-CHAIN]"
 PYTHON_LOG_FILE: Optional[Path] = None
 CANDIDATE_DIAGNOSTICS: dict[int, dict[str, Any]] = {}
-RUN_TIMINGS: Counter[str] = Counter()
+RUN_TIMINGS: dict[str,float] = defaultdict(float)
 
 SUMMARY_COLUMNS = [
     "scheme_no",
@@ -129,72 +129,18 @@ DEFAULT_DISTRIBUTION_PENALTY_SCALE = 5.0
 DEFAULT_CLASSROOM_STICKINESS_WEIGHT = 5.0
 DEFAULT_COMPACT_BONUS_WEIGHT = 0.0
 
-POLICY_PROFILES = {
-    "BALANCED": {
-        "weekday_load_penalty": 0.008,
-        "room_day_load_penalty": 0.005,
-        "room_week_load_penalty": 0.002,
-        "task_day_load_penalty": 0.012,
-        "early_period_penalty": 0.012,
-        "late_period_penalty": 0.008,
-        "compact_bonus_weight": 0.0,
-        "random_jitter": 0.002,
-        "classroom_stickiness_bonus": 0.006,
-        "weekend_penalty": 0.01
-    },
-    "TEACHER_FRIENDLY": {
-        "weekday_load_penalty": 0.006,
-        "room_day_load_penalty": 0.004,
-        "room_week_load_penalty": 0.001,
-        "task_day_load_penalty": 0.025,
-        "early_period_penalty": 0.04,
-        "late_period_penalty": 0.03,
-        "compact_bonus_weight": 0.0,
-        "random_jitter": 0.001,
-        "classroom_stickiness_bonus": 0.004,
-        "weekend_penalty": 0.015
-    },
-    "CLASS_BALANCED": {
-        "weekday_load_penalty": 0.012,
-        "room_day_load_penalty": 0.004,
-        "room_week_load_penalty": 0.001,
-        "task_day_load_penalty": 0.008,
-        "early_period_penalty": 0.01,
-        "late_period_penalty": 0.01,
-        "compact_bonus_weight": 0.0,
-        "random_jitter": 0.002,
-        "classroom_stickiness_bonus": 0.005,
-        "weekend_penalty": 0.008
-    },
-    "ROOM_EFFICIENT": {
-        "weekday_load_penalty": 0.002,
-        "room_day_load_penalty": 0.025,
-        "room_week_load_penalty": 0.01,
-        "task_day_load_penalty": 0.005,
-        "early_period_penalty": 0.005,
-        "late_period_penalty": 0.005,
-        "compact_bonus_weight": 0.0,
-        "random_jitter": 0.003,
-        "classroom_stickiness_bonus": 0.008,
-        "weekend_penalty": 0.01
-    },
-    "COMPACT": {
-        "weekday_load_penalty": 0.002,
-        "room_day_load_penalty": 0.008,
-        "room_week_load_penalty": 0.002,
-        "task_day_load_penalty": 0.01,
-        "early_period_penalty": 0.005,
-        "late_period_penalty": 0.005,
-        "compact_bonus_weight": 0.015,
-        "random_jitter": 0.002,
-        "classroom_stickiness_bonus": 0.003,
-        "weekend_penalty": 0.005
-    }
+DEFAULT_RULE_WEIGHTS = {
+    "weekday_load_penalty": WEEKDAY_LOAD_PENALTY,
+    "room_day_load_penalty": ROOM_DAY_LOAD_PENALTY,
+    "room_week_load_penalty": ROOM_WEEK_LOAD_PENALTY,
+    "task_day_load_penalty": TASK_DAY_LOAD_PENALTY,
+    "early_period_penalty": 0.0,
+    "late_period_penalty": 0.0,
+    "compact_bonus_weight": DEFAULT_COMPACT_BONUS_WEIGHT,
+    "random_jitter": RANDOM_JITTER,
+    "classroom_stickiness_bonus": 0.0,
+    "weekend_penalty": 0.0,
 }
-
-
-
-DEFAULT_POLICY = "BALANCED"
 
 
 def configure_python_log(log_file: Optional[Path]) -> None:
@@ -492,18 +438,7 @@ def build_features(rows: list[dict[str, Any]], schema: dict[str, Any]) -> pd.Dat
     return features
 
 
-def load_policy(policy_name: str, custom_params: dict[str, float] | None = None) -> dict[str, float]:
-    if policy_name not in POLICY_PROFILES:
-        raise ValueError(f"Unknown policy: {policy_name}. Available: {sorted(POLICY_PROFILES.keys())}")
-    merged = dict(POLICY_PROFILES[policy_name])
-    if custom_params:
-        for key in merged:
-            if key in custom_params:
-                merged[key] = float(custom_params[key])
-    return merged
-
-
-def shortlist_candidates(candidates: list[dict[str, Any]], pool_size: int, rng: random.Random, policy: dict[str, float]) -> list[dict[str, Any]]:
+def shortlist_candidates(candidates: list[dict[str, Any]], pool_size: int, rng: random.Random) -> list[dict[str, Any]]:
     if pool_size <= 0 or len(candidates) <= pool_size:
         return candidates
     legal_candidates = [candidate for candidate in candidates if int(candidate["has_hard_conflict"]) == 0]
@@ -526,28 +461,28 @@ def shortlist_candidates(candidates: list[dict[str, Any]], pool_size: int, rng: 
 def apply_selection_scores(
     candidates: list[dict[str, Any]],
     rng: random.Random,
-    policy: dict[str, float],
+    rule_weights: dict[str, float],
     task_classroom_id: int | None = None,
     teacher_id: int | None = None,
     teacher_profiles: dict[int, dict[str, object]] | None = None,
 ) -> None:
     for candidate in candidates:
         distribution_penalty = (
-            candidate["scheme_day_load"] * policy["weekday_load_penalty"]
-            + candidate["room_day_load"] * policy["room_day_load_penalty"]
-            + candidate["room_week_load"] * policy["room_week_load_penalty"]
-            + candidate["task_day_load"] * policy["task_day_load_penalty"]
+            candidate["scheme_day_load"] * rule_weights["weekday_load_penalty"]
+            + candidate["room_day_load"] * rule_weights["room_day_load_penalty"]
+            + candidate["room_week_load"] * rule_weights["room_week_load_penalty"]
+            + candidate["task_day_load"] * rule_weights["task_day_load_penalty"]
         )
-        weekend_penalty = (1 if int(candidate.get("is_weekend", 0)) else 0) * policy.get("weekend_penalty", 0.0)
-        early_penalty = (1 if int(candidate.get("is_early_period", 0)) else 0) * policy["early_period_penalty"]
-        late_penalty = (1 if int(candidate.get("is_late_period", 0)) else 0) * policy["late_period_penalty"]
-        compact_bonus = candidate.get("scheme_day_load", 0) * policy["compact_bonus_weight"]
+        weekend_penalty = (1 if int(candidate.get("is_weekend", 0)) else 0) * rule_weights.get("weekend_penalty", 0.0)
+        early_penalty = (1 if int(candidate.get("is_early_period", 0)) else 0) * rule_weights["early_period_penalty"]
+        late_penalty = (1 if int(candidate.get("is_late_period", 0)) else 0) * rule_weights["late_period_penalty"]
+        compact_bonus = candidate.get("scheme_day_load", 0) * rule_weights["compact_bonus_weight"]
 
         stickiness_bonus = 0.0
         if task_classroom_id is not None:
             candidate_room = int(candidate.get("candidate_classroom_id", 0))
             if candidate_room == task_classroom_id:
-                stickiness_bonus = float(policy.get("classroom_stickiness_bonus", 0.0))
+                stickiness_bonus = float(rule_weights.get("classroom_stickiness_bonus", 0.0))
 
         # Teacher profile penalty: teacher-specific constraints from Java orchestration.
         teacher_profile_penalty = 0.0
@@ -583,13 +518,13 @@ def apply_selection_scores(
                             "reason": profile.get("reason") or "teacher preferred max weekly hours exceeded",
                         })
 
-        random_jitter = rng.random() * policy["random_jitter"]
+        random_jitter = rng.random() * rule_weights["random_jitter"]
         candidate["distribution_penalty"] = round(distribution_penalty + weekend_penalty + early_penalty + late_penalty, 6)
         candidate["distribution_penalty_breakdown"] = {
-            "weekday_load": round(candidate["scheme_day_load"] * policy["weekday_load_penalty"], 6),
-            "room_day_load": round(candidate["room_day_load"] * policy["room_day_load_penalty"], 6),
-            "room_week_load": round(candidate["room_week_load"] * policy["room_week_load_penalty"], 6),
-            "task_day_load": round(candidate["task_day_load"] * policy["task_day_load_penalty"], 6),
+            "weekday_load": round(candidate["scheme_day_load"] * rule_weights["weekday_load_penalty"], 6),
+            "room_day_load": round(candidate["room_day_load"] * rule_weights["room_day_load_penalty"], 6),
+            "room_week_load": round(candidate["room_week_load"] * rule_weights["room_week_load_penalty"], 6),
+            "task_day_load": round(candidate["task_day_load"] * rule_weights["task_day_load_penalty"], 6),
             "weekend": round(weekend_penalty, 6),
             "early_period": round(early_penalty, 6),
             "late_period": round(late_penalty, 6),
@@ -660,7 +595,7 @@ def rank_candidates(
     schema: Optional[dict[str, Any]],
     candidates: list[dict[str, Any]],
     rng: random.Random,
-    policy: dict[str, float],
+    rule_weights: dict[str, float],
     task_classroom_id: int | None = None,
     teacher_id: int | None = None,
     teacher_profiles: dict[int, dict[str, object]] | None = None,
@@ -695,7 +630,7 @@ def rank_candidates(
             score_max=float(np.max([c["predicted_score"] for c in candidates])),
             model_used=False,
         )
-    apply_selection_scores(candidates, rng, policy, task_classroom_id, teacher_id, teacher_profiles)
+    apply_selection_scores(candidates, rng, rule_weights, task_classroom_id, teacher_id, teacher_profiles)
 
     return sorted(
         candidates,
@@ -779,7 +714,7 @@ def config_float(config: dict[str, Any], key: str, default: float) -> float:
     return float(value)
 
 
-def policy_overrides_from_config(config: dict[str, Any]) -> dict[str, float]:
+def rule_weights_from_config(config: dict[str, Any]) -> dict[str, float]:
     mapping = {
         "weekdayLoadPenalty": "weekday_load_penalty",
         "roomDayLoadPenalty": "room_day_load_penalty",
@@ -792,7 +727,11 @@ def policy_overrides_from_config(config: dict[str, Any]) -> dict[str, float]:
         "classroomStickinessBonus": "classroom_stickiness_bonus",
         "weekendPenalty": "weekend_penalty",
     }
-    return {target: float(config[source]) for source, target in mapping.items() if config.get(source) is not None}
+    weights = dict(DEFAULT_RULE_WEIGHTS)
+    for source, target in mapping.items():
+        if config.get(source) is not None:
+            weights[target] = float(config[source])
+    return weights
 
 
 
@@ -989,7 +928,7 @@ def build_candidate_pools(
     rng: random.Random,
     candidate_pool_size: int,
     candidate_top_n: int,
-    policy: dict[str, float],
+    rule_weights: dict[str, float],
     exclude_weekends: bool,
 ) -> list[dict[str, Any]]:
     pools: list[dict[str, Any]] = []
@@ -1035,9 +974,9 @@ def build_candidate_pools(
         ranked = rank_candidates(
             booster=booster,
             schema=schema,
-            candidates=shortlist_candidates(legal_candidates, candidate_pool_size, rng, policy),
+            candidates=shortlist_candidates(legal_candidates, candidate_pool_size, rng),
             rng=rng,
-            policy=policy,
+            rule_weights=rule_weights,
             task_classroom_id=task.get("bound_classroom_id"),
             teacher_id=teacher_id,
             teacher_profiles=teacher_profiles,
@@ -1450,7 +1389,7 @@ def generate_scheme(
     rng: random.Random,
     candidate_pool_size: int,
     candidate_top_n: int,
-    policy: dict[str, float],
+    rule_weights: dict[str, float],
     exclude_weekends: bool = False,
     population_size: int = DEFAULT_POPULATION_SIZE,
     generations: int = DEFAULT_GENERATIONS,
@@ -1470,7 +1409,7 @@ def generate_scheme(
         rng=rng,
         candidate_pool_size=candidate_pool_size,
         candidate_top_n=candidate_top_n,
-        policy=policy,
+        rule_weights=rule_weights,
         exclude_weekends=exclude_weekends,
     )
     if not pools:
@@ -1847,7 +1786,7 @@ def run_ga_pipeline_by_task(
     write_teacher_penalties(teacher_penalties, teacher_penalties_path)
 
     seed = random_seed if random_seed is not None else int(task_id % 1_000_000)
-    args = argparse.Namespace(
+    args = SimpleNamespace(
         model=model_path,
         schema=schema_path,
         output=output_dir / "scheme_001.csv",
@@ -1855,8 +1794,6 @@ def run_ga_pipeline_by_task(
         max_tasks=None,
         variant_count=variant_count,
         random_seed=seed,
-        policy=DEFAULT_POLICY,
-        policy_params=None,
         generation_config=generation_config_json,
         teacher_penalties=teacher_penalties_path,
         teaching_task_ids=teaching_task_ids_str,
@@ -1902,7 +1839,6 @@ def run_ga_pipeline_by_task(
                     "summary": summarize_scheme(item_rows, [], None),
                     "scheme_score": None,
                     "evaluation_summary": None,
-                    "policy": DEFAULT_POLICY,
                     "model_version": "v1",
                     "conflict_summary": None,
                     "valid": True,
@@ -1989,47 +1925,8 @@ def _build_generation_config_json(raw_config: dict[str, Any]) -> str:
     return _json.dumps(config, ensure_ascii=False)
 
 
-def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Generate scheduling schemes with GA + LightGBM.")
-    parser.add_argument("--model", type=Path, default=MODEL_PATH, help="Trained LightGBM model path.")
-    parser.add_argument("--schema", type=Path, default=FEATURE_SCHEMA_PATH, help="Feature schema JSON path.")
-    parser.add_argument("--output", type=Path, default=OUTPUT_PATH, help="Single generated scheme CSV output path.")
-    parser.add_argument("--output-dir", type=Path, default=OUTPUT_DIR, help="Directory for multi-scheme outputs.")
-    parser.add_argument("--max-tasks", type=int, default=None, help="Optional maximum number of teaching tasks to schedule.")
-    parser.add_argument("--variant-count", type=int, default=1, help="Number of scheme variants to generate.")
-    parser.add_argument("--random-seed", type=int, default=42, help="Base random seed for variant generation.")
-    parser.add_argument("--policy", default=DEFAULT_POLICY, choices=list(POLICY_PROFILES.keys()), help="Generation policy profile.")
-    parser.add_argument("--policy-params", default=None, help="JSON string of custom policy weights to override preset values.")
-    parser.add_argument("--generation-config", default=None, help="JSON task generation config snapshot from allocation_task_generation_config.")
-    parser.add_argument("--teacher-penalties", type=Path, required=True, help="Teacher penalty JSON prepared by Java orchestration.")
-    parser.add_argument("--teaching-task-ids", default=None, help="Comma-separated teaching task IDs to schedule.")
-    parser.add_argument("--start-week", type=int, default=None, help="Optional minimum week number.")
-    parser.add_argument("--end-week", type=int, default=None, help="Optional maximum week number.")
-    parser.add_argument("--exclude-weekends", action="store_true", help="Hard filter Saturday/Sunday time slots before model scoring.")
-    parser.add_argument("--candidate-pool-size", type=int, default=DEFAULT_CANDIDATE_POOL_SIZE, help="Rule-filtered candidate pool size scored by the model per fragment.")
-    parser.add_argument("--candidate-top-n", type=int, default=DEFAULT_CANDIDATE_TOP_N, help="Top-N scored candidates per fragment used by GA.")
-    parser.add_argument("--population-size", type=int, default=DEFAULT_POPULATION_SIZE, help="GA population size.")
-    parser.add_argument("--generations", type=int, default=DEFAULT_GENERATIONS, help="GA generation count.")
-    parser.add_argument("--elite-size", type=int, default=DEFAULT_ELITE_SIZE, help="GA elite size.")
-    parser.add_argument("--tournament-size", type=int, default=DEFAULT_TOURNAMENT_SIZE, help="GA tournament selection size.")
-    parser.add_argument("--mutation-rate", type=float, default=DEFAULT_MUTATION_RATE, help="GA gene mutation rate.")
-    parser.add_argument("--predicted-score-weight", type=float, default=DEFAULT_PREDICTED_SCORE_WEIGHT)
-    parser.add_argument("--rule-score-weight", type=float, default=DEFAULT_RULE_SCORE_WEIGHT)
-    parser.add_argument("--hard-conflict-penalty", type=float, default=DEFAULT_HARD_CONFLICT_PENALTY)
-    parser.add_argument("--teacher-profile-penalty-scale", type=float, default=DEFAULT_TEACHER_PROFILE_PENALTY_SCALE)
-    parser.add_argument("--distribution-penalty-scale", type=float, default=DEFAULT_DISTRIBUTION_PENALTY_SCALE)
-    parser.add_argument("--classroom-stickiness-weight", type=float, default=DEFAULT_CLASSROOM_STICKINESS_WEIGHT)
-    parser.add_argument("--compact-bonus-weight", type=float, default=DEFAULT_COMPACT_BONUS_WEIGHT)
-    parser.add_argument("--log-file", type=Path, default=None, help="Optional Python-side detailed log file path.")
-    return parser.parse_args()
-
-
-def run_ga_pipeline(args: argparse.Namespace) -> dict[str, Any]:
-    """Run the full GA scheme generation pipeline.
-
-    Extracted from main() so both the CLI entry point and the FastAPI router
-    can share the same logic. Returns a dict with output paths and summary.
-    """
+def run_ga_pipeline(args: SimpleNamespace) -> dict[str, Any]:
+    """Run the full GA scheme generation pipeline for DB-driven task orchestration."""
     configure_python_log(args.log_file)
     generation_config = load_generation_config(args.generation_config)
     allowed_weeks = parse_int_set(generation_config.get("allowedWeeks"))
@@ -2053,8 +1950,6 @@ def run_ga_pipeline(args: argparse.Namespace) -> dict[str, Any]:
         "elite_size": args.elite_size,
         "tournament_size": args.tournament_size,
         "mutation_rate": args.mutation_rate,
-        "policy": args.policy,
-        "custom_policy_params": json.loads(args.policy_params) if args.policy_params else None,
         "teacher_penalties_path": str(args.teacher_penalties) if args.teacher_penalties else None,
         "teaching_task_ids": args.teaching_task_ids,
         "start_week": args.start_week,
@@ -2073,7 +1968,6 @@ def run_ga_pipeline(args: argparse.Namespace) -> dict[str, Any]:
         "variant_count": args.variant_count,
         "population_size": args.population_size,
         "generations": args.generations,
-        "policy": args.policy,
         "exclude_weekends": args.exclude_weekends,
         "generation_config": generation_config or None,
     })
@@ -2148,26 +2042,18 @@ def run_ga_pipeline(args: argparse.Namespace) -> dict[str, Any]:
     log_chain("教师画像惩罚由编排层提供", penalty_summary)
     ml_logger.teacher_profile_summary(len(teacher_penalties), penalty_summary)
 
-    custom_params = json.loads(args.policy_params) if args.policy_params else {}
-    ignored_task_weight_keys = [
-        key for key in generation_config
-        if key.endswith("Penalty") or key.endswith("PenaltyScale") or key.endswith("Weight") or key.endswith("Bonus")
-    ]
-    policy = load_policy(args.policy, custom_params)
+    rule_weights = rule_weights_from_config(generation_config)
     fitness_kwargs = {
         "predicted_score_weight": args.predicted_score_weight,
         "rule_score_weight": args.rule_score_weight,
         "hard_conflict_penalty": args.hard_conflict_penalty,
-        "distribution_penalty_scale": args.distribution_penalty_scale,
-        "classroom_stickiness_weight": args.classroom_stickiness_weight,
-        "compact_bonus_weight": args.compact_bonus_weight,
+        "distribution_penalty_scale": config_float(generation_config, "distributionPenaltyScale", args.distribution_penalty_scale),
+        "classroom_stickiness_weight": config_float(generation_config, "classroomStickinessWeight", args.classroom_stickiness_weight),
+        "compact_bonus_weight": config_float(generation_config, "compactBonusWeight", args.compact_bonus_weight),
     }
-    log_chain("策略权重与 GA 适应度参数生效", {
-        "policy": args.policy,
-        "custom_params": custom_params,
-        "effective_weights": policy,
+    log_chain("任务配置权重与 GA 适应度参数生效", {
+        "rule_weights": rule_weights,
         "fitness_weights": fitness_kwargs,
-        "ignored_task_weight_keys": ignored_task_weight_keys,
         "teacher_profile_penalty_used_in_fitness": False,
     })
 
@@ -2183,7 +2069,7 @@ def run_ga_pipeline(args: argparse.Namespace) -> dict[str, Any]:
             rng=random.Random(args.random_seed),
             candidate_pool_size=args.candidate_pool_size,
             candidate_top_n=args.candidate_top_n,
-            policy=policy,
+            rule_weights=rule_weights,
             exclude_weekends=args.exclude_weekends,
             population_size=args.population_size,
             generations=args.generations,
@@ -2240,7 +2126,7 @@ def run_ga_pipeline(args: argparse.Namespace) -> dict[str, Any]:
             rng=rng,
             candidate_pool_size=args.candidate_pool_size,
             candidate_top_n=args.candidate_top_n,
-            policy=policy,
+            rule_weights=rule_weights,
             exclude_weekends=args.exclude_weekends,
             population_size=args.population_size,
             generations=args.generations,
@@ -2281,13 +2167,3 @@ def run_ga_pipeline(args: argparse.Namespace) -> dict[str, Any]:
         "candidate_diagnostics_path": str(args.output_dir / "candidate_diagnostics.json"),
         "timings_ms": dict(RUN_TIMINGS),
     }
-
-
-def main() -> None:
-    """CLI entry point — parse args then delegate to run_ga_pipeline."""
-    args = parse_args()
-    run_ga_pipeline(args)
-
-
-if __name__ == "__main__":
-    main()

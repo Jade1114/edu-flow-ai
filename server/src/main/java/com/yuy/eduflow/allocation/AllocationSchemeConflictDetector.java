@@ -143,7 +143,8 @@ public class AllocationSchemeConflictDetector {
 					TEACHER_WORKLOAD,
 					"教师工作量冲突：" + teacherName + " 第 " + weekNumber + " 周共 " + totalHours
 						+ " 课时，超过最大周课时 " + teacher.getMaxWeeklyHours() + " 课时",
-					teacher.getId(), null, null, item.getTimeSlotId()
+					teacher.getId(), null, null, item.getTimeSlotId(),
+					item.getTeachingTaskId(), null, teacher.getMaxWeeklyHours(), totalHours
 				));
 			}
 		}

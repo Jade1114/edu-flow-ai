@@ -165,7 +165,7 @@ cd server/ml
 source .venv/bin/activate
 python scripts/generate_training_samples.py
 python scripts/train_lightgbm.py
-python scripts/generate_scheme_ga.py --variant-count 5 --policy BALANCED --exclude-weekends --population-size 80 --generations 80 --teacher-penalties data/generated/teacher_penalties.json
+# 方案生成不再支持 CLI 参数启动；通过 Java / ML API 按 allocation_task_id 触发 run_ga_pipeline_by_task(task_id)
 python scripts/evaluate_scheme_demo.py --scheme-dir data/generated --json --teacher-penalties data/generated/teacher_penalties.json
 ```
 
