@@ -50,9 +50,22 @@ def _logger(name: str, filename: str, level: int = logging.INFO) -> logging.Logg
     return log
 
 
+def _console_logger(name: str, level: int = logging.INFO) -> logging.Logger:
+    """Like _logger but writes to stdout instead of a file."""
+    log = logging.getLogger(f"ml.console.{name}")
+    log.setLevel(level)
+    if log.handlers:
+        return log
+    handler = logging.StreamHandler()
+    handler.setFormatter(logging.Formatter("%(asctime)s.%(msecs)03d [%(levelname)-5s] %(message)s", _DATE))
+    log.addHandler(handler)
+    return log
+
+
 # ── 全局 Logger 实例 ──────────────────────────────────────────────────
 
 service = _logger("service", "ml-service.log")
+service_console = _console_logger("service")
 ga = _logger("ga", "ga-algorithm.log")
 training = _logger("training", "lightgbm-training.log")
 scoring = _logger("scoring", "lightgbm-scoring.log")

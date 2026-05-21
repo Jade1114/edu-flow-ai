@@ -10,6 +10,22 @@ from fastapi.middleware.cors import CORSMiddleware
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import ml_logger
 
+# Load .env so ML_GA_PROFILE etc. are picked up from file
+# Python doesn't auto-read .env like Spring does
+_dotenv_loaded = False
+try:
+    from dotenv import load_dotenv
+    _env_candidates = [
+        Path(__file__).resolve().parents[2] / ".env",   # server/.env
+        Path(__file__).resolve().parents[3] / ".env",   # project root .env
+    ]
+    for _env_path in _env_candidates:
+        if _env_path.exists():
+            load_dotenv(_env_path, override=False)
+            _dotenv_loaded = True
+except ImportError:
+    pass
+
 try:
     from .routers import ga, health, training
 except ImportError:
@@ -17,14 +33,48 @@ except ImportError:
 
 ML_DIR = Path(__file__).resolve().parents[1]
 
+# ── GA 预设（与 generate_scheme_ga.py 同步） ────────────────────
+
+_GA_PROFILES = {
+    "fast": {"population_size": 60, "generations": 60, "candidate_top_n": 40, "elite_size": 6, "tournament_size": 4, "mutation_rate": 0.10, "candidate_pool_size": 500},
+    "default": {"population_size": 100, "generations": 100, "candidate_top_n": 60, "elite_size": 10, "tournament_size": 5, "mutation_rate": 0.10, "candidate_pool_size": 500},
+    "quality": {"population_size": 160, "generations": 200, "candidate_top_n": 100, "elite_size": 16, "tournament_size": 6, "mutation_rate": 0.12, "candidate_pool_size": 500},
+}
+_GA_KEYS = list(next(iter(_GA_PROFILES.values())))
+
+
+def _log_ga_profile():
+    """Read ML_GA_PROFILE env and log the resolved parameters."""
+    import os
+    profile = os.environ.get("ML_GA_PROFILE", "default").strip().lower()
+    if profile not in _GA_PROFILES:
+        profile = "default"
+    params = _GA_PROFILES[profile]
+    overrides = {}
+    for k in _GA_KEYS:
+        env_val = os.environ.get(f"ML_GA_{k.upper()}")
+        if env_val is not None and env_val.strip():
+            overrides[k] = int(env_val) if k != "mutation_rate" else float(env_val)
+    base = (f"ML_GA_PROFILE={profile} | population={params['population_size']}"
+            f" generations={params['generations']} candidate_top_n={params['candidate_top_n']}"
+            f" elite={params['elite_size']} tournament={params['tournament_size']}"
+            f" mutation={params['mutation_rate']:.2f}")
+    extra = f" +overrides: {overrides}" if overrides else ""
+    ml_logger.service.info("%s%s", base, extra)
+    ml_logger.service_console.info("%s%s", base, extra)
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Application lifespan — store ml_dir in app.state."""
     app.state.ml_dir = ML_DIR
+
+    _log_ga_profile()
     ml_logger.service.info("ML service started, ml_dir=%s", ML_DIR)
+    ml_logger.service_console.info("ML service started, ml_dir=%s", ML_DIR)
     yield
     ml_logger.service.info("ML service shutting down")
+    ml_logger.service_console.info("ML service shutting down")
 
 
 app = FastAPI(

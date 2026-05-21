@@ -129,6 +129,78 @@ DEFAULT_DISTRIBUTION_PENALTY_SCALE = 5.0
 DEFAULT_CLASSROOM_STICKINESS_WEIGHT = 5.0
 DEFAULT_COMPACT_BONUS_WEIGHT = 0.0
 
+# ── GA Profile from Environment ─────────────────────────────────────
+
+GA_PROFILES = {
+    "fast": {
+        "candidate_pool_size": 500,
+        "candidate_top_n": 40,
+        "population_size": 60,
+        "generations": 60,
+        "elite_size": 6,
+        "tournament_size": 4,
+        "mutation_rate": 0.10,
+    },
+    "default": {
+        "candidate_pool_size": 500,
+        "candidate_top_n": 60,
+        "population_size": 100,
+        "generations": 100,
+        "elite_size": 10,
+        "tournament_size": 5,
+        "mutation_rate": 0.10,
+    },
+    "quality": {
+        "candidate_pool_size": 500,
+        "candidate_top_n": 100,
+        "population_size": 160,
+        "generations": 200,
+        "elite_size": 16,
+        "tournament_size": 6,
+        "mutation_rate": 0.12,
+    },
+}
+
+ENV_GA_KEYS = [
+    "candidate_pool_size",
+    "candidate_top_n",
+    "population_size",
+    "generations",
+    "elite_size",
+    "tournament_size",
+    "mutation_rate",
+]
+
+
+def _resolve_ga_params() -> dict[str, int | float]:
+    """Merge ML_GA_PROFILE with per-key environment overrides.
+
+    Priority (high → low):
+      1. Per-key env var (ML_GA_POPULATION_SIZE, etc.)
+      2. Profile preset (fast / default / quality)
+      3. Module-level DEFAULT_* constants
+    """
+    import os
+
+    profile = os.environ.get("ML_GA_PROFILE", "default").strip().lower()
+    if profile not in GA_PROFILES:
+        logger.warning("Unknown ML_GA_PROFILE=%r, falling back to 'default'", profile)
+        profile = "default"
+
+    params: dict[str, int | float] = dict(GA_PROFILES[profile])
+
+    # individual env overrides
+    for key in ENV_GA_KEYS:
+        env_val = os.environ.get(f"ML_GA_{key.upper()}")
+        if env_val is not None and env_val.strip():
+            try:
+                params[key] = int(env_val) if key != "mutation_rate" else float(env_val)
+            except ValueError:
+                logger.warning("Invalid ML_GA_%s=%r, ignoring", key.upper(), env_val)
+
+    return params
+
+
 DEFAULT_RULE_WEIGHTS = {
     "weekday_load_penalty": WEEKDAY_LOAD_PENALTY,
     "room_day_load_penalty": ROOM_DAY_LOAD_PENALTY,
@@ -984,6 +1056,15 @@ def build_candidate_pools(
         )
         add_timing("rank_time", rank_started_at)
         pool_candidates = ranked[: max(1, min(candidate_top_n, len(ranked)))]
+        from collections import Counter as _Ctr
+        _cand_weeks = _Ctr(int(c["week_number"]) for c in pool_candidates)
+        log_chain("候选池周分布", {
+            "task_id": task_id,
+            "fragments": required_fragments,
+            "top_n": len(pool_candidates),
+            "total_ranked": len(ranked),
+            "by_week": dict(sorted(_cand_weeks.items())),
+        })
         base_summary = summarize_candidate_pool(candidates, pool_candidates)
         task_diagnostic.update({
             "raw_candidate_count": len(candidates),
@@ -1544,13 +1625,13 @@ def run_ga_pipeline_by_task(
     model_path: Path = MODEL_PATH,
     schema_path: Path = FEATURE_SCHEMA_PATH,
     variant_count: int = 3,
-    candidate_pool_size: int = DEFAULT_CANDIDATE_POOL_SIZE,
-    candidate_top_n: int = DEFAULT_CANDIDATE_TOP_N,
-    population_size: int = DEFAULT_POPULATION_SIZE,
-    generations: int = DEFAULT_GENERATIONS,
-    elite_size: int = DEFAULT_ELITE_SIZE,
-    tournament_size: int = DEFAULT_TOURNAMENT_SIZE,
-    mutation_rate: float = DEFAULT_MUTATION_RATE,
+    candidate_pool_size: int | None = None,
+    candidate_top_n: int | None = None,
+    population_size: int | None = None,
+    generations: int | None = None,
+    elite_size: int | None = None,
+    tournament_size: int | None = None,
+    mutation_rate: float | None = None,
     exclude_weekends: bool = False,
     random_seed: int | None = None,
 ) -> dict[str, Any]:
@@ -1571,6 +1652,16 @@ def run_ga_pipeline_by_task(
         fetch_teacher_profiles,
         load_db_config,
     )
+
+    # Resolve GA params: env profile → explicit kwargs (kwargs win)
+    _env = _resolve_ga_params()
+    candidate_pool_size = candidate_pool_size if candidate_pool_size is not None else _env["candidate_pool_size"]
+    candidate_top_n = candidate_top_n if candidate_top_n is not None else _env["candidate_top_n"]
+    population_size = population_size if population_size is not None else _env["population_size"]
+    generations = generations if generations is not None else _env["generations"]
+    elite_size = elite_size if elite_size is not None else _env["elite_size"]
+    tournament_size = tournament_size if tournament_size is not None else _env["tournament_size"]
+    mutation_rate = mutation_rate if mutation_rate is not None else _env["mutation_rate"]
 
     from datetime import datetime as _dt
     ROOT_DIR = Path(__file__).resolve().parents[1]
@@ -1656,78 +1747,16 @@ def run_ga_pipeline_by_task(
     )
     result = run_ga_pipeline(args)
 
-    # Persist schemes + detect conflicts directly to MySQL
-    try:
-        from persist_scheme import (
-            reject_old_candidates, insert_scheme, insert_item,
-            insert_conflict, update_scheme_conflict_state,
-            detect_conflicts, summarize_violations,
-        )
-
-        from generate_training_samples import connect, load_db_config
-        with connect(load_db_config()) as conn:
-            reject_old_candidates(conn, task_id)
-            log_chain("DB: 旧候选方案已标记为 REJECTED")
-
-            schemes_data = result.get("schemes", [])
-            all_item_rows = result.get("item_rows", [])
-            for idx, (scheme_info, item_rows) in enumerate(zip(schemes_data, all_item_rows)):
-                scheme_db = {
-                    "scheme_name": scheme_info.get("scheme_name", f"方案 {idx + 1:03d}"),
-                    "summary": summarize_scheme(item_rows, [], None),
-                    "scheme_score": None,
-                    "evaluation_summary": None,
-                    "model_version": "v1",
-                    "conflict_summary": None,
-                    "valid": True,
-                }
-                scheme_id = insert_scheme(conn, task_id, scheme_db)
-                log_chain("DB: 方案已落库", {"scheme_id": scheme_id, "name": scheme_db["scheme_name"]})
-
-                # Insert items
-                item_ids: list[int] = []
-                for row in item_rows:
-                    item_data = {
-                        "teaching_task_id": int(row["teaching_task_id"]),
-                        "classroom_id": int(row["classroom_id"]),
-                        "time_slot_id": int(row["time_slot_id"]),
-                        "valid": True,
-                        "conflict_message": row.get("reject_reason") or None,
-                    }
-                    item_id = insert_item(conn, scheme_id, item_data)
-                    item_ids.append(item_id)
-
-                # Detect conflicts from inserted items
-                item_records = [
-                    {"id": iid, "teaching_task_id": int(r["teaching_task_id"]),
-                     "classroom_id": int(r["classroom_id"]), "time_slot_id": int(r["time_slot_id"])}
-                    for iid, r in zip(item_ids, item_rows)
-                ]
-                violations = detect_conflicts(item_records, conn)
-                for v in violations:
-                    insert_conflict(conn, v)
-
-                conflict_summary = summarize_violations(violations)
-                valid = len(violations) == 0
-                update_scheme_conflict_state(conn, scheme_id, valid, conflict_summary)
-                log_chain("DB: 方案冲突检测完成",
-                          {"scheme_id": scheme_id, "valid": valid, "violations": len(violations)})
-
-        log_chain("DB: 全部方案持久化完成", {"task_id": task_id, "scheme_count": len(schemes_data)})
-        log_chain("Pipeline 按任务调度完成", {
-            "task_id": task_id,
-            "scheme_count": len(schemes_data),
-            "output_dir": str(output_dir) if output_dir else None,
-        })
-        ml_logger.pipeline_complete(task_id, {
-            "scheme_count": len(schemes_data),
-            "output_dir": str(output_dir) if output_dir else None,
-            "timings_ms": dict(RUN_TIMINGS),
-        })
-    except Exception as exc:
-        import traceback as _tb
-        log_chain("DB: 方案持久化失败（不影响 CSV 产物）",
-                  {"error": str(exc), "traceback": _tb.format_exc()})
+    log_chain("Pipeline 按任务调度完成", {
+        "task_id": task_id,
+        "scheme_count": len(result.get("schemes", [])),
+        "output_dir": str(output_dir) if output_dir else None,
+    })
+    ml_logger.pipeline_complete(task_id, {
+        "scheme_count": len(result.get("schemes", [])),
+        "output_dir": str(output_dir) if output_dir else None,
+        "timings_ms": dict(RUN_TIMINGS),
+    })
 
     return result
 
@@ -1850,6 +1879,14 @@ def run_ga_pipeline(args: SimpleNamespace) -> dict[str, Any]:
         raise ValueError("No teaching tasks available for scheme generation.")
     if not time_slots:
         raise ValueError("No time slots available for scheme generation.")
+
+    from collections import Counter as _Ctr
+    _before_week_dist = _Ctr(int(s["week_number"]) for s in time_slots)
+    log_chain("时间片周分布（GA 输入）", {
+        "total": len(time_slots),
+        "by_week": dict(sorted(_before_week_dist.items())),
+    })
+
     log_chain("排课基础数据加载完成", {
         "teaching_task_count": len(tasks),
         "classroom_count": len(classrooms),
@@ -1916,6 +1953,10 @@ def run_ga_pipeline(args: SimpleNamespace) -> dict[str, Any]:
             mutation_rate=args.mutation_rate,
             fitness_kwargs=fitness_kwargs,
         )
+
+        from collections import Counter as _Counter
+        _week_dist = _Counter(int(r.get("week_number", 0)) for r in rows)
+        log_chain("方案周分布", dict(sorted(_week_dist.items())))
         write_schemes_json(args.output_dir, [{"items": rows}])
         write_teacher_penalties(teacher_penalties, args.output_dir / TEACHER_PENALTIES_FILENAME)
         ga_summary_path = args.output_dir / "ga_summary.json"
@@ -1976,6 +2017,10 @@ def run_ga_pipeline(args: SimpleNamespace) -> dict[str, Any]:
         summary = summarize_scheme(rows, tasks, args.max_tasks)
         summary_rows.append({"scheme_no": scheme_no, **summary, **summarize_metrics(metrics)})
         all_item_rows.append(rows)
+
+        from collections import Counter as _Counter
+        _week_dist = _Counter(int(r.get("week_number", 0)) for r in rows)
+        log_chain(f"方案 {scheme_no} 周分布", dict(sorted(_week_dist.items())))
 
     write_schemes_json(args.output_dir, [{"items": r} for r in all_item_rows])
     ga_summary_path = args.output_dir / "ga_summary.json"
