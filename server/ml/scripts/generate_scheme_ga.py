@@ -1172,8 +1172,21 @@ def build_candidate_pools(
 
 
 def _template_ts_ids(day: int, period: int) -> list[int]:
-    """Generate unique time_slot-like IDs for template expansion across all weeks."""
+    """Generate unique time_slot-like IDs for template expansion across all weeks.
+    
+    Uses synthetic IDs (week*10000 + day*100 + period) for GA-internal conflict detection.
+    For output rows, use _real_time_slot_id() instead.
+    """
     return [_w * 10_000 + day * 100 + period for _w in range(1, TOTAL_WEEKS + 1)]
+
+
+def _real_time_slot_id(week: int, day: int, period: int) -> int:
+    """Compute the actual DB time_slot.id for a given (week, day, period).
+    
+    Seed data order: weeks outer, days middle, periods inner.
+    Each week has 7 days × 5 periods = 35 slots.
+    """
+    return (week - 1) * 35 + (day - 1) * 5 + period
 
 
 def conflicts_with_occupied(candidate: dict[str, Any], pool: dict[str, Any], occupied: dict[str, set[tuple[int, int]]]) -> bool:
@@ -1307,10 +1320,7 @@ def individual_rows(individual: list[int], pools: list[dict[str, Any]]) -> list[
                     "teacher_name": task.get("teacher_name") or "",
                     "fragment_index": pool["fragment_index"],
                     "classroom_id": classroom,
-                    "time_slot_id": candidate_ts_id,
-                    "week_number": week,
-                    "day_of_week": day,
-                    "period_index": period,
+                    "time_slot_id": _real_time_slot_id(week, day, period),
                     "predicted_score": round(float(candidate.get("predicted_score") or 0.0), 4),
                     "rule_score": candidate.get("rule_score") or 0.0,
                     "has_hard_conflict": candidate.get("has_hard_conflict") or 0,
@@ -1359,7 +1369,7 @@ def individual_assignments(individual: list[int], pools: list[dict[str, Any]]) -
                     teacher_id=pool["teacher_id"],
                     class_group_ids=pool["class_group_ids"],
                     classroom_id=classroom,
-                    time_slot_id=ts_id,
+                    time_slot_id=_real_time_slot_id(week, day, period),
                     week_number=week,
                     day_of_week=day,
                     period_index=period,
