@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import csv
 import json
+import os
 import random
 import sys
 from collections import Counter, defaultdict
@@ -129,6 +130,7 @@ DEFAULT_DISTRIBUTION_PENALTY_SCALE = 5.0
 DEFAULT_CLASSROOM_STICKINESS_WEIGHT = 5.0
 DEFAULT_COMPACT_BONUS_WEIGHT = 0.0
 TOTAL_WEEKS = 18
+WEEKLY_TEMPLATE_SLOTS = int(os.environ.get("ML_GA_WEEKLY_SLOTS", "2"))
 
 # ── GA Profile from Environment ─────────────────────────────────────
 
@@ -1059,9 +1061,10 @@ def build_candidate_pools(
         pool_candidates = ranked[: max(1, min(candidate_top_n, len(ranked)))]
         base_summary = summarize_candidate_pool(candidates, pool_candidates)
 
-        # --- 周模版模式：计算固定槽和零散片段 ---
-        base_weekly = required_fragments // TOTAL_WEEKS
-        extra_fragments = required_fragments % TOTAL_WEEKS
+        # --- 周模版模式：每周固定 N 节，课时排完即止 ---
+        base_weekly = min(WEEKLY_TEMPLATE_SLOTS, required_fragments)
+        covered_weeks = required_fragments // base_weekly if base_weekly > 0 else 0
+        extra_fragments = required_fragments - base_weekly * covered_weeks
 
         if base_weekly > 0 and pool_candidates:
             # 模版候选：按 (day, period, classroom) 去重，保留每个组合最高分的候选
@@ -1072,7 +1075,7 @@ def build_candidate_pools(
                 if _key not in _seen_key:
                     _seen_key.add(_key)
                     _template_pool.append(c)
-            # 每个模版槽共用一个候选池（候选不绑定周，展开时复制到所有周）
+            # 每个模版槽共用一个候选池（候选不绑定周，展开时复制到 covered_weeks 周）
             _tpl_top_n = min(30, len(_template_pool))
             for _tpl_idx in range(base_weekly):
                 pools.append({
@@ -1080,6 +1083,7 @@ def build_candidate_pools(
                     "class_group_ids": parse_id_tuple(task.get("class_group_ids")),
                     "fragment_index": _tpl_idx + 1,
                     "is_template": True,
+                    "covered_weeks": covered_weeks,
                     "candidates": _template_pool[:_tpl_top_n],
                 })
             # 零散片段：保留 week 信息
@@ -1091,7 +1095,6 @@ def build_candidate_pools(
                     "is_template": False,
                     "candidates": pool_candidates,
                 })
-        else:
             # 退化为传统模式：全部是独立零散片段
             for fragment_index in range(1, required_fragments + 1):
                 pools.append({
@@ -1171,13 +1174,13 @@ def build_candidate_pools(
     return pools
 
 
-def _template_ts_ids(day: int, period: int) -> list[int]:
-    """Generate unique time_slot-like IDs for template expansion across all weeks.
+def _template_ts_ids(day: int, period: int, weeks: int = TOTAL_WEEKS) -> list[int]:
+    """Generate unique time_slot-like IDs for template expansion across N weeks.
     
     Uses synthetic IDs (week*10000 + day*100 + period) for GA-internal conflict detection.
     For output rows, use _real_time_slot_id() instead.
     """
-    return [_w * 10_000 + day * 100 + period for _w in range(1, TOTAL_WEEKS + 1)]
+    return [_w * 10_000 + day * 100 + period for _w in range(1, weeks + 1)]
 
 
 def _real_time_slot_id(week: int, day: int, period: int) -> int:
@@ -1196,7 +1199,8 @@ def conflicts_with_occupied(candidate: dict[str, Any], pool: dict[str, Any], occ
     if pool.get("is_template"):
         day = int(candidate["day_of_week"])
         period = int(candidate["period_index"])
-        for _ts_id in _template_ts_ids(day, period):
+        _cw = pool.get("covered_weeks", TOTAL_WEEKS)
+        for _ts_id in _template_ts_ids(day, period, _cw):
             if (pool["teacher_id"], _ts_id) in occupied["teacher_slot"]:
                 return True
             if (classroom_id, _ts_id) in occupied["room_slot"]:
@@ -1218,7 +1222,8 @@ def occupy_candidate(candidate: dict[str, Any], pool: dict[str, Any], occupied: 
     if pool.get("is_template"):
         day = int(candidate["day_of_week"])
         period = int(candidate["period_index"])
-        for _ts_id in _template_ts_ids(day, period):
+        _cw = pool.get("covered_weeks", TOTAL_WEEKS)
+        for _ts_id in _template_ts_ids(day, period, _cw):
             occupied["teacher_slot"].add((pool["teacher_id"], _ts_id))
             occupied["room_slot"].add((classroom_id, _ts_id))
             for class_group_id in pool["class_group_ids"]:
@@ -1291,7 +1296,7 @@ def expand_template_individual(
         period = int(candidate["period_index"])
         classroom = int(candidate["candidate_classroom_id"])
         if pool.get("is_template"):
-            for week in range(1, TOTAL_WEEKS + 1):
+            for week in range(1, pool.get("covered_weeks", TOTAL_WEEKS) + 1):
                 expanded.append((week, day, period, classroom, pool["task_id"]))
         else:
             week = int(candidate["week_number"])
@@ -1311,7 +1316,7 @@ def individual_rows(individual: list[int], pools: list[dict[str, Any]]) -> list[
         classroom = int(candidate["candidate_classroom_id"])
         candidate_ts_id = int(candidate["candidate_time_slot_id"])
         if pool.get("is_template"):
-            for week in range(1, TOTAL_WEEKS + 1):
+            for week in range(1, pool.get("covered_weeks", TOTAL_WEEKS) + 1):
                 seq += 1
                 rows.append({
                     "sequence": seq,
@@ -1321,6 +1326,9 @@ def individual_rows(individual: list[int], pools: list[dict[str, Any]]) -> list[
                     "fragment_index": pool["fragment_index"],
                     "classroom_id": classroom,
                     "time_slot_id": _real_time_slot_id(week, day, period),
+                    "week_number": week,
+                    "day_of_week": day,
+                    "period_index": period,
                     "predicted_score": round(float(candidate.get("predicted_score") or 0.0), 4),
                     "rule_score": candidate.get("rule_score") or 0.0,
                     "has_hard_conflict": candidate.get("has_hard_conflict") or 0,
@@ -1363,7 +1371,7 @@ def individual_assignments(individual: list[int], pools: list[dict[str, Any]]) -
         ts_id = int(candidate["candidate_time_slot_id"])
         task_id = pool["task_id"]
         if pool.get("is_template"):
-            for week in range(1, TOTAL_WEEKS + 1):
+            for week in range(1, pool.get("covered_weeks", TOTAL_WEEKS) + 1):
                 assignments.append(PseudoAssignment(
                     task_id=task_id,
                     teacher_id=pool["teacher_id"],
@@ -1401,6 +1409,7 @@ def summarize_individual_conflict_hotspots(individual: list[int], pools: list[di
         ts_id = int(candidate["candidate_time_slot_id"])
         week = int(candidate["week_number"])
         if pool.get("is_template"):
+            _cw = pool.get("covered_weeks", TOTAL_WEEKS)
             _items: list[dict[str, Any]] = [
                 {"task_id": pool["task_id"], "teacher_id": pool["teacher_id"],
                  "fragment_index": pool["fragment_index"], "classroom_id": classroom,
@@ -1409,7 +1418,7 @@ def summarize_individual_conflict_hotspots(individual: list[int], pools: list[di
                  "predicted_score": round(float(candidate.get("predicted_score") or 0.0), 6),
                  "rule_score": round(float(candidate.get("rule_score") or 0.0), 6),
                  "reject_reason": candidate.get("reject_reason") or ""}
-                for _w in range(1, TOTAL_WEEKS + 1)
+                for _w in range(1, _cw + 1)
             ]
             for _item in _items:
                 teacher_slot.setdefault((pool["teacher_id"], _item["time_slot_id"]), []).append(_item)
@@ -1487,8 +1496,7 @@ def evaluate_individual(
         candidate_hard_conflicts += int(candidate.get("has_hard_conflict") or 0)
         teacher_profile_penalty_total += float(candidate.get("teacher_profile_penalty") or 0.0)
         if pool.get("is_template"):
-            # 模版基因：展开到所有 18 周
-            for _w in range(1, TOTAL_WEEKS + 1):
+            for _w in range(1, pool.get("covered_weeks", TOTAL_WEEKS) + 1):
                 _ts_id = _w * 10_000 + day_of_week * 100 + period_index
                 teacher_slot[(teacher_id, _ts_id)] += 1
                 room_slot[(room_id, _ts_id)] += 1
