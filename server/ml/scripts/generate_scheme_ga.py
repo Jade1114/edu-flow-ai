@@ -1095,6 +1095,7 @@ def build_candidate_pools(
                     "is_template": False,
                     "candidates": pool_candidates,
                 })
+        else:
             # 退化为传统模式：全部是独立零散片段
             for fragment_index in range(1, required_fragments + 1):
                 pools.append({
