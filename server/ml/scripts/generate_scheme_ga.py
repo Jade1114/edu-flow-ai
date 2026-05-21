@@ -1,8 +1,8 @@
 """Generate scheduling schemes with GA + LightGBM.
 
 LightGBM scores local scheduling candidates. The genetic algorithm searches complete
-scheme combinations globally. Java persists the CSV output and writes
-teacher profile penalties. This script consumes the prepared penalty file only.
+scheme combinations globally. Python reads task config and confirmed teacher profile
+preferences from MySQL, writes CSV/JSON outputs, and Java persists the final result.
 """
 
 from __future__ import annotations
@@ -770,13 +770,14 @@ def normalize_teacher_penalties(raw: dict[str, Any]) -> dict[int, dict[str, Any]
     return penalties
 
 
-def fallback_teacher_penalties(teacher_profiles: dict[int, dict[str, object]]) -> dict[int, dict[str, Any]]:
+def build_teacher_penalties_from_profiles(teacher_profiles: dict[int, dict[str, object]]) -> dict[int, dict[str, Any]]:
     return {
         teacher_id: {
             "unavailable_slots": normalize_unavailable_slots(profile.get("unavailable_slots")),
             "max_weekly_hours": profile.get("max_weekly_hours"),
             "penalty_weight": 0.05,
-            "reason": "MySQL teacher_profile fallback",
+            "reason": "MySQL teacher_profile",
+            "profile_preference": profile.get("profile_preference") if isinstance(profile.get("profile_preference"), dict) else {},
         }
         for teacher_id, profile in teacher_profiles.items()
     }
@@ -1536,153 +1537,6 @@ def write_candidate_diagnostics(output_path: Path) -> None:
     output_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
 
 
-# ── LLM Teacher Penalty Parser ────────────────────────────────────────
-
-def _llm_config_from_env() -> dict[str, str] | None:
-    """Read LLM API config from environment (same env vars Java uses)."""
-    import os
-    api_key = os.environ.get("OPENAI_CHAT_API_KEY") or os.environ.get("OPENAI_API_KEY")
-    if not api_key:
-        return None
-    return {
-        "api_key": api_key,
-        "base_url": (
-            os.environ.get("OPENAI_CHAT_BASE_URL")
-            or os.environ.get("OPENAI_BASE_URL")
-            or "https://api.openai.com/v1"
-        ),
-        "model": (
-            os.environ.get("OPENAI_CHAT_MODEL")
-            or "deepseek-v4-pro"
-        ),
-    }
-
-
-def _call_llm(prompt: str, config: dict[str, str]) -> str:
-    """Call an OpenAI-compatible chat API with the given prompt."""
-    import json as _jenc
-    import urllib.request as _ur
-
-    url = f"{config['base_url'].rstrip('/')}/chat/completions"
-    body = _jenc.dumps({
-        "model": config["model"],
-        "messages": [{"role": "user", "content": prompt}],
-        "temperature": 0.1,
-        "max_tokens": 4096,
-    }).encode("utf-8")
-
-    headers = {
-        "Content-Type": "application/json",
-        "Authorization": f"Bearer {config['api_key']}",
-    }
-
-    req = _ur.Request(url, data=body, headers=headers, method="POST")
-    try:
-        with _ur.urlopen(req, timeout=60) as resp:
-            result = _jenc.loads(resp.read().decode("utf-8"))
-        choices = result.get("choices", [])
-        if not choices:
-            raise ValueError(f"LLM response has no choices: {result}")
-        content = choices[0]["message"]["content"]
-        log_chain("LLM API 调用成功", {"model": config.get("model"), "input_tokens": len(prompt), "response_length": len(content)})
-        return content
-    except Exception as exc:
-        log_chain("LLM API 调用失败", {"model": config.get("model"), "error": str(exc)})
-        raise ValueError(f"LLM API call failed: {exc}") from exc
-
-
-def _parse_teacher_penalties_via_llm(
-    teacher_profiles: dict[int, dict[str, Any]],
-    llm_config: dict[str, str],
-) -> dict[int, dict[str, Any]]:
-    """Use LLM to parse teacher profile texts into structured GA penalties.
-
-    Falls back gracefully on error — logs warning and returns empty dict.
-    """
-    import traceback as _tb
-
-    # Build prompt: list all teachers with their raw profile text
-    teacher_entries = []
-    for tid, profile in sorted(teacher_profiles.items()):
-        text = profile.get("raw_text") or ""
-        if not text.strip():
-            continue
-        teacher_entries.append(f"Teacher ID {tid}:\n{text.strip()}")
-
-    if not teacher_entries:
-        log_chain("LLM 教师罚秒析: 无有效教师文本，跳过")
-        return {}
-
-    prompt = (
-        "你是一个排课专家。请从以下教师档案中提取排课约束条件。\n"
-        "每位教师的档案可能包含：可用时间、不可用时间、每周课时上限、\n"
-        "特殊备注（如身体情况、教研活动、毕业设计指导等）。\n\n"
-        "请为每位教师输出 JSON，格式如下：\n"
-        '{\n'
-        '  "teacher_id": {\n'
-        '    "unavailable_slots": [[day, period], ...],\n'
-        '    "max_weekly_hours": 12,\n'
-        '    "penalty_weight": 0.08,\n'
-        '    "reason": "原因简述"\n'
-        '  }\n'
-        '}\n\n'
-        "注意：\n"
-        "- 星期用 1-7（周一=1，周日=7），节次用 1-8\n"
-        "- 没有约束的字段设为 null\n"
-        "- penalty_weight 取值 0.02~0.15，一般约束 0.05，特殊 0.10~0.15\n"
-        "- 只在 JSON 中包含明确提到的约束，不要凭空编造\n"
-        "- 只输出 JSON，不要解释\n\n"
-        + "\n---\n".join(teacher_entries)
-    )
-
-    try:
-        response = _call_llm(prompt, llm_config)
-        parsed = json.loads(response)
-        if not isinstance(parsed, dict):
-            raise ValueError(f"LLM returned non-dict: {response[:200]}")
-
-        # Validate and normalize
-        result: dict[int, dict[str, Any]] = {}
-        for tid_str, penalty in parsed.items():
-            try:
-                tid = int(tid_str)
-            except (TypeError, ValueError):
-                continue
-            if not isinstance(penalty, dict):
-                continue
-            result[tid] = {
-                "unavailable_slots": _normalize_llm_slots(penalty.get("unavailable_slots")),
-                "max_weekly_hours": (int(penalty["max_weekly_hours"])
-                                     if penalty.get("max_weekly_hours") is not None else None),
-                "penalty_weight": float(penalty.get("penalty_weight", 0.05)),
-                "reason": str(penalty.get("reason") or ""),
-            }
-
-        log_chain("LLM 教师罚秒析完成",
-                  {"teacher_count": len(result), "teachers": list(result.keys())})
-        return result
-
-    except Exception as exc:
-        log_chain("LLM 教师罚秒析失败", {"error": str(exc), "traceback": _tb.format_exc()})
-        return {}
-
-
-def _normalize_llm_slots(raw: Any) -> list[list[int]]:
-    """Normalize LLM-output unavailable slots [[day, period], ...]."""
-    if not raw or not isinstance(raw, (list, tuple)):
-        return []
-    normalized: list[list[int]] = []
-    for slot in raw:
-        if isinstance(slot, (list, tuple)) and len(slot) >= 2:
-            try:
-                d, p = int(slot[0]), int(slot[1])
-                if 1 <= d <= 7 and 1 <= p <= 8:
-                    normalized.append([d, p])
-            except (TypeError, ValueError):
-                continue
-    return sorted(normalized)
-
-
 def run_ga_pipeline_by_task(
     task_id: int,
     db_config: dict[str, str] | None = None,
@@ -1762,25 +1616,9 @@ def run_ga_pipeline_by_task(
     # Filter to task's teaching tasks
     teaching_task_ids_str = ",".join(str(tid) for tid in teaching_task_ids)
 
-    # Try LLM parsing of teacher profiles first, fallback to rule-based
-    llm_config = _llm_config_from_env()
-    if llm_config:
-        log_chain("尝试 LLM 解析教师画像惩罚", {"teacher_count": len(teacher_profiles)})
-        llm_penalties = _parse_teacher_penalties_via_llm(teacher_profiles, llm_config)
-    else:
-        log_chain("LLM 未配置（缺少 API_KEY），使用规则回退",
-                  {"checked_vars": ["OPENAI_CHAT_API_KEY", "OPENAI_API_KEY"]})
-        llm_penalties = {}
+    teacher_penalties = build_teacher_penalties_from_profiles(teacher_profiles)
+    log_chain("教师画像惩罚由 MySQL 已确认偏好生成", {"teacher_count": len(teacher_penalties)})
 
-    # Merge: LLM results override fallback for teachers that were parsed
-    teacher_penalties = fallback_teacher_penalties(teacher_profiles)
-    for tid, llm_p in llm_penalties.items():
-        if tid in teacher_penalties:
-            teacher_penalties[tid].update(llm_p)
-        else:
-            teacher_penalties[tid] = llm_p
-
-    # Write teacher penalties to disk for the pipeline
     teacher_penalties_path = output_dir / "teacher_penalties.json"
     output_dir.mkdir(parents=True, exist_ok=True)
     write_teacher_penalties(teacher_penalties, teacher_penalties_path)

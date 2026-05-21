@@ -1,4 +1,4 @@
-package com.yuy.eduflow.rag;
+package com.yuy.eduflow.llm;
 
 import com.yuy.eduflow.common.exception.ValidationException;
 import java.net.http.HttpClient;

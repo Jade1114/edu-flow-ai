@@ -175,21 +175,23 @@ python scripts/evaluate_scheme_demo.py --scheme-dir data/generated --json --teac
 ```text
 Java:
   task orchestration
-  teacher profile preference parsing
-  teacher_penalties.json writing
-  Python script invocation
+  teacher profile preference parsing / confirmation
+  ML API task submission
   conflict check
   persistence
   SSE progress
 
 Python:
+  task config loading from DB
+  confirmed teacher profile preference loading from DB
+  teacher_penalties.json writing
   hard-legal candidate construction
   GA hard-feasible schedule search
   optional LightGBM soft preference scoring
   CSV / summary output
 ```
 
-Python does not own teacher profile parsing. Teacher profile preference parsing belongs to Java, and Python consumes only `teacher_penalties.json`.
+Python does not own teacher profile parsing. Teacher profile preference parsing belongs to Java, and Python only consumes confirmed MySQL `teacher_profile.profile_preference_json` plus `availability_matrix_json`.
 
 ## Related Project Docs
 

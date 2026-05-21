@@ -265,7 +265,7 @@ def fetch_teacher_profiles(connection) -> dict[int, dict[str, object]]:
         connection,
         """
         SELECT p.teacher_id, p.availability_matrix_json,
-               p.profile_note, p.profile_preference_json,
+               p.profile_preference_json,
                t.max_weekly_hours, t.name AS teacher_name,
                t.department
         FROM teacher_profile p
@@ -283,19 +283,10 @@ def fetch_teacher_profiles(connection) -> dict[int, dict[str, object]]:
         if max_hours is None:
             db_max = row.get("max_weekly_hours")
             max_hours = int(db_max) if db_max is not None else None
-        parts = [
-            f"教师: {row.get('teacher_name') or tid}",
-            f"部门: {row.get('department') or '未知'}",
-            f"固定周可用性矩阵: {'已维护' if row.get('availability_matrix_json') else '未维护'}",
-            f"其他排课说明: {row.get('profile_note') or '无'}",
-            f"LLM结构化偏好: {row.get('profile_preference_json') or '无'}",
-        ]
-        raw_text = "\n".join(parts)
         profiles[tid] = {
             "unavailable_slots": unavailable,
             "max_weekly_hours": max_hours,
             "profile_preference": parsed_preference,
-            "raw_text": raw_text,
             "teacher_name": row.get("teacher_name") or "",
             "department": row.get("department") or "",
         }

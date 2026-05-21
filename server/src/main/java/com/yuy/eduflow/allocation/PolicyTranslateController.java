@@ -2,7 +2,7 @@ package com.yuy.eduflow.allocation;
 
 import com.yuy.eduflow.common.ApiResponse;
 import com.yuy.eduflow.common.exception.BusinessException;
-import com.yuy.eduflow.rag.OpenAiChatClient;
+import com.yuy.eduflow.llm.OpenAiChatClient;
 import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
 import java.util.LinkedHashMap;

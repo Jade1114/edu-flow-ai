@@ -684,9 +684,6 @@ function stageLabel(stage) {
   const labels = {
     ml: "调用自训练模型...",
     eval: "评估方案质量...",
-    rag: "检索画像...",
-    prompt: "构建 Prompt...",
-    llm: "等待模型...",
     parse: "解析结果...",
     persist: "保存方案...",
     conflict: "检测冲突...",

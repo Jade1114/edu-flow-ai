@@ -1,6 +1,6 @@
 # LightGBM 训练样本与实施记录
 
-> 更新时间：2026-05-18  
+> 更新时间：2026-05-21
 > 来源：由药柜 `projects/edu-flow-ai/features/02-训练样本字段表.md` 迁移并按当前代码状态更新。
 
 ## 模型定位
@@ -165,7 +165,7 @@ cd server/ml
 source .venv/bin/activate
 python scripts/generate_training_samples.py
 python scripts/train_lightgbm.py
-# 方案生成不再支持 CLI 参数启动；通过 Java / ML API 按 allocation_task_id 触发 run_ga_pipeline_by_task(task_id)
+# 方案生成不再支持 CLI 参数启动；Java 调用 ML API，ML API 按 allocation_task_id 触发 run_ga_pipeline_by_task(task_id)
 python scripts/evaluate_scheme_demo.py --scheme-dir data/generated --json --teacher-penalties data/generated/teacher_penalties.json
 ```
 

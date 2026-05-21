@@ -1,7 +1,7 @@
 package com.yuy.eduflow.teacher;
 
 import com.yuy.eduflow.common.exception.BusinessException;
-import com.yuy.eduflow.rag.OpenAiChatClient;
+import com.yuy.eduflow.llm.OpenAiChatClient;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;

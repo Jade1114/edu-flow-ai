@@ -41,7 +41,7 @@
     <logger name="com.yuy.eduflow.teacher" level="INFO">
         <appender-ref ref="SCHEDULE_CHAIN_FILE"/>
     </logger>
-    <logger name="com.yuy.eduflow.rag" level="INFO">
+    <logger name="com.yuy.eduflow.llm" level="INFO">
         <appender-ref ref="SCHEDULE_CHAIN_FILE"/>
     </logger>
     <logger name="com.yuy.eduflow.assignment" level="INFO"/>
