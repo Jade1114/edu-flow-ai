@@ -17,7 +17,7 @@ from typing import Any
 
 # ── 可调参数 ─────────────────────────────────────────────
 
-WEEKLY_OPTIONS = [4, 3, 2, 1]      # 允许的每周节数（降序，用于 w1≥w2 去重）
+WEEKLY_OPTIONS = [3, 2, 1]      # 允许的每周节数（降序，用于 w1≥w2 去重）
 DEFAULT_TOTAL_WEEKS = 18           # 学期总周数
 MIN_SEGMENT_WEEKS = 2              # 模板段最少持续几周
 MAX_TOTAL = 30                     # 单任务最多生成多少种组合
