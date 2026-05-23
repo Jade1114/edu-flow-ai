@@ -8,17 +8,4 @@
 .DS_Store
 .claude
 
-server/target/
-server/ml/.venv/
-server/ml/data/**
-!server/ml/data/**/
-!server/ml/data/**/.gitkeep
-server/ml/models/**
-!server/ml/models/**/
-!server/ml/models/**/.gitkeep
-server/ml/__pycache__/
-server/ml/api/__pycache__/
-server/ml/api/routers/__pycache__/
-server/ml/scripts/__pycache__/
-
 logs/
