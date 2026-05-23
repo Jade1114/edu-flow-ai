@@ -25,6 +25,7 @@ MAX_TOTAL = 30                     # 单任务最多生成多少种组合
 
 def enumerate_templates(
     periods_needed: int,
+    task_weeks: int | None = None,
     total_weeks: int = DEFAULT_TOTAL_WEEKS,
 ) -> list[list[dict[str, int]]]:
     """枚举教学任务的所有代表性模板组合。
@@ -37,11 +38,15 @@ def enumerate_templates(
 
     Args:
         periods_needed: 需要排的节次数（总课时 ÷ 2）
-        total_weeks: 学期总周数
+        task_weeks: 教学任务实际有效周数（如 1-17 周则传 17）。
+                    为 None 时自动用 min(total_weeks, periods_needed)。
+        total_weeks: 学期总周数，默认 18。仅在 task_weeks 为 None 时使用。
 
     Returns:
         模板组合列表，最多 MAX_TOTAL 种。
     """
+    if task_weeks is not None:
+        total_weeks = task_weeks
     seen: set[tuple[tuple[int, int], ...]] = set()
     results: list[list[dict[str, int]]] = []
 
