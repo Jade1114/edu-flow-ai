@@ -56,22 +56,42 @@ else:
 ## ML 目录
 
 ```text
-server/ml/
-├── README.md
+ml/
+├── __init__.py
+├── main.py                    # 应用入口（214 行，瘦身后）
+├── ga_config.py               # GA 参数配置
+├── logging_config.py
+├── log_events.py
+├── ml_logger.py
 ├── requirements.txt
-├── prompts/
-│   ├── teacher-penalty-system.md
-│   └── teacher-penalty-user-template.md
-├── data/              # 生成数据，按 .gitignore 排除
-├── models/            # 模型产物，按 .gitignore 排除
-└── scripts/
-    ├── generate_training_samples.py
-    ├── train_lightgbm.py
-    ├── predict_demo.py
-    ├── evaluate_model.py
-    ├── generate_scheme_ga.py        # 主生成入口
-    ├── evaluate_scheme_demo.py
-    └── build_feedback_training_samples.py
+├── api/                       # FastAPI 服务
+│   ├── main.py
+│   ├── routers/
+│   ├── schemas.py
+│   └── task_store.py
+├── data/                      # 生成数据，按 .gitignore 排除
+│   └── generated/
+├── models/                    # 模型产物，按 .gitignore 排除
+├── scheduling/                # GA 引擎模块
+│   ├── domain/
+│   │   ├── features.py
+│   │   ├── teacher_penalties.py
+│   │   └── teacher_profile.py
+│   └── ga/
+│       ├── candidates.py      # 候选池构建
+│       ├── fitness.py         # 适应度评估
+│       ├── ga_operators.py    # 遗传算子（选择/交叉/变异）
+│       └── pipeline.py        # GA 主流程编排
+├── scripts/                   # 独立脚本
+│   ├── generate_training_samples.py
+│   ├── train_lightgbm.py
+│   ├── predict_demo.py
+│   ├── evaluate_model.py
+│   ├── generate_scheme_ga.py        # 主生成入口（调用 scheduling/ga/）
+│   ├── evaluate_scheme_demo.py
+│   └── build_feedback_training_samples.py
+└── training/                  # 训练层
+    └── config.py
 ```
 
 ## 核心脚本
@@ -94,8 +114,8 @@ server/ml/
 样本数：113400
 特征数：34
 类别特征数：6
-模型文件：server/ml/models/base/schedule_ranker_v1.txt
-特征 schema：server/ml/models/base/feature_schema.json
+模型文件：ml/models/base/schedule_ranker_v1.txt
+特征 schema：ml/models/base/feature_schema.json
 ```
 
 评估结果接近满分，是因为第一版标签由规则自动生成，模型主要学习规则评分逻辑；这不代表已经学习到真实教务偏好。真实偏好需要通过反馈训练闭环逐步积累。
@@ -161,7 +181,7 @@ Python 侧旧画像 RAG prompt 已删除；教师画像“其他说明”的 LLM
 ## 常用命令
 
 ```bash
-cd server/ml
+cd ml
 source .venv/bin/activate
 python scripts/generate_training_samples.py
 python scripts/train_lightgbm.py

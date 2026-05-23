@@ -1,0 +1,17 @@
+.git
+.gitignore
+.env
+.env.*
+node_modules
+ml/.venv
+*.md
+logs/
+target/
+dist/
+.alma-snapshots
+.vscode/
+.DS_Store
+__pycache__
+*.pyc
+ml/data/
+ml/models/
