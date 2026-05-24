@@ -55,7 +55,13 @@ from ml.scheduling.ga.fitness import (
 from ml.scheduling.ga.ga_operators import crossover, mutate, tournament_select
 from ml.scheduling.infra.generation_config import config_float, load_generation_config, rule_weights_from_config
 from ml.scheduling.infra.lightgbm import load_optional_lightgbm
-from ml.scheduling.ga.candidates import build_candidate_pools
+from ml.scheduling.ga.candidates import build_candidate_pools, diagnose_candidate_space
+from ml.scheduling.template.ga_adapter import (
+    build_task_combo_pool,
+    evolve_population_template,
+    individual_to_rows,
+)
+from ml.scheduling.template.enumerator import enumerate_templates
 from ml.scheduling.infra.output import (
     print_summary,
     summarize_metrics,
@@ -165,37 +171,55 @@ def generate_scheme(
     mutation_rate: float = DEFAULT_MUTATION_RATE,
     fitness_kwargs: dict[str, float] | None = None,
 ) -> tuple[list[dict[str, Any]], list, dict[str, Any]]:
-    pools = build_candidate_pools(
-        tasks=tasks, classrooms=classrooms, time_slots=time_slots,
-        teacher_profiles=teacher_profiles, booster=booster, schema=schema,
-        max_tasks=max_tasks, rng=rng,
-        candidate_pool_size=candidate_pool_size, candidate_top_n=candidate_top_n,
-        rule_weights=rule_weights, exclude_weekends=exclude_weekends,
-    )
-    if not pools:
-        raise ValueError("GA candidate pools are empty")
+    """模板版方案生成：枚举器 + 贪心段填充 + 模板级 GA 进化"""
+    total_weeks = 18
+    task_weeks_map: dict[int, int] = {}
+    for t in tasks:
+        tid = int(t["teaching_task_id"])
+        tw = int(t.get("task_weeks") or total_weeks)
+        task_weeks_map[tid] = tw
+
+    # 为每个任务构建 combo 候选池
+    log_chain("模板枚举器启动", {"task_count": len(tasks)})
+    task_pools: list[list[dict[str, Any]]] = []
+    task_ids: list[int] = []
+    for task in tasks:
+        tid = int(task["teaching_task_id"])
+        tw = task_weeks_map.get(tid, total_weeks)
+        pool = build_task_combo_pool(task, classrooms, time_slots, tw, rng)
+        if not pool:
+            raise ValueError(f"任务 {tid} 无可用模板组合，跳过")
+        task_pools.append(pool)
+        task_ids.append(tid)
+
+    log_chain("模板候选池构建完成", {
+        "task_count": len(tasks),
+        "total_combo_options": sum(len(p) for p in task_pools),
+    })
+
+    # GA 进化
     effective_fitness_kwargs = fitness_kwargs or {}
-    scored = evolve_population(
-        pools, rng,
-        population_size=population_size, generations=generations,
-        elite_size=elite_size, tournament_size=tournament_size,
-        mutation_rate=mutation_rate, fitness_kwargs=effective_fitness_kwargs,
+    scored = evolve_population_template(
+        task_pools, task_ids, rng,
+        population_size=population_size,
+        generations=generations,
+        elite_size=elite_size,
+        tournament_size=tournament_size,
+        mutation_rate=mutation_rate,
+        total_weeks=total_weeks,
     )
     best = scored[0]
-    repair_started_at = perf_counter()
-    best["individual"] = repair_individual(best["individual"], pools, rng, log_unresolved=True)
-    add_timing("repair_time", repair_started_at)
-    validate_started_at = perf_counter()
-    best["metrics"] = evaluate_individual(best["individual"], pools, **effective_fitness_kwargs)
-    add_timing("validate_time", validate_started_at)
-    rows = individual_rows(best["individual"], pools)
-    assignments = individual_assignments(best["individual"], pools)
-    metrics = {**best["metrics"], "candidate_pool_count": len(pools)}
+    metrics = {**best["metrics"], "task_count": len(tasks), "total_combo_options": sum(len(p) for p in task_pools)}
     log_chain("GA 最优方案", metrics)
-    ml_logger.ga_summary(metrics)
-    hotspots = summarize_individual_conflict_hotspots(best["individual"], pools)
-    log_chain("GA 最优方案冲突热点", hotspots)
-    ml_logger.ga_conflict_hotspots(hotspots)
+
+    # 展开为行
+    rows = individual_to_rows(best["individual"], task_pools, task_ids)
+    # 兼容原接口：dummy assignments（模板版暂不需用 assignments 做进一步处理）
+    assignments = []
+
+    week_dist = Counter(int(r.get("week_number", 0)) for r in rows)
+    log_chain("方案周分布", dict(sorted(week_dist.items())))
+
     return rows, assignments, metrics
 
 
