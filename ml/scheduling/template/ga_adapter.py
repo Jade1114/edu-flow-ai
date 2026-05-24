@@ -1,89 +1,83 @@
-"""GA 模板适配层：连接模板枚举器与 GA 主流程。
+"""GA 模板适配层：连接枚举器与 GA 主流程。
 
-每个教学任务从枚举器中选一个模板组合（combo），
-combo 内各段的 (day, period, classroom) 用贪心预填充。
-GA 只在"每个任务选哪个 combo"层面搜索。
+模板 = 教学任务的周节奏（每周几节 × 持续几周），不包含具体 slot。
+GA 负责：① 选哪个模板组合  ② 每个段填什么 (day, period, classroom)
 
-个体 = [combo_index_0, combo_index_1, ...]   ← 对应 tasks 顺序
+个体结构（定长，每任务 1+MAX_SEGMENTS 个基因）：
+  [combo_0, seg0_0, seg1_0, seg2_0,  combo_1, seg0_1, ...]
+  其中 combo 基因范围 = 0..N-1 种模板组合
+  seg 基因范围 = 0..候选 (day,period,classroom) 数-1
+  模板段数不足 MAX_SEGMENTS 的，多余 seg 基因忽略。
 """
 
 from __future__ import annotations
 
 import random
 from collections import Counter
-from time import perf_counter
-from typing import Any, Optional
+from typing import Any
 
 from ml.scheduling.template.enumerator import enumerate_templates
 from ml.scheduling.infra.constants import TOTAL_WEEKS
 
+# 每个任务预留的最大段数（与枚举器 MAX_SEGMENTS 一致）
+MAX_SEGMENTS = 3
 
-# ── 每个任务的组合 & 预填充 ──────────────────────────────
+
+# ── 候选池构建 ──────────────────────────────────────────
 
 
-def build_task_combo_pool(
-    task: dict[str, Any],
+def build_pools(
+    tasks: list[dict[str, Any]],
     classrooms: list[dict[str, Any]],
     time_slots: list[dict[str, Any]],
-    task_weeks: int,
     rng: random.Random,
-) -> list[dict[str, Any]]:
-    """为一个教学任务构建所有候选 combo 的预填充方案。
+) -> tuple[list[dict[str, Any]], list[list[dict[str, Any]]]]:
+    """构建模板节奏池 + 每任务的 slot 候选池。
 
-    每个 combo 候选 = {
-        "combo_index": int,          # 枚举器中的索引
-        "segments": [                 # 预填充后的段
-            {"weekly": int, "weeks": int, "day": int, "period": int, "classroom_id": int}
-        ],
-        "total_periods": int,
-        "fitness": float,             # 段内预评分（不包含跨任务冲突）
-    }
+    Returns:
+        combo_pools: 每任务一个 combo_[info, ...] 列表
+        task_candidate_pools: 每任务的 slot 候选 [(day, period, classroom), ...]
     """
-    periods = task.get("_periods_needed") or (int(task.get("total_hours") or 0) // 2)
-    if periods <= 0:
-        return []
+    combo_pools: list[list[dict[str, Any]]] = []
+    candidate_pools: list[list[dict[str, Any]]] = []
 
-    combos = enumerate_templates(periods, task_weeks=task_weeks)
-    if not combos:
-        return []
-
-    # 获取可用的 time_slot × classroom
-    available = _gather_slot_room_pairs(classrooms, time_slots, task, rng)
-    if not available:
-        return []
-
-    results: list[dict[str, Any]] = []
-    for ci, combo in enumerate(combos):
-        segments = _greedy_fill_combo(combo, available, rng)
-        if segments is None:
+    for task in tasks:
+        tid = int(task["teaching_task_id"])
+        periods = int(task.get("total_hours") or 0) // 2
+        if periods <= 0:
+            combo_pools.append([])
+            candidate_pools.append([])
             continue
-        total = sum(s["weekly"] * s["weeks"] for s in segments)
-        # 段内评分：段级冲突打分（越低越好）
-        penalty = _segment_inner_penalty(segments)
-        results.append({
-            "combo_index": ci,
-            "segments": segments,
-            "total_periods": total,
-            "inner_penalty": penalty,
-        })
 
-    # 按 inner_penalty 排序，低的排前面
-    results.sort(key=lambda x: x["inner_penalty"])
-    return results
+        # 1. 枚举模板节奏
+        tw = int(task.get("task_weeks") or TOTAL_WEEKS)
+        combos = enumerate_templates(periods, task_weeks=tw)
+        if not combos:
+            combo_pools.append([])
+            candidate_pools.append([])
+            continue
+
+        # 2. 构建 slot 候选
+        cands = _build_candidate_slots(task, classrooms, time_slots)
+        if not cands:
+            combo_pools.append([])
+            candidate_pools.append([])
+            continue
+
+        combo_pools.append(combos)
+        candidate_pools.append(cands)
+
+    return combo_pools, candidate_pools
 
 
-def _gather_slot_room_pairs(
+def _build_candidate_slots(
+    task: dict[str, Any],
     classrooms: list[dict[str, Any]],
     time_slots: list[dict[str, Any]],
-    task: dict[str, Any],
-    rng: random.Random,
 ) -> list[dict[str, Any]]:
-    """收集可用的 (day, period, classroom) 候选对"""
-    required_room_type = task.get("_required_room_type") or ""
+    """构建 (day, period, classroom) 候选（简化版：无需预填充阵容）"""
+    required_room_type = task.get("_required_room_type") or task.get("required_room_type") or ""
     total_student_count = int(task.get("total_student_count") or 0)
-    bound_classroom_id = task.get("bound_classroom_id")
-
-    # 过滤教室
     valid_rooms = [
         r for r in classrooms
         if int(r.get("capacity") or 0) >= total_student_count
@@ -91,193 +85,152 @@ def _gather_slot_room_pairs(
     if required_room_type:
         valid_rooms = [
             r for r in valid_rooms
-            if _is_room_type_match(required_room_type, r.get("classroom_type") or "")
+            if (required_room_type.strip().lower() == (r.get("classroom_type") or "").strip().lower())
         ]
-
     if not valid_rooms or not time_slots:
         return []
 
-    # 从 time_slots 提取 (day, period) 集合
-    slot_set: set[tuple[int, int]] = set()
+    slots_set: set[tuple[int, int]] = set()
     for s in time_slots:
-        slot_set.add((int(s["day_of_week"]), int(s["period_index"])))
+        slots_set.add((int(s["day_of_week"]), int(s["period_index"])))
 
-    # 生成候选对
-    pairs: list[dict[str, Any]] = []
-    for day, period in sorted(slot_set):
+    cands: list[dict[str, Any]] = []
+    for day, period in sorted(slots_set):
         for room in valid_rooms:
-            room_id = int(room["id"])
-            pair = {
+            cands.append({
                 "day": day,
                 "period": period,
-                "classroom_id": room_id,
-                "classroom_name": room.get("name") or "",
-                "capacity": int(room.get("capacity") or 0),
-            }
-            pairs.append(pair)
-
-    rng.shuffle(pairs)
-    return pairs
+                "classroom_id": int(room["id"]),
+            })
+    return cands
 
 
-def _greedy_fill_combo(
-    combo: list[dict[str, int]],
-    available: list[dict[str, Any]],
-    rng: random.Random,
-) -> Optional[list[dict[str, Any]]]:
-    """对一个模板组合的每个段贪心选最好的 (day, period, classroom)"""
-    segments: list[dict[str, Any]] = []
-    used_slots: set[tuple[int, int]] = set()  # (day, period) 段内去重
+# ── 个体编码 ─────────────────────────────────────────────
 
-    for seg in combo:
-        weekly = seg["weekly"]
-        weeks = seg["weeks"]
+# 个体定长 = (任务数) × (1 + MAX_SEGMENTS)
+# 每个任务: [combo_idx, seg0_idx, seg1_idx, seg2_idx]
+# combo_idx 范围: [0, combo_count)
+# seg_idx 范围: [0, candidate_count)
+# 如果 combo 的段数 < MAX_SEGMENTS，多余的 seg_idx 被忽略
 
-        best = None
-        best_score = float("inf")
 
-        for _ in range(min(50, len(available))):  # 尝试前50个
-            idx = rng.randrange(len(available))
-            cand = available[idx]
-            slot_key = (cand["day"], cand["period"])
-            if slot_key in used_slots:
+def individual_length(task_count: int) -> int:
+    return task_count * (1 + MAX_SEGMENTS)
+
+
+def _decode_individual(
+    individual: list[int],
+    combo_pools: list[list[dict[str, Any]]],
+    candidate_pools: list[list[dict[str, Any]]],
+    total_weeks: int = TOTAL_WEEKS,
+) -> list[dict[str, Any]]:
+    """将个体解码为展开的每周分配列表。
+
+    返回 [{week, day, period, classroom_id, task_id, teacher_id}, ...]
+    """
+    assignments: list[dict[str, Any]] = []
+
+    for task_idx in range(len(combo_pools)):
+        base = task_idx * (1 + MAX_SEGMENTS)
+        combo_idx = individual[base]
+        combos = combo_pools[task_idx]
+        cands = candidate_pools[task_idx]
+
+        if not combos or not cands:
+            continue
+        if combo_idx < 0 or combo_idx >= len(combos):
+            continue
+
+        combo = combos[combo_idx]
+
+        # 解码每个段
+        week_cursor = 1
+        for seg_i, seg in enumerate(combo):
+            w = seg["weekly"]
+            wk = seg["weeks"]
+            seg_gene_idx = base + 1 + seg_i
+            if seg_gene_idx >= len(individual):
+                break
+            cand_idx = individual[seg_gene_idx]
+            if cand_idx < 0 or cand_idx >= len(cands):
                 continue
+            cand = cands[cand_idx]
+            day = cand["day"]
+            period = cand["period"]
+            room = cand["classroom_id"]
 
-            # 评分：偏好大教室留有余量、偏好绑定教室
-            score = 0.0
-            score += 1.0 / (cand["capacity"] + 1) * 10  # 小教室更易冲突（扣分）
-            if cand.get("bound_classroom_id") and cand["classroom_id"] == cand["bound_classroom_id"]:
-                score -= 5  # 绑定教室加分
+            for week_off in range(wk):
+                wn = week_cursor + week_off
+                if wn > total_weeks:
+                    break
+                for p_off in range(w):
+                    p = period + p_off
+                    assignments.append({
+                        "week": wn,
+                        "day": day,
+                        "period": p,
+                        "classroom_id": room,
+                        "task_id": task_idx,
+                        "segment_idx": seg_i,
+                    })
+            week_cursor += wk
 
-            if score < best_score:
-                best_score = score
-                best = cand
-
-        if best is None:
-            return None  # 该组合不可行
-
-        used_slots.add((best["day"], best["period"]))
-        segments.append({
-            "weekly": weekly,
-            "weeks": weeks,
-            "day": best["day"],
-            "period": best["period"],
-            "classroom_id": best["classroom_id"],
-        })
-
-    return segments
-
-
-def _segment_inner_penalty(segments: list[dict[str, Any]]) -> float:
-    """段内惩罚：段之间如果用了相同的 (day, period) 会冲突"""
-    slot_weeks: dict[tuple[int, int], int] = {}
-    penalty = 0.0
-    for seg in segments:
-        key = (seg["day"], seg["period"])
-        wk = seg["weeks"]
-        if key in slot_weeks:
-            overlap = min(wk, slot_weeks[key])
-            penalty += overlap * 10  # 重叠周数 × 惩罚
-        slot_weeks[key] = max(slot_weeks.get(key, 0), wk)
-    return penalty
+    return assignments
 
 
 # ── GA 接口 ─────────────────────────────────────────────
 
 
 def random_individual_template(
-    task_pools: list[list[dict[str, Any]]],
+    combo_pools: list[list[dict[str, Any]]],
+    candidate_pools: list[list[dict[str, Any]]],
     rng: random.Random,
 ) -> list[int]:
-    """生成随机个体：每个任务随机选一个 combo"""
-    return [rng.randrange(len(pool)) for pool in task_pools]
+    """随机个体"""
+    n_genes = individual_length(len(combo_pools))
+    individual = [0] * n_genes
+    for task_idx in range(len(combo_pools)):
+        base = task_idx * (1 + MAX_SEGMENTS)
+        combos = combo_pools[task_idx]
+        cands = candidate_pools[task_idx]
+        if combos:
+            individual[base] = rng.randrange(len(combos))
+        for seg_i in range(MAX_SEGMENTS):
+            if cands:
+                individual[base + 1 + seg_i] = rng.randrange(len(cands))
+    return individual
 
 
 def evaluate_individual_template(
     individual: list[int],
-    task_pools: list[list[dict[str, Any]]],
-    task_ids: list[int],
+    combo_pools: list[list[dict[str, Any]]],
+    candidate_pools: list[list[dict[str, Any]]],
     total_weeks: int = TOTAL_WEEKS,
 ) -> dict[str, Any]:
-    """评估一个个体：展开所有任务的 combo，检测跨任务冲突。
+    """评估个体：展开 → 检测冲突 → 打分"""
+    assignments = _decode_individual(individual, combo_pools, candidate_pools, total_weeks)
 
-    Args:
-        individual: 每个任务选的 combo_index
-        task_pools: 每个任务的候选 combo 列表
-        task_ids: 任务 ID 列表（与 individual 顺序对应）
-        total_weeks: 学期总周数
+    # 冲突检测：同一个 (week, day, period) 不能被多个任务占用
+    slot_usage: dict[tuple[int, int, int], list[int]] = {}
+    for a in assignments:
+        key = (a["week"], a["day"], a["period"])
+        slot_usage.setdefault(key, []).append(a["task_id"])
 
-    Returns:
-        {"fitness": float, "hard_conflict_count": int, ...}
-    """
-    # 展开所有 combo → 周级分配
-    week_assignments: dict[tuple[int, int, int], list[int]] = {}  # (week, day, period) → [task_ids]
-    teacher_week_assign: dict[int, dict[tuple[int, int, int], list[int]]] = {}  # teacher → (w,d,p) → [task_ids]
-    room_week_assign: dict[int, dict[tuple[int, int, int], list[int]]] = {}
-    class_week_assign: dict[int, dict[tuple[int, int, int], list[int]]] = {}
-
-    for task_idx, combo_idx in enumerate(individual):
-        task_id = task_ids[task_idx]
-        pool = task_pools[task_idx]
-        if combo_idx >= len(pool):
-            continue
-        combo = pool[combo_idx]
-
-        # 按段展开
-        week_cursor = 1
-        for seg in combo["segments"]:
-            w = seg["weekly"]
-            wk = seg["weeks"]
-            day = seg["day"]
-            period = seg["period"]
-            room = seg["classroom_id"]
-
-            for week_off in range(wk):
-                wn = week_cursor + week_off
-                if wn > total_weeks:
-                    break
-                # 每个 weekly 节数要放在不同的 period 上
-                for p_off in range(w):
-                    p = period + p_off
-                    slot = (wn, day, p)
-
-                    # 全局 slot 占用
-                    week_assignments.setdefault(slot, []).append(task_id)
-
-                    # 教师 slot 占用（假设 teacher_id 在 task 里）
-                    # 实际上需要 teacher_id 才能做教师冲突检测
-                    # 简单版：只检测 slot 冲突
-
-            week_cursor += wk
-
-    # 冲突统计
     hard_conflict_count = 0
-    teacher_slot_conflicts = 0
-    room_slot_conflicts = 0
-    class_slot_conflicts = 0
+    for key, task_ids in slot_usage.items():
+        if len(task_ids) > 1:
+            hard_conflict_count += len(task_ids) - 1
 
-    for slot, task_list in week_assignments.items():
-        if len(task_list) > 1:
-            hard_conflict_count += len(task_list) - 1
+    # 完整度：检查是否每个任务都填满了
+    week_range = set(a["week"] for a in assignments)
 
-    # 适应度：冲突越少越好
-    fitness = -hard_conflict_count * 1000
-
-    # 软打分：inner_penalty 总和
-    inner_penalty = 0
-    for task_idx, combo_idx in enumerate(individual):
-        pool = task_pools[task_idx]
-        if combo_idx < len(pool):
-            inner_penalty += pool[combo_idx]["inner_penalty"]
-    fitness -= inner_penalty
+    fitness = -hard_conflict_count * 1000 - (total_weeks - len(week_range)) * 10
 
     return {
         "fitness": fitness,
         "hard_conflict_count": hard_conflict_count,
-        "teacher_slot_conflict_count": teacher_slot_conflicts,
-        "room_slot_conflict_count": room_slot_conflicts,
-        "class_slot_conflict_count": class_slot_conflicts,
-        "inner_penalty": inner_penalty,
+        "assignments": len(assignments),
+        "weeks_covered": len(week_range),
     }
 
 
@@ -286,7 +239,7 @@ def crossover_template(
     parent_b: list[int],
     rng: random.Random,
 ) -> list[int]:
-    """单点交叉：交换某个任务之后的 combo 选择"""
+    """单点按任务交叉"""
     n = len(parent_a)
     if n <= 1:
         return parent_a[:]
@@ -297,17 +250,23 @@ def crossover_template(
 
 def mutate_template(
     individual: list[int],
-    task_pools: list[list[dict[str, Any]]],
+    combo_pools: list[list[dict[str, Any]]],
+    candidate_pools: list[list[dict[str, Any]]],
     mutation_rate: float,
     rng: random.Random,
 ) -> list[int]:
-    """变异：以 mutation_rate 的概率随机重选某个任务的 combo"""
+    """变异：按概率重选 combo 或 seg 候选"""
     result = individual[:]
-    for i in range(len(result)):
-        if rng.random() < mutation_rate:
-            pool_size = len(task_pools[i])
-            if pool_size > 1:
-                result[i] = rng.randrange(pool_size)
+    for task_idx in range(len(combo_pools)):
+        base = task_idx * (1 + MAX_SEGMENTS)
+        combos = combo_pools[task_idx]
+        cands = candidate_pools[task_idx]
+
+        if rng.random() < mutation_rate and combos:
+            result[base] = rng.randrange(len(combos))
+        for seg_i in range(MAX_SEGMENTS):
+            if rng.random() < mutation_rate and cands:
+                result[base + 1 + seg_i] = rng.randrange(len(cands))
     return result
 
 
@@ -316,18 +275,17 @@ def tournament_select_template(
     tournament_size: int,
     rng: random.Random,
 ) -> list[int]:
-    """锦标赛选择"""
     n = len(scored)
     if n == 0:
         return []
     selected = [scored[rng.randrange(n)] for _ in range(tournament_size)]
-    selected.sort(key=lambda item: item["metrics"]["fitness"], reverse=True)
+    selected.sort(key=lambda x: x["metrics"]["fitness"], reverse=True)
     return selected[0]["individual"]
 
 
 def evolve_population_template(
-    task_pools: list[list[dict[str, Any]]],
-    task_ids: list[int],
+    combo_pools: list[list[dict[str, Any]]],
+    candidate_pools: list[list[dict[str, Any]]],
     rng: random.Random,
     *,
     population_size: int,
@@ -337,10 +295,8 @@ def evolve_population_template(
     mutation_rate: float,
     total_weeks: int = TOTAL_WEEKS,
 ) -> list[dict[str, Any]]:
-    """模板版 GA 进化主循环"""
-    # 初始化种群
     population = [
-        random_individual_template(task_pools, rng)
+        random_individual_template(combo_pools, candidate_pools, rng)
         for _ in range(population_size)
     ]
 
@@ -348,7 +304,7 @@ def evolve_population_template(
         scored = [
             {
                 "individual": ind,
-                "metrics": evaluate_individual_template(ind, task_pools, task_ids, total_weeks),
+                "metrics": evaluate_individual_template(ind, combo_pools, candidate_pools, total_weeks),
             }
             for ind in population
         ]
@@ -356,27 +312,25 @@ def evolve_population_template(
 
         if gen == 1 or gen == generations or gen % 5 == 0:
             m = scored[0]["metrics"]
-            print(f"  Gen {gen:3d}: fitness={m['fitness']:.1f}, conflicts={m['hard_conflict_count']}")
+            print(f"  Gen {gen:3d}: fitness={m['fitness']:.1f}, conflicts={m['hard_conflict_count']}, "
+                  f"assignments={m['assignments']}, weeks={m['weeks_covered']}")
 
-        # 精英保留
         elite_count = max(1, min(elite_size, len(scored)))
         next_pop = [item["individual"][:] for item in scored[:elite_count]]
 
-        # 后代生成
         while len(next_pop) < population_size:
             p1 = tournament_select_template(scored, tournament_size, rng)
             p2 = tournament_select_template(scored, tournament_size, rng)
             child = crossover_template(p1, p2, rng)
-            child = mutate_template(child, task_pools, mutation_rate, rng)
+            child = mutate_template(child, combo_pools, candidate_pools, mutation_rate, rng)
             next_pop.append(child)
 
         population = next_pop
 
-    # 最终评估
     scored = [
         {
             "individual": ind,
-            "metrics": evaluate_individual_template(ind, task_pools, task_ids, total_weeks),
+            "metrics": evaluate_individual_template(ind, combo_pools, candidate_pools, total_weeks),
         }
         for ind in population
     ]
@@ -384,56 +338,71 @@ def evolve_population_template(
     return scored
 
 
+# ── 输出展开 ─────────────────────────────────────────────
+
+
 def _real_time_slot_id(week: int, day: int, period: int) -> int:
-    """与旧版 fitness.py 一致的 time_slot_id 计算"""
     return (week - 1) * 35 + (day - 1) * 5 + period
 
 
 def individual_to_rows(
     individual: list[int],
-    task_pools: list[list[dict[str, Any]]],
-    task_ids: list[int],
+    combo_pools: list[list[dict[str, Any]]],
+    candidate_pools: list[list[dict[str, Any]]],
     tasks: list[dict[str, Any]] | None = None,
 ) -> list[dict[str, Any]]:
-    """将最优个体展开为兼容现有 Java 解析的格式"""
+    """展开最优个体为兼容输出格式"""
     rows: list[dict[str, Any]] = []
     seq = 0
-    for task_idx, combo_idx in enumerate(individual):
-        task_id = task_ids[task_idx]
-        pool = task_pools[task_idx]
-        if combo_idx >= len(pool):
-            continue
-        combo = pool[combo_idx]
 
-        # 取任务信息
+    for task_idx in range(len(combo_pools)):
+        base = task_idx * (1 + MAX_SEGMENTS)
+        combo_idx = individual[base]
+        combos = combo_pools[task_idx]
+        cands = candidate_pools[task_idx]
+
+        if not combos or not cands or combo_idx < 0 or combo_idx >= len(combos):
+            continue
+
+        combo = combos[combo_idx]
+
+        # 任务元信息
+        task_id = None
         teacher_id = None
         teacher_name = ""
         if tasks and task_idx < len(tasks):
+            task_id = tasks[task_idx].get("teaching_task_id")
             teacher_id = tasks[task_idx].get("teacher_id")
             teacher_name = tasks[task_idx].get("teacher_name") or ""
 
         week_cursor = 1
-        for seg_idx, seg in enumerate(combo["segments"]):
+        for seg_i, seg in enumerate(combo):
             w = seg["weekly"]
             wk = seg["weeks"]
-            day = seg["day"]
-            period = seg["period"]
-            room = seg["classroom_id"]
+            seg_gene = base + 1 + seg_i
+            if seg_gene >= len(individual):
+                break
+            cand_idx = individual[seg_gene]
+            if cand_idx < 0 or cand_idx >= len(cands):
+                continue
+            cand = cands[cand_idx]
+            day = cand["day"]
+            period = cand["period"]
+            room = cand["classroom_id"]
 
             for week_off in range(wk):
                 wn = week_cursor + week_off
                 for p_off in range(w):
                     p = period + p_off
                     seq += 1
-                    ts_id = _real_time_slot_id(wn, day, p)
                     rows.append({
                         "sequence": seq,
                         "teaching_task_id": task_id,
                         "teacher_id": teacher_id,
                         "teacher_name": teacher_name,
-                        "fragment_index": seg_idx,
+                        "fragment_index": seg_i,
                         "classroom_id": room,
-                        "time_slot_id": ts_id,
+                        "time_slot_id": _real_time_slot_id(wn, day, p),
                         "week_number": wn,
                         "day_of_week": day,
                         "period_index": p,
@@ -448,12 +417,3 @@ def individual_to_rows(
             week_cursor += wk
 
     return rows
-
-
-def _is_room_type_match(required: str, actual: str) -> bool:
-    """判断教室类型是否匹配（简化版）"""
-    if not required:
-        return True
-    if not actual:
-        return False
-    return required.strip().lower() == actual.strip().lower()

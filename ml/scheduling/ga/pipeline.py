@@ -57,7 +57,7 @@ from ml.scheduling.infra.generation_config import config_float, load_generation_
 from ml.scheduling.infra.lightgbm import load_optional_lightgbm
 from ml.scheduling.ga.candidates import build_candidate_pools, diagnose_candidate_space
 from ml.scheduling.template.ga_adapter import (
-    build_task_combo_pool,
+    build_pools,
     evolve_population_template,
     individual_to_rows,
 )
@@ -191,28 +191,30 @@ def generate_scheme(
         tw = int(t.get("task_weeks") or total_weeks)
         task_weeks_map[tid] = tw
 
-    # 为每个任务构建 combo 候选池
+    # 构建模板节奏池 + slot 候选池
     log_chain("模板枚举器启动", {"task_count": len(tasks)})
-    task_pools: list[list[dict[str, Any]]] = []
-    task_ids: list[int] = []
-    for task in tasks:
-        tid = int(task["teaching_task_id"])
-        tw = task_weeks_map.get(tid, total_weeks)
-        pool = build_task_combo_pool(task, classrooms, time_slots, tw, rng)
-        if not pool:
-            raise ValueError(f"任务 {tid} 无可用模板组合，跳过")
-        task_pools.append(pool)
-        task_ids.append(tid)
+    combo_pools, candidate_pools = build_pools(tasks, classrooms, time_slots, rng)
+
+    # 过滤没有可行方案的组合
+    valid_indices = [i for i, (cp, cand) in enumerate(zip(combo_pools, candidate_pools)) if cp and cand]
+    valid_tasks = [tasks[i] for i in valid_indices]
+    valid_combo_pools = [combo_pools[i] for i in valid_indices]
+    valid_candidate_pools = [candidate_pools[i] for i in valid_indices]
+
+    if not valid_tasks:
+        raise ValueError("所有教学任务均无可行模板组合或候选 slot")
+    if len(valid_tasks) < len(tasks):
+        log_chain("部分任务被跳过", {"skipped": len(tasks) - len(valid_tasks)})
 
     log_chain("模板候选池构建完成", {
-        "task_count": len(tasks),
-        "total_combo_options": sum(len(p) for p in task_pools),
+        "task_count": len(valid_tasks),
+        "total_combo_options": sum(len(p) for p in valid_combo_pools),
     })
 
     # GA 进化
     effective_fitness_kwargs = fitness_kwargs or {}
     scored = evolve_population_template(
-        task_pools, task_ids, rng,
+        valid_combo_pools, valid_candidate_pools, rng,
         population_size=population_size,
         generations=generations,
         elite_size=elite_size,
@@ -221,12 +223,11 @@ def generate_scheme(
         total_weeks=total_weeks,
     )
     best = scored[0]
-    metrics = {**best["metrics"], "task_count": len(tasks), "total_combo_options": sum(len(p) for p in task_pools)}
+    metrics = {**best["metrics"], "task_count": len(valid_tasks), "total_combo_options": sum(len(p) for p in valid_combo_pools)}
     log_chain("GA 最优方案", metrics)
 
     # 展开为行
-    rows = individual_to_rows(best["individual"], task_pools, task_ids, tasks=tasks)
-    # 兼容原接口：dummy assignments（模板版暂不需用 assignments 做进一步处理）
+    rows = individual_to_rows(best["individual"], valid_combo_pools, valid_candidate_pools, tasks=valid_tasks)
     assignments = []
 
     week_dist = Counter(int(r.get("week_number", 0)) for r in rows)
