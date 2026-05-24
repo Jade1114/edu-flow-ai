@@ -49,9 +49,9 @@ def build_pools(
             candidate_pools.append([])
             continue
 
-        # 1. 枚举模板节奏
-        tw = int(task.get("task_weeks") or TOTAL_WEEKS)
-        combos = enumerate_templates(periods, task_weeks=tw)
+        # 1. 枚举模板节奏（从 time_slots 提取可用周）
+        unique_weeks = sorted(set(int(s["week_number"]) for s in time_slots))
+        combos = enumerate_templates(periods, available_weeks=unique_weeks)
         if not combos:
             combo_pools.append([])
             candidate_pools.append([])
