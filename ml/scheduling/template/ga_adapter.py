@@ -68,6 +68,18 @@ def build_pools(
             candidate_pools.append([])
             continue
 
+        # 日志：该任务的模板概要（前3种）
+        if len(combo_pools) < 5:  # 只看前几个任务，免得刷屏
+            sample_combos = []
+            for ci, c in enumerate(combos[:3]):
+                segs = [f"{s['weekly']}节/周 × {s['weeks']}周 周{s['weeks_list'][0]}-{s['weeks_list'][-1]}" for s in c]
+                sample_combos.append(f"  [{ci}] " + " + ".join(segs))
+            total_periods = sum(s["weekly"] * s["weeks"] for s in combos[0])
+            log_chain("任务模板", {
+                "task_id": tid, "periods": periods, "combos": len(combos),
+                "总课时": f"{total_periods}periods", "样例": sample_combos,
+            })
+
         combo_pools.append(combos)
         candidate_pools.append(cands)
 
