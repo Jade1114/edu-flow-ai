@@ -148,10 +148,9 @@ def _decode_individual(
         combo = combos[combo_idx]
 
         # 解码每个段
-        week_cursor = 1
         for seg_i, seg in enumerate(combo):
             w = seg["weekly"]
-            wk = seg["weeks"]
+            weeks_list = seg.get("weeks_list", [])
             seg_gene_idx = base + 1 + seg_i
             if seg_gene_idx >= len(individual):
                 break
@@ -163,10 +162,7 @@ def _decode_individual(
             period = cand["period"]
             room = cand["classroom_id"]
 
-            for week_off in range(wk):
-                wn = week_cursor + week_off
-                if wn > total_weeks:
-                    break
+            for wn in weeks_list:
                 for p_off in range(w):
                     p = period + p_off
                     assignments.append({
@@ -177,7 +173,6 @@ def _decode_individual(
                         "task_id": task_idx,
                         "segment_idx": seg_i,
                     })
-            week_cursor += wk
 
     return assignments
 
@@ -379,10 +374,9 @@ def individual_to_rows(
             teacher_id = tasks[task_idx].get("teacher_id")
             teacher_name = tasks[task_idx].get("teacher_name") or ""
 
-        week_cursor = 1
         for seg_i, seg in enumerate(combo):
             w = seg["weekly"]
-            wk = seg["weeks"]
+            weeks_list = seg.get("weeks_list", [])
             seg_gene = base + 1 + seg_i
             if seg_gene >= len(individual):
                 break
@@ -394,8 +388,7 @@ def individual_to_rows(
             period = cand["period"]
             room = cand["classroom_id"]
 
-            for week_off in range(wk):
-                wn = week_cursor + week_off
+            for wn in weeks_list:
                 for p_off in range(w):
                     p = period + p_off
                     seq += 1
@@ -418,6 +411,5 @@ def individual_to_rows(
                         "teacher_profile_penalty_explanation": "",
                         "teacher_profile_penalty_breakdown": "[]",
                     })
-            week_cursor += wk
 
     return rows
