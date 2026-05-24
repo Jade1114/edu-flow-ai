@@ -18,6 +18,7 @@ from typing import Any
 
 from ml.scheduling.template.enumerator import enumerate_templates
 from ml.scheduling.infra.constants import TOTAL_WEEKS
+from ml.scheduling.infra.runtime import log_chain
 
 # 每个任务预留的最大段数（与枚举器 MAX_SEGMENTS 一致）
 MAX_SEGMENTS = 3
@@ -41,6 +42,10 @@ def build_pools(
     combo_pools: list[list[dict[str, Any]]] = []
     candidate_pools: list[list[dict[str, Any]]] = []
 
+    # 日志：从 time_slots 提取的可用周
+    unique_weeks = sorted(set(int(s["week_number"]) for s in time_slots))
+    log_chain("build_pools 可用周", {"weeks": unique_weeks, "count": len(unique_weeks)})
+
     for task in tasks:
         tid = int(task["teaching_task_id"])
         periods = int(task.get("total_hours") or 0) // 2
@@ -49,8 +54,7 @@ def build_pools(
             candidate_pools.append([])
             continue
 
-        # 1. 枚举模板节奏（从 time_slots 提取可用周）
-        unique_weeks = sorted(set(int(s["week_number"]) for s in time_slots))
+        # 1. 枚举模板节奏
         combos = enumerate_templates(periods, available_weeks=unique_weeks)
         if not combos:
             combo_pools.append([])
