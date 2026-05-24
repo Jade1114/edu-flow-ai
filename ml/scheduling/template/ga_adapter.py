@@ -384,12 +384,18 @@ def evolve_population_template(
     return scored
 
 
+def _real_time_slot_id(week: int, day: int, period: int) -> int:
+    """与旧版 fitness.py 一致的 time_slot_id 计算"""
+    return (week - 1) * 35 + (day - 1) * 5 + period
+
+
 def individual_to_rows(
     individual: list[int],
     task_pools: list[list[dict[str, Any]]],
     task_ids: list[int],
+    tasks: list[dict[str, Any]] | None = None,
 ) -> list[dict[str, Any]]:
-    """将最优个体展开为 CSV 行（兼容现有输出格式）"""
+    """将最优个体展开为兼容现有 Java 解析的格式"""
     rows: list[dict[str, Any]] = []
     seq = 0
     for task_idx, combo_idx in enumerate(individual):
@@ -399,8 +405,15 @@ def individual_to_rows(
             continue
         combo = pool[combo_idx]
 
+        # 取任务信息
+        teacher_id = None
+        teacher_name = ""
+        if tasks and task_idx < len(tasks):
+            teacher_id = tasks[task_idx].get("teacher_id")
+            teacher_name = tasks[task_idx].get("teacher_name") or ""
+
         week_cursor = 1
-        for seg in combo["segments"]:
+        for seg_idx, seg in enumerate(combo["segments"]):
             w = seg["weekly"]
             wk = seg["weeks"]
             day = seg["day"]
@@ -412,15 +425,25 @@ def individual_to_rows(
                 for p_off in range(w):
                     p = period + p_off
                     seq += 1
+                    ts_id = _real_time_slot_id(wn, day, p)
                     rows.append({
                         "sequence": seq,
                         "teaching_task_id": task_id,
+                        "teacher_id": teacher_id,
+                        "teacher_name": teacher_name,
+                        "fragment_index": seg_idx,
                         "classroom_id": room,
+                        "time_slot_id": ts_id,
                         "week_number": wn,
                         "day_of_week": day,
                         "period_index": p,
+                        "predicted_score": 0.0,
+                        "rule_score": 0.0,
                         "has_hard_conflict": 0,
                         "reject_reason": "",
+                        "teacher_profile_penalty": 0.0,
+                        "teacher_profile_penalty_explanation": "",
+                        "teacher_profile_penalty_breakdown": "[]",
                     })
             week_cursor += wk
 

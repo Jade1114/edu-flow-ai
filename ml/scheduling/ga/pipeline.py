@@ -213,7 +213,7 @@ def generate_scheme(
     log_chain("GA 最优方案", metrics)
 
     # 展开为行
-    rows = individual_to_rows(best["individual"], task_pools, task_ids)
+    rows = individual_to_rows(best["individual"], task_pools, task_ids, tasks=tasks)
     # 兼容原接口：dummy assignments（模板版暂不需用 assignments 做进一步处理）
     assignments = []
 
