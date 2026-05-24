@@ -149,15 +149,17 @@ public class AllocationMlSchemeService {
 
 	private Path resolveMlDir() {
 		Path cwd = Path.of("").toAbsolutePath();
+		// 从项目根目录启动：cwd/ml/
 		Path direct = cwd.resolve("ml");
 		if (Files.isDirectory(direct.resolve("scripts"))) {
 			return direct;
 		}
-		Path nested = cwd.resolve("server/ml");
-		if (Files.isDirectory(nested.resolve("scripts"))) {
-			return nested;
+		// 从 server/ 目录启动：cwd/../ml/
+		Path parent = cwd.resolve("../ml").normalize();
+		if (Files.isDirectory(parent.resolve("scripts"))) {
+			return parent;
 		}
-		throw new BusinessException(500, "未找到 server/ml 目录，无法调用自训练模型");
+		throw new BusinessException(500, "未找到 ml/ 目录（已从 server/ml/ 迁移），无法调用自训练模型");
 	}
 
 	private String resolvePythonExecutable(Path mlDir) {

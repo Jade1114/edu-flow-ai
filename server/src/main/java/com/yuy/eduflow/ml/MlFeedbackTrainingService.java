@@ -484,8 +484,8 @@ public class MlFeedbackTrainingService {
 		if (Files.exists(cwd.resolve("pom.xml")) && Files.exists(cwd.resolve("ml"))) {
 			return cwd;
 		}
-		if (Files.exists(cwd.resolve("server/pom.xml")) && Files.exists(cwd.resolve("server/ml"))) {
-			return cwd.resolve("server");
+		if (Files.exists(cwd.resolve("server/pom.xml")) && Files.exists(cwd.resolve("ml"))) {
+			return cwd;
 		}
 		return cwd;
 	}

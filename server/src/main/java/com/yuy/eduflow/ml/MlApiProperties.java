@@ -10,6 +10,6 @@ import org.springframework.stereotype.Component;
 public class MlApiProperties {
 	/** FastAPI server URL, e.g. http://127.0.0.1:8000 */
 	private String url = "http://127.0.0.1:8000";
-	/** Path to the server/ml directory (auto-resolved if empty) */
+	/** Path to the ml/ directory (auto-resolved if empty) */
 	private String mlDir = "";
 }
