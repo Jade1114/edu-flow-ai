@@ -81,11 +81,23 @@ from ml.scheduling.domain.teacher_penalties import (
 def parse_int_set(raw_value: Any) -> set[int] | None:
     if raw_value is None:
         return None
-    if isinstance(raw_value, (list, tuple, set)):
+    if isinstance(raw_value, str):
+        # 可能来自数据库或 JSON 的逗号分隔字符串："1,2,3" 或 "[1,2,3]"
+        raw_value = raw_value.strip().strip("[]").replace(" ", "")
+        if "," in raw_value:
+            values = [v.strip() for v in raw_value.split(",") if v.strip()]
+        else:
+            values = [raw_value]
+    elif isinstance(raw_value, (list, tuple, set)):
         values = list(raw_value)
     else:
         values = [raw_value]
-    parsed = {int(v) for v in values if str(v).strip()}
+    parsed = set()
+    for v in values:
+        try:
+            parsed.add(int(v))
+        except (ValueError, TypeError):
+            continue
     return parsed or None
 
 
