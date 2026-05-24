@@ -58,10 +58,9 @@ from ml.scheduling.infra.lightgbm import load_optional_lightgbm
 from ml.scheduling.ga.candidates import build_candidate_pools, diagnose_candidate_space
 from ml.scheduling.template.ga_adapter import (
     build_pools,
-    evolve_population_template,
-    individual_to_rows,
+    evolve,
+    to_rows,
 )
-from ml.scheduling.template.enumerator import enumerate_templates
 from ml.scheduling.infra.output import (
     print_summary,
     summarize_metrics,
@@ -213,21 +212,20 @@ def generate_scheme(
 
     # GA 进化
     effective_fitness_kwargs = fitness_kwargs or {}
-    scored = evolve_population_template(
+    scored = evolve(
         valid_combo_pools, valid_candidate_pools, rng,
         population_size=population_size,
         generations=generations,
         elite_size=elite_size,
         tournament_size=tournament_size,
         mutation_rate=mutation_rate,
-        total_weeks=total_weeks,
     )
     best = scored[0]
     metrics = {**best["metrics"], "task_count": len(valid_tasks), "total_combo_options": sum(len(p) for p in valid_combo_pools)}
     log_chain("GA 最优方案", metrics)
 
     # 展开为行
-    rows = individual_to_rows(best["individual"], valid_combo_pools, valid_candidate_pools, tasks=valid_tasks)
+    rows = to_rows(best["individual"], valid_combo_pools, valid_candidate_pools, tasks=valid_tasks)
     assignments = []
 
     week_dist = Counter(int(r.get("week_number", 0)) for r in rows)
