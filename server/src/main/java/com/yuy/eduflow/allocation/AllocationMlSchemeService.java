@@ -4,6 +4,7 @@ import com.yuy.eduflow.common.exception.BusinessException;
 import com.yuy.eduflow.common.exception.ResourceNotFoundException;
 import com.yuy.eduflow.common.exception.ValidationException;
 import com.yuy.eduflow.ml.MlApiClient;
+import com.yuy.eduflow.teacher.TeacherProfileSnapshotService;
 import java.io.BufferedReader;
 import java.io.IOException;
 import java.math.BigDecimal;
@@ -30,17 +31,20 @@ public class AllocationMlSchemeService {
 	private final AllocationSchemeMapper allocationSchemeMapper;
 	private final ObjectMapper objectMapper;
 	private final MlApiClient mlApiClient;
+	private final TeacherProfileSnapshotService teacherProfileSnapshotService;
 
 	public AllocationMlSchemeService(
 		AllocationTaskMapper allocationTaskMapper,
 		AllocationSchemeMapper allocationSchemeMapper,
 		ObjectMapper objectMapper,
-		MlApiClient mlApiClient
+		MlApiClient mlApiClient,
+		TeacherProfileSnapshotService teacherProfileSnapshotService
 	) {
 		this.allocationTaskMapper = allocationTaskMapper;
 		this.allocationSchemeMapper = allocationSchemeMapper;
 		this.objectMapper = objectMapper;
 		this.mlApiClient = mlApiClient;
+		this.teacherProfileSnapshotService = teacherProfileSnapshotService;
 	}
 
 	public AllocationGenerationPreview generateSchemes(Long taskId, Consumer<GenerationStatus> progressReporter) {
@@ -83,6 +87,8 @@ public class AllocationMlSchemeService {
 	) {
 		Map<String, Object> requestBody = new LinkedHashMap<>();
 		requestBody.put("task_id", task.getId());
+		Path teacherProfilesJsonl = teacherProfileSnapshotService.exportForAllocationTask(task.getId());
+		requestBody.put("teacher_profiles_jsonl", teacherProfilesJsonl.toString());
 
 		log.info("ML GA scheme generator starting (HTTP): taskId={}, taskName={}",
 			task.getId(), task.getName());
@@ -90,14 +96,12 @@ public class AllocationMlSchemeService {
 		progressReporter.accept(running("ml", "调用自训练排课模型生成候选方案...", 15));
 
 		try {
-			Map<String, Object> response = mlApiClient.generateSchemes(requestBody);
-			String outputDirStr = (String) response.get("output_dir");
+			String outputDirStr = mlApiClient.generateSchemes(requestBody);
 			if (outputDirStr == null || outputDirStr.isBlank()) {
 				throw new BusinessException(500, "ML API 响应缺少 output_dir");
 			}
 			Path outputDir = Path.of(outputDirStr);
-			log.info("ML scheme generator HTTP call succeeded: outputDir={}, schemeCount={}, timingsMs={}",
-				outputDir, response.get("scheme_count"), response.get("timings_ms"));
+			log.info("ML scheme generator HTTP call succeeded: outputDir={}", outputDir);
 			progressReporter.accept(running("ml", "自训练模型生成完成，准备入库...", 60));
 			return outputDir;
 		} catch (Exception e) {

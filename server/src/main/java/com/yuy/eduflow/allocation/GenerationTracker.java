@@ -20,7 +20,7 @@ import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 @Service
 public class GenerationTracker {
 
-	private static final long SSE_TIMEOUT_MS = 5 * 60 * 1000L;
+	private static final long SSE_TIMEOUT_MS = 30 * 60 * 1000L;
 
 	private final Map<Long, GenerationStatus> statusMap = new ConcurrentHashMap<>();
 	private final Map<Long, List<SseEmitter>> emitters = new ConcurrentHashMap<>();
