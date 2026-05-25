@@ -1,7 +1,7 @@
 # Edu-Flow-AI 文档索引
 
-> 更新时间：2026-05-23
-> 原则：项目文档统一维护在本仓库 `docs/` 下；药柜中的旧笔记仅作为历史来源，不再作为项目当前文档入口。
+> 更新时间：2026-05-25
+> 原则：项目文档统一维护在本仓库 `docs/` 下。
 
 ## 文档结构
 
@@ -10,50 +10,36 @@ docs/
 ├── README.md
 ├── architecture/
 │   ├── 01-排课架构设计.md
-│   ├── 02-模型反馈训练闭环.md
-│   ├── 03-排课方案生成总链路.md
-│   └── 04-排课链路待实现清单.md
-├── ml/
-│   ├── 01-LightGBM训练样本与实施记录.md
-│   ├── 02-GA周模版重构方案.md
-│   └── 03-教学任务模板组合方案.md
-└── roadmap/
-    └── 01-排课执行表.md
+│   ├── 02-教师画像作用路径设计.md
+│   └── 03-LightGBM模型训练架构设计.md
+└── implementation/
+    ├── 01-GA排课生成链路实现说明.md
+    ├── 02-教师画像JSONL快照接入说明.md
+    └── 03-排课链路验证与排障说明.md
 ```
 
 ## 文件职责
 
-| 文档 | 职责 | 更新时机 |
-|---|---|---|
-| `architecture/01-排课架构设计.md` | 稳定架构、组件分工、数据流边界 | 架构边界变化时 |
-| `architecture/02-模型反馈训练闭环.md` | 反馈数据、训练接口、重训链路 | 反馈训练能力变化时 |
-| `architecture/03-排课方案生成总链路.md` | 从排课任务到候选方案展示的端到端链路 | 链路节点变化时 |
-| `architecture/04-排课链路待实现清单.md` | 当前真实 TODO 和已完成项 | 每轮实现后 |
-| `ml/01-LightGBM训练样本与实施记录.md` | 训练样本字段、训练脚本、模型产物、实施记录 | 训练流程变化时 |
-| `ml/02-GA周模版重构方案.md` | GA 周模版设计、固定槽+零散片段混合模式实现 | GA 算法变化时 |
-| `ml/03-教学任务模板组合方案.md` | 教学任务模板组合枚举、GA 模板化改造方案 | 模板设计变化时 |
-| `roadmap/01-排课执行表.md` | 项目阶段、能力边界、下一步计划 | 阶段推进后 |
+| 文档 | 职责 |
+|------|------|
+| architecture/01-排课架构设计.md | 完整链路、数据模型、编码规则、预处理、GA 各环节 |
+| architecture/02-教师画像作用路径设计.md | 教师自然语言画像、LLM 结构化、JSONL 快照、Python 排课消费路径 |
+| architecture/03-LightGBM模型训练架构设计.md | 规则冷启动、反馈样本、模型训练、评估发布、GA 推理加载 |
+| implementation/01-GA排课生成链路实现说明.md | Java→Python→SSE→schemes.json→入库的具体代码路径 |
+| implementation/02-教师画像JSONL快照接入说明.md | 教师画像快照导出、请求传递、Python 归一化和排课消费实现 |
+| implementation/03-排课链路验证与排障说明.md | 本地验证命令、关键输出文件、常见问题定位 |
 
 ## 当前架构边界
 
 ```text
-LLM Parser：自然语言规则解析 + 教师画像结构化 + 权重建议，不直接生成课表
-Constraint Engine：硬约束裁剪 DNA，生成可行候选空间
-遗传算法（`ml/scheduling/ga/`）：完整课表方案层面的全局组合优化，构造后 repair / validate
-LightGBM Ranker：只对合法候选或 Top-K 合法课表做满意度 / 偏好重排
-Java 后端：任务编排、生成配置入库、教师画像解析、提交 ML API 任务、轮询结果、结果入库、确认发布
-前端：编辑任务生成配置、策略预设展开、方案展示、画像扣分解释、调整、确认、模型训练中心反馈入口
+模板集枚举器：按总课次拆分周负载，bitmask 周编码，三段评分
+GA 染色体：[TaskGene(templateSetId, [slotId, classroomId]), ...]
+GA 初始：MRV 贪心（最长→最重→最大）
+GA 交叉：task-level uniform（不拆模板）
+GA 修复：主优化器，delta min 候选选择
+适应度：硬冲突1M + 模板惩罚 + 同天重复 + 晚课
 ```
 
-正式生成链路已收敛为 LLM Parser + Constraint Engine + GA + LightGBM Ranker；Java 只向 ML API 提交 `allocation_task_id`，Python 从数据库读取任务配置和教师画像偏好。历史实验入口不再作为当前文档事实源。
+正式生成链路已收敛为「模板枚举 → AllocationTask → GA 进化 → schemes.json → Java 入库」。历史实验链路已全部清理。
 
-## 药柜迁移说明
-
-已从 `~/Apothecary-Vault/projects/edu-flow-ai/features/` 迁移仍有价值的内容：
-
-- `00-INDEX.md` → 合并为本文件
-- `01-排课架构设计.md` → 合并进 `architecture/01-排课架构设计.md`
-- `02-训练样本字段表.md` → 迁移为 `ml/01-LightGBM训练样本与实施记录.md`
-- `03-排课执行表.md` → 迁移为 `roadmap/01-排课执行表.md`
-
-药柜 `archive/` 中的 MVP 早期设计、旧分课/调课笔记已被当前实现覆盖，不再迁移为当前文档。
+实现细节优先看 `docs/implementation/`，架构文档只描述边界和设计原则。
