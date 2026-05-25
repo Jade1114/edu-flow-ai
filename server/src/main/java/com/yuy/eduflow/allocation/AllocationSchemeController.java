@@ -2,6 +2,9 @@ package com.yuy.eduflow.allocation;
 
 import com.yuy.eduflow.common.ApiResponse;
 import com.yuy.eduflow.conflict.ConflictDiagnosis;
+import com.yuy.eduflow.ml.MlFeedbackEvent;
+import com.yuy.eduflow.ml.MlFeedbackEventMarkRequest;
+import com.yuy.eduflow.ml.MlFeedbackEventService;
 import java.util.List;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -20,17 +23,20 @@ public class AllocationSchemeController {
 	private final AllocationItemService allocationItemService;
 	private final AllocationSchemeConfirmService allocationSchemeConfirmService;
 	private final AllocationItemAdjustmentLogMapper adjustmentLogMapper;
+	private final MlFeedbackEventService feedbackEventService;
 
 	public AllocationSchemeController(
 		AllocationSchemeService allocationSchemeService,
 		AllocationItemService allocationItemService,
 		AllocationSchemeConfirmService allocationSchemeConfirmService,
-		AllocationItemAdjustmentLogMapper adjustmentLogMapper
+		AllocationItemAdjustmentLogMapper adjustmentLogMapper,
+		MlFeedbackEventService feedbackEventService
 	) {
 		this.allocationSchemeService = allocationSchemeService;
 		this.allocationItemService = allocationItemService;
 		this.allocationSchemeConfirmService = allocationSchemeConfirmService;
 		this.adjustmentLogMapper = adjustmentLogMapper;
+		this.feedbackEventService = feedbackEventService;
 	}
 
 	@GetMapping
@@ -109,6 +115,15 @@ public class AllocationSchemeController {
 		@RequestBody AllocationItemMoveRequest request
 	) {
 		return ApiResponse.success(allocationItemService.moveAndRecheck(schemeId, itemId, request));
+	}
+
+	@PostMapping("/{schemeId}/items/{itemId}/feedback")
+	public ApiResponse<MlFeedbackEvent> markItem(
+		@PathVariable Long schemeId,
+		@PathVariable Long itemId,
+		@RequestBody MlFeedbackEventMarkRequest request
+	) {
+		return ApiResponse.success(feedbackEventService.markItem(schemeId, itemId, request));
 	}
 
 }

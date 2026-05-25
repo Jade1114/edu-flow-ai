@@ -8,5 +8,5 @@ public record MlFeedbackExportResult(
 	int feedbackCount,
 	int adjustmentCount,
 	int conflictCount,
-	int sampleCount
+	int eventCount
 ) {}

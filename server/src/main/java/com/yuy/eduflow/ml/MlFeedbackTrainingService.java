@@ -58,7 +58,7 @@ public class MlFeedbackTrainingService {
 				countArray(json, "feedback"),
 				countArray(json, "adjustments"),
 				countArray(json, "conflicts"),
-				0
+				countArray(json, "events")
 			);
 		} catch (IOException ex) {
 			log.warn("Failed to read latest feedback export: {}", exportPath, ex);
@@ -179,8 +179,9 @@ public class MlFeedbackTrainingService {
 		List<Map<String, Object>> feedback = mapper.findFeedback(taskId);
 		List<Map<String, Object>> adjustments = mapper.findAdjustmentLogs(taskId);
 		List<Map<String, Object>> conflicts = mapper.findConflicts(taskId);
-		log.debug("exportFeedback done: schemes={}, items={}, feedback={}, adjustments={}, conflicts={}",
-			schemes.size(), items.size(), feedback.size(), adjustments.size(), conflicts.size());
+		List<Map<String, Object>> events = mapper.findEvents(taskId);
+		log.debug("exportFeedback done: schemes={}, items={}, feedback={}, adjustments={}, conflicts={}, events={}",
+			schemes.size(), items.size(), feedback.size(), adjustments.size(), conflicts.size(), events.size());
 
 		Map<String, Object> payload = new LinkedHashMap<>();
 		payload.put("taskId", taskId);
@@ -190,6 +191,7 @@ public class MlFeedbackTrainingService {
 		payload.put("feedback", feedback);
 		payload.put("adjustments", adjustments);
 		payload.put("conflicts", conflicts);
+		payload.put("events", events);
 
 		try {
 			Files.createDirectories(exportPath.getParent());
@@ -200,7 +202,7 @@ public class MlFeedbackTrainingService {
 
 		return new MlFeedbackExportResult(
 			exportPath.toString(), samplePath == null ? null : samplePath.toString(),
-			schemes.size(), items.size(), feedback.size(), adjustments.size(), conflicts.size(), 0
+			schemes.size(), items.size(), feedback.size(), adjustments.size(), conflicts.size(), events.size()
 		);
 	}
 
@@ -261,10 +263,11 @@ public class MlFeedbackTrainingService {
 		List<Map<String, Object>> feedback = mapper.findFeedback(taskId);
 		List<Map<String, Object>> adjustments = mapper.findAdjustmentLogs(taskId);
 		List<Map<String, Object>> conflicts = mapper.findConflicts(taskId);
+		List<Map<String, Object>> events = mapper.findEvents(taskId);
 		return new MlFeedbackExportResult(
 			exportPath == null ? null : exportPath.toString(),
 			samplePath == null ? null : samplePath.toString(),
-			schemes.size(), items.size(), feedback.size(), adjustments.size(), conflicts.size(), 0
+			schemes.size(), items.size(), feedback.size(), adjustments.size(), conflicts.size(), events.size()
 		);
 	}
 

@@ -6,6 +6,7 @@ import com.yuy.eduflow.common.exception.ResourceNotFoundException;
 import com.yuy.eduflow.common.exception.ValidationException;
 import com.yuy.eduflow.conflict.ConflictCheckResult;
 import com.yuy.eduflow.conflict.ConflictCheckResultMapper;
+import com.yuy.eduflow.ml.MlFeedbackEventService;
 import com.yuy.eduflow.teacher.TeacherProfile;
 import com.yuy.eduflow.teacher.TeacherProfileMapper;
 import com.yuy.eduflow.teachingtask.TeachingTask;
@@ -39,6 +40,7 @@ public class AllocationItemService {
 	private final TeachingTaskMapper teachingTaskMapper;
 	private final TeacherProfileMapper teacherProfileMapper;
 	private final ObjectMapper objectMapper;
+	private final MlFeedbackEventService feedbackEventService;
 
 	public AllocationItemService(
 		AllocationItemMapper allocationItemMapper,
@@ -50,7 +52,8 @@ public class AllocationItemService {
 		TimeSlotService timeSlotService,
 		TeachingTaskMapper teachingTaskMapper,
 		TeacherProfileMapper teacherProfileMapper,
-		ObjectMapper objectMapper
+		ObjectMapper objectMapper,
+		MlFeedbackEventService feedbackEventService
 	) {
 		this.allocationItemMapper = allocationItemMapper;
 		this.conflictDetector = conflictDetector;
@@ -62,6 +65,7 @@ public class AllocationItemService {
 		this.teachingTaskMapper = teachingTaskMapper;
 		this.teacherProfileMapper = teacherProfileMapper;
 		this.objectMapper = objectMapper;
+		this.feedbackEventService = feedbackEventService;
 	}
 
 	public List<AllocationItemView> moveAndRecheck(Long schemeId, Long itemId, AllocationItemMoveRequest request) {
@@ -74,18 +78,39 @@ public class AllocationItemService {
 		if (!item.getSchemeId().equals(schemeId)) {
 			throw new ValidationException("该明细不属于此方案");
 		}
+		AllocationItem beforeItem = copyItem(item);
 
 		Long fromClassroomId = item.getClassroomId();
 		Long fromTimeSlotId = item.getTimeSlotId();
 		item.setClassroomId(request.classroomId());
 		item.setTimeSlotId(request.timeSlotId());
 		allocationItemMapper.update(item);
-		recordAdjustment(item, fromClassroomId, fromTimeSlotId, request);
+		AllocationItemAdjustmentLog adjustmentLog = recordAdjustment(item, fromClassroomId, fromTimeSlotId, request);
 
-		return recheckScheme(schemeId);
+		List<AllocationItemView> views = recheckScheme(schemeId);
+		feedbackEventService.recordItemMoved(
+			schemeId,
+			beforeItem,
+			findById(itemId),
+			adjustmentLog == null ? null : adjustmentLog.getId(),
+			adjustmentLog == null ? null : adjustmentLog.getReason()
+		);
+		return views;
 	}
 
-	private void recordAdjustment(
+	private AllocationItem copyItem(AllocationItem source) {
+		AllocationItem copy = new AllocationItem();
+		copy.setId(source.getId());
+		copy.setSchemeId(source.getSchemeId());
+		copy.setTeachingTaskId(source.getTeachingTaskId());
+		copy.setClassroomId(source.getClassroomId());
+		copy.setTimeSlotId(source.getTimeSlotId());
+		copy.setValid(source.getValid());
+		copy.setConflictMessage(source.getConflictMessage());
+		return copy;
+	}
+
+	private AllocationItemAdjustmentLog recordAdjustment(
 		AllocationItem item,
 		Long fromClassroomId,
 		Long fromTimeSlotId,
@@ -94,7 +119,7 @@ public class AllocationItemService {
 		boolean timeChanged = !fromTimeSlotId.equals(request.timeSlotId());
 		boolean classroomChanged = !fromClassroomId.equals(request.classroomId());
 		if (!timeChanged && !classroomChanged) {
-			return;
+			return null;
 		}
 		AllocationItemAdjustmentLog log = new AllocationItemAdjustmentLog();
 		log.setSchemeId(item.getSchemeId());
@@ -106,6 +131,7 @@ public class AllocationItemService {
 		log.setToClassroomId(request.classroomId());
 		log.setReason(resolveAdjustmentReason(request.reason(), timeChanged, classroomChanged));
 		adjustmentLogMapper.insert(log);
+		return log;
 	}
 
 	private String resolveAdjustmentReason(String reason, boolean timeChanged, boolean classroomChanged) {

@@ -5,6 +5,7 @@ import com.yuy.eduflow.assignment.CourseAssignmentMapper;
 import com.yuy.eduflow.common.exception.ConflictException;
 import com.yuy.eduflow.common.exception.ResourceNotFoundException;
 import com.yuy.eduflow.common.exception.ValidationException;
+import com.yuy.eduflow.ml.MlFeedbackEventService;
 import java.util.List;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -26,6 +27,7 @@ public class AllocationSchemeConfirmService {
 	private final CourseAssignmentMapper courseAssignmentMapper;
 	private final AllocationSchemeFeedbackMapper feedbackMapper;
 	private final AllocationItemAdjustmentLogMapper adjustmentLogMapper;
+	private final MlFeedbackEventService feedbackEventService;
 
 	public AllocationSchemeConfirmService(
 		AllocationSchemeMapper allocationSchemeMapper,
@@ -33,7 +35,8 @@ public class AllocationSchemeConfirmService {
 		AllocationTaskMapper allocationTaskMapper,
 		CourseAssignmentMapper courseAssignmentMapper,
 		AllocationSchemeFeedbackMapper feedbackMapper,
-		AllocationItemAdjustmentLogMapper adjustmentLogMapper
+		AllocationItemAdjustmentLogMapper adjustmentLogMapper,
+		MlFeedbackEventService feedbackEventService
 	) {
 		this.allocationSchemeMapper = allocationSchemeMapper;
 		this.allocationItemMapper = allocationItemMapper;
@@ -41,6 +44,7 @@ public class AllocationSchemeConfirmService {
 		this.courseAssignmentMapper = courseAssignmentMapper;
 		this.feedbackMapper = feedbackMapper;
 		this.adjustmentLogMapper = adjustmentLogMapper;
+		this.feedbackEventService = feedbackEventService;
 	}
 
 	@Transactional
@@ -102,6 +106,7 @@ public class AllocationSchemeConfirmService {
 		feedback.setAdjustmentCount(adjustmentLogMapper.countBySchemeId(schemeId));
 		feedback.setCreatedBy(null);
 		feedbackMapper.insert(feedback);
+		feedbackEventService.recordSchemeConfirmed(scheme, feedback.getId());
 
 		return new AllocationConfirmResult(
 			scheme.getId(),

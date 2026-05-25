@@ -15,9 +15,14 @@ import org.springframework.web.bind.annotation.RestController;
 @RequestMapping("/api/ml/feedback")
 public class MlFeedbackTrainingController {
     private final MlFeedbackTrainingService feedbackTrainingService;
+    private final MlFeedbackEventService feedbackEventService;
 
-    public MlFeedbackTrainingController(MlFeedbackTrainingService feedbackTrainingService) {
+    public MlFeedbackTrainingController(
+        MlFeedbackTrainingService feedbackTrainingService,
+        MlFeedbackEventService feedbackEventService
+    ) {
         this.feedbackTrainingService = feedbackTrainingService;
+        this.feedbackEventService = feedbackEventService;
     }
 
     @GetMapping("/export")
@@ -48,5 +53,13 @@ public class MlFeedbackTrainingController {
     @GetMapping("/latest-training")
     public ApiResponse<Map<String, Object>> latestTraining() {
         return ApiResponse.success(feedbackTrainingService.getLatestTrainingLog());
+    }
+
+    @GetMapping("/events/summary")
+    public ApiResponse<MlFeedbackEventSummary> eventSummary(
+        @RequestParam(required = false) Long taskId,
+        @RequestParam(defaultValue = "20") int recentLimit
+    ) {
+        return ApiResponse.success(feedbackEventService.summary(taskId, recentLimit));
     }
 }

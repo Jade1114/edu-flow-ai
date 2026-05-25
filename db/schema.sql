@@ -364,3 +364,28 @@ CREATE TABLE IF NOT EXISTS model_training_log (
     INDEX idx_training_log_status (status),
     INDEX idx_training_log_started (train_started_at)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- v7: 反馈事件台账（先沉淀事实，再构建训练样本）
+CREATE TABLE IF NOT EXISTS ml_feedback_event (
+    id BIGINT PRIMARY KEY AUTO_INCREMENT,
+    event_type VARCHAR(50) NOT NULL COMMENT 'SCHEME_CONFIRMED / ITEM_MOVED / ITEM_MARKED_GOOD / ITEM_MARKED_BAD',
+    task_id BIGINT NOT NULL,
+    scheme_id BIGINT NOT NULL,
+    item_id BIGINT NULL,
+    teaching_task_id BIGINT NULL,
+    actor_type VARCHAR(30) NOT NULL DEFAULT 'ADMIN',
+    actor_id VARCHAR(100) NULL,
+    reason_code VARCHAR(50) NULL,
+    reason_text VARCHAR(500) NULL,
+    before_snapshot_json TEXT NULL,
+    after_snapshot_json TEXT NULL,
+    context_snapshot_json TEXT NULL,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    INDEX idx_feedback_event_task (task_id),
+    INDEX idx_feedback_event_scheme (scheme_id),
+    INDEX idx_feedback_event_item (item_id),
+    INDEX idx_feedback_event_type (event_type),
+    INDEX idx_feedback_event_created (created_at),
+    CONSTRAINT fk_feedback_event_task FOREIGN KEY (task_id) REFERENCES allocation_task (id),
+    CONSTRAINT fk_feedback_event_scheme FOREIGN KEY (scheme_id) REFERENCES allocation_scheme (id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

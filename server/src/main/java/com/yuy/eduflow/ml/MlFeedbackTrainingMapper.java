@@ -158,6 +158,22 @@ public interface MlFeedbackTrainingMapper {
 	List<Map<String, Object>> findConflicts(@Param("taskId") Long taskId);
 
 	@Select("""
+		<script>
+		SELECT id, task_id, scheme_id, item_id, teaching_task_id,
+		       event_type, actor_type, actor_id, reason_code, reason_text,
+		       before_snapshot_json, after_snapshot_json, context_snapshot_json,
+		       created_at
+		FROM ml_feedback_event
+		WHERE 1 = 1
+		<if test='taskId != null'>
+		  AND task_id = #{taskId}
+		</if>
+		ORDER BY id
+		</script>
+		""")
+	List<Map<String, Object>> findEvents(@Param("taskId") Long taskId);
+
+	@Select("""
 		SELECT id,
 		       model_version AS modelVersion,
 		       training_type AS trainingType,
