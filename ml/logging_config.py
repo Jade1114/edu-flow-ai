@@ -12,7 +12,7 @@ from logging.handlers import RotatingFileHandler
 from pathlib import Path
 from typing import Optional
 
-LOG_DIR = Path(__file__).resolve().parents[2] / "logs" / "python"
+LOG_DIR = Path(__file__).resolve().parents[1] / "logs" / "python"
 LOG_DIR.mkdir(parents=True, exist_ok=True)
 
 try:

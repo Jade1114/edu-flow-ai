@@ -9,8 +9,8 @@ import os
 from pathlib import Path
 from typing import Any
 
-ROOT_DIR = Path(__file__).resolve().parents[1]
-PROJECT_ROOT = ROOT_DIR.parent
+ROOT_DIR = Path(__file__).resolve().parents[2]  # ml/scheduling/infra/ → ml/
+PROJECT_ROOT = Path(__file__).resolve().parents[3]  # → 项目根目录
 PROJECT_LOG_DIR = PROJECT_ROOT / "logs" / "python"
 BASE_MODEL_PATH = ROOT_DIR / "models" / "base" / "schedule_ranker_v1.txt"
 BASE_FEATURE_SCHEMA_PATH = ROOT_DIR / "models" / "base" / "feature_schema.json"
