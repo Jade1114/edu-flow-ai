@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import random
 import unittest
+from unittest.mock import patch
 
+from ml.ga_config import resolve_ga_params
 from ml.scheduling.enumerator import enumerate_template_sets
 from ml.scheduling.ga import fitness, init_population
 from ml.scheduling.pipeline import _to_rows, generate_scheme
@@ -36,6 +38,31 @@ def _task(
 
 
 class SchedulingCoreTest(unittest.TestCase):
+    def test_ga_profile_fast_resolves_smaller_validation_params(self) -> None:
+        with patch.dict("os.environ", {"ML_GA_PROFILE": "fast"}, clear=False):
+            params = resolve_ga_params()
+
+        self.assertEqual(params["profile"], "fast")
+        self.assertLess(params["population_size"], 60)
+        self.assertLess(params["generations"], 60)
+
+    def test_ga_env_overrides_profile_params_with_bounds(self) -> None:
+        with patch.dict(
+            "os.environ",
+            {
+                "ML_GA_PROFILE": "fast",
+                "ML_GA_POPULATION_SIZE": "8",
+                "ML_GA_GENERATIONS": "2",
+                "ML_GA_MUTATION_RATE": "2.5",
+            },
+            clear=False,
+        ):
+            params = resolve_ga_params()
+
+        self.assertEqual(params["population_size"], 8)
+        self.assertEqual(params["generations"], 2)
+        self.assertEqual(params["mutation_rate"], 1.0)
+
     def test_template_enumerator_includes_non_prefix_week_patterns(self) -> None:
         template_sets = enumerate_template_sets(8, list(range(1, 19)))
 
@@ -47,6 +74,12 @@ class SchedulingCoreTest(unittest.TestCase):
         }
         self.assertIn((6, 7, 8, 9, 10, 11, 12, 13), week_patterns)
         self.assertNotEqual(template_sets[0].templates[0].weeks_list, list(range(1, 9)))
+
+    def test_template_enumerator_reuses_cached_shapes(self) -> None:
+        first = enumerate_template_sets(24, list(range(1, 19)))
+        second = enumerate_template_sets(24, list(range(1, 19)))
+
+        self.assertEqual(first, second)
 
     def test_template_enumerator_covers_all_available_weeks_when_lessons_exceed_weeks(self) -> None:
         template_sets = enumerate_template_sets(24, list(range(1, 19)))
@@ -66,7 +99,7 @@ class SchedulingCoreTest(unittest.TestCase):
             _task(2, teacher_id=2, class_group_ids=(102,), room_ids=[2]),
         ]
 
-        population = init_population(tasks, pop_size=1, rng=random.Random(7))
+        population = init_population(tasks, pop_size=1, rng=random.Random(7), init_candidate_top_n=5)
 
         self.assertEqual({gene.task_id for gene in population[0]}, {1, 2})
         metrics = fitness(population[0], tasks)

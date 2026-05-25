@@ -29,6 +29,10 @@ def generate_scheme(
     rng: random.Random,
     population_size: int = 60,
     generations: int = 60,
+    elite_size: int = 5,
+    tournament_size: int = 4,
+    mutation_rate: float = 0.15,
+    init_candidate_top_n: int = 40,
 ) -> tuple[list[dict[str, Any]], dict[str, Any]]:
     """生成排课方案。
 
@@ -161,7 +165,12 @@ def generate_scheme(
     # ── 3. GA 进化 ──────────────────────────────────────
     best_ind, metrics = evolve(
         alloc_tasks, rng,
-        pop_size=population_size, generations=generations,
+        pop_size=population_size,
+        generations=generations,
+        elite_size=elite_size,
+        tournament_size=tournament_size,
+        mutation_rate=mutation_rate,
+        init_candidate_top_n=init_candidate_top_n,
         scorer=scorer,
     )
     if int(metrics.get("missing_task_count") or 0) > 0:
@@ -176,6 +185,14 @@ def generate_scheme(
     metrics["task_count"] = len(alloc_tasks)
     metrics["lightgbm"] = scorer.model_status
     metrics["teacher_profile_audit"] = profile_audit
+    metrics["ga_params"] = {
+        "population_size": population_size,
+        "generations": generations,
+        "elite_size": elite_size,
+        "tournament_size": tournament_size,
+        "mutation_rate": mutation_rate,
+        "init_candidate_top_n": init_candidate_top_n,
+    }
 
     return rows, metrics
 

@@ -26,6 +26,7 @@ SAME_DAY_WEIGHT = 100
 LATE_PERIOD_WEIGHT = 30
 ML_SCORE_WEIGHT = 100
 INIT_TOP_K = 20
+INIT_ML_CANDIDATE_LIMIT = 40
 
 
 # ── 贪心初始化（MRV：周数最长→课时最多→大教室） ────────
@@ -36,10 +37,11 @@ def init_population(
     pop_size: int,
     rng: random.Random,
     scorer: AssignmentScorer | None = None,
+    init_candidate_top_n: int = INIT_ML_CANDIDATE_LIMIT,
 ) -> list[list[TaskGene]]:
     population = []
     for _ in range(pop_size):
-        ind = _greedy_individual(tasks, rng, scorer)
+        ind = _greedy_individual(tasks, rng, scorer, init_candidate_top_n)
         population.append(ind)
     return population
 
@@ -48,6 +50,7 @@ def _greedy_individual(
     tasks: list[AllocationTask],
     rng: random.Random,
     scorer: AssignmentScorer | None = None,
+    init_candidate_top_n: int = INIT_ML_CANDIDATE_LIMIT,
 ) -> list[TaskGene]:
     # MRV 排序：周数最长→课多→人多
     ordered = sorted(tasks, key=lambda t: (-mask_count(t.available_week_mask), -t.total_lessons, -t.student_count))
@@ -61,7 +64,7 @@ def _greedy_individual(
         for ts_idx, ts in sorted(enumerate(task.template_sets), key=lambda item: item[1].penalty):
             temp_assigns = []
             for tmpl_idx, tmpl in enumerate(ts.templates):
-                best_val = _pick_slot(task, tmpl_idx, tmpl, teachers_used, classes_used, rooms_used, rng, scorer)
+                best_val = _pick_slot(task, tmpl_idx, tmpl, teachers_used, classes_used, rooms_used, rng, scorer, init_candidate_top_n)
                 if best_val:
                     temp_assigns.append(best_val)
             if len(temp_assigns) == len(ts.templates):
@@ -91,19 +94,25 @@ def _pick_slot(
     rooms_used: dict,
     rng: random.Random,
     scorer: AssignmentScorer | None = None,
+    init_candidate_top_n: int = INIT_ML_CANDIDATE_LIMIT,
 ) -> TemplateAssignment | None:
     """为模板选 (slot, classroom) — hard/rule penalty + ML top-k 采样"""
-    candidates = []
+    rule_candidates = []
     for sid in task.candidate_slot_ids:
         for rid in task.candidate_room_ids:
             rule_penalty = _slot_room_penalty(sid, rid, tmpl, task, teachers_used, classes_used, rooms_used)
-            ml_score = scorer.score(task, tmpl, sid, rid) if scorer else 0.0
-            total_penalty = rule_penalty - ML_SCORE_WEIGHT * ml_score
-            candidates.append((total_penalty, rule_penalty, -ml_score, sid, rid))
+            rule_candidates.append((rule_penalty, sid, rid))
 
-    if not candidates:
+    if not rule_candidates:
         return None
 
+    rule_candidates.sort(key=lambda x: (x[0] >= HARD_CONFLICT_WEIGHT, x[0]))
+    shortlist_size = max(INIT_TOP_K, min(init_candidate_top_n, len(rule_candidates)))
+    candidates = []
+    for rule_penalty, sid, rid in rule_candidates[:shortlist_size]:
+        ml_score = scorer.score(task, tmpl, sid, rid) if scorer else 0.0
+        total_penalty = rule_penalty - ML_SCORE_WEIGHT * ml_score
+        candidates.append((total_penalty, rule_penalty, -ml_score, sid, rid))
     candidates.sort(key=lambda x: (x[1] >= HARD_CONFLICT_WEIGHT, x[0], x[2]))
     top = candidates[: min(INIT_TOP_K, len(candidates))]
     _total, _rule, _ml, sid, rid = rng.choice(top)
@@ -481,8 +490,9 @@ def evolve(
     tournament_size: int = 4,
     mutation_rate: float = 0.15,
     scorer: AssignmentScorer | None = None,
+    init_candidate_top_n: int = INIT_ML_CANDIDATE_LIMIT,
 ) -> tuple[list[TaskGene], dict[str, Any]]:
-    pop = init_population(tasks, pop_size, rng, scorer)
+    pop = init_population(tasks, pop_size, rng, scorer, init_candidate_top_n)
 
     for gen in range(1, generations + 1):
         scored = [{"ind": ind, "metrics": fitness(ind, tasks, scorer)} for ind in pop]

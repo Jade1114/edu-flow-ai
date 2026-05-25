@@ -13,6 +13,7 @@ from ml.db.repositories import (
     fetch_teacher_profiles, fetch_allocation_task,
     fetch_generation_config, fetch_task_teaching_task_ids,
 )
+from ml.ga_config import resolve_ga_params
 from ml.scheduling.pipeline import generate_scheme
 from ml.scheduling.infra.constants import PROJECT_LOG_DIR
 from ml.scheduling.teacher_profiles import load_teacher_profiles_jsonl
@@ -70,21 +71,38 @@ def run(task_id: int, teacher_profiles_jsonl: str | None = None):
     tasks = [t for t in tasks if int(t.get("teaching_task_id") or 0) in tid_set]
 
     scheme_count = _resolve_scheme_count(raw_config)
+    ga_params = resolve_ga_params(logger)
     profile_jsonl_path = teacher_profiles_jsonl or os.environ.get("TEACHER_PROFILES_JSONL")
     if profile_jsonl_path:
         teacher_profiles = load_teacher_profiles_jsonl(profile_jsonl_path)
 
     schemes = []
     summaries = []
+    logger.info(
+        "GA effective params for allocation_task_id=%s: profile=%s pop=%s generations=%s elite=%s tournament=%s mutation=%s",
+        task_id,
+        ga_params.get("profile"),
+        ga_params["population_size"],
+        ga_params["generations"],
+        ga_params["elite_size"],
+        ga_params["tournament_size"],
+        ga_params["mutation_rate"],
+    )
     for index in range(scheme_count):
         logger.info("Generating GA scheme %s/%s for allocation_task_id=%s", index + 1, scheme_count, task_id)
         rng = random.Random((task_id * 1_000_003 + index * 9_176 + 17) % 2_147_483_647)
         rows, metrics = generate_scheme(
             tasks, classrooms, time_slots, teacher_profiles,
-            rng=rng, population_size=100, generations=100,
+            rng=rng,
+            population_size=int(ga_params["population_size"]),
+            generations=int(ga_params["generations"]),
+            elite_size=int(ga_params["elite_size"]),
+            tournament_size=int(ga_params["tournament_size"]),
+            mutation_rate=float(ga_params["mutation_rate"]),
+            init_candidate_top_n=int(ga_params["candidate_top_n"]),
         )
         schemes.append({"items": rows})
-        summaries.append({"scheme_index": index + 1, **metrics})
+        summaries.append({"scheme_index": index + 1, "ga_profile": ga_params.get("profile"), **metrics})
 
     # 写输出
     ts = dt.now().strftime("%Y%m%d%H%M%S%f")[:-3]

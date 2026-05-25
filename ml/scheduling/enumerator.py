@@ -8,6 +8,7 @@
 
 from __future__ import annotations
 from itertools import product
+from functools import lru_cache
 from ml.scheduling.types import Template, TemplateSet, weeks_to_mask
 
 MIN_TEMPLATE_WEEKS = 2
@@ -24,28 +25,34 @@ def enumerate_template_sets(
     每个模板集 = N 个模板。每个模板负责 1 节课/周 × weeks_list。
     所有模板的 len(weeks_list) 之和 = total_lessons。
     """
-    if available_weeks is not None:
-        pool = sorted(set(available_weeks))
-    else:
-        pool = list(range(1, 19))
+    pool = tuple(sorted(set(available_weeks))) if available_weeks is not None else tuple(range(1, 19))
+    return list(_enumerate_template_sets_cached(total_lessons, pool))
 
-    avail = len(pool)
+
+@lru_cache(maxsize=128)
+def _enumerate_template_sets_cached(
+    total_lessons: int,
+    pool: tuple[int, ...],
+) -> tuple[TemplateSet, ...]:
+    pool_list = list(pool)
+
+    avail = len(pool_list)
 
     seen: set[tuple] = set()
     results: list[TemplateSet] = []
 
     if total_lessons <= 0 or avail <= 0:
-        return []
+        return ()
 
     min_template_weeks = min(MIN_TEMPLATE_WEEKS, total_lessons)
     max_t = min(MAX_TEMPLATES, max(1, total_lessons // min_template_weeks))
     min_t = max(1, (total_lessons + avail - 1) // avail)
 
     for t_count in range(min_t, max_t + 1):
-        _enum_for_count(t_count, total_lessons, pool, min_template_weeks, seen, results)
+        _enum_for_count(t_count, total_lessons, pool_list, min_template_weeks, seen, results)
 
     results.sort(key=lambda ts: ts.penalty)
-    return results[:MAX_COMBOS]
+    return tuple(results[:MAX_COMBOS])
 
 
 def _enum_for_count(
