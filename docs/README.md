@@ -8,16 +8,19 @@
 ```text
 docs/
 ├── README.md
-├── architecture/
-│   ├── 01-排课架构设计.md
-│   ├── 02-教师画像作用路径设计.md
-│   └── 03-LightGBM模型训练架构设计.md
+	├── architecture/
+	│   ├── 01-排课架构设计.md
+	│   ├── 02-教师画像作用路径设计.md
+	│   ├── 03-LightGBM模型训练架构设计.md
+	│   └── 04-训练样本事件采集架构设计.md
 ├── implementation/
 │   ├── 01-GA排课生成链路实现说明.md
 │   ├── 02-教师画像JSONL快照接入说明.md
 │   └── 03-排课链路验证与排障说明.md
-└── feedback/
-    └── 01-排课真实数据验收反馈.md
+	├── feedback/
+	│   └── 01-排课真实数据验收反馈.md
+	└── roadmap/
+	    └── 01-训练样本收集优先路线.md
 ```
 
 ## 文件职责
@@ -27,10 +30,12 @@ docs/
 | architecture/01-排课架构设计.md | 完整链路、数据模型、编码规则、预处理、GA 各环节 |
 | architecture/02-教师画像作用路径设计.md | 教师自然语言画像、LLM 结构化、JSONL 快照、Python 排课消费路径 |
 | architecture/03-LightGBM模型训练架构设计.md | 规则冷启动、反馈样本、模型训练、评估发布、GA 推理加载 |
+| architecture/04-训练样本事件采集架构设计.md | 事件表、行为快照、调整相消、人工标注和样本构建边界 |
 | implementation/01-GA排课生成链路实现说明.md | Java→Python→SSE→schemes.json→入库的具体代码路径 |
 | implementation/02-教师画像JSONL快照接入说明.md | 教师画像快照导出、请求传递、Python 归一化和排课消费实现 |
 | implementation/03-排课链路验证与排障说明.md | 本地验证命令、关键输出文件、常见问题定位 |
 | feedback/01-排课真实数据验收反馈.md | 真实任务验收中的非阻塞问题、判断和后续优化项 |
+| roadmap/01-训练样本收集优先路线.md | 训练样本事件采集、样本构建和重训准备的后续建设顺序 |
 
 ## 当前架构边界
 
