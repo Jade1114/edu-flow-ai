@@ -7,6 +7,20 @@ import { Cpu, DataAnalysis, Refresh, TrendCharts, Finished, VideoPlay, CircleChe
 // === 反馈数据 ===
 const feedbackStats = ref(null)
 const feedbackLoading = ref(false)
+const eventSummary = ref(null)
+const eventLoading = ref(false)
+
+async function loadEventSummary(taskId) {
+  eventLoading.value = true
+  try {
+    const params = taskId ? `?taskId=${taskId}&recentLimit=100` : '?recentLimit=100'
+    eventSummary.value = await request.get(`/api/ml/feedback/events/summary${params}`)
+  } catch (e) {
+    eventSummary.value = null
+  } finally {
+    eventLoading.value = false
+  }
+}
 
 async function loadLatestFeedbackJson(taskId) {
   feedbackLoading.value = true
@@ -25,6 +39,7 @@ async function generateFeedbackJson(taskId) {
   try {
     const params = taskId ? `?taskId=${taskId}` : ''
     feedbackStats.value = await request.get(`/api/ml/feedback/export${params}`)
+    loadEventSummary(taskId)
     ElMessage.success('反馈 JSON 已生成')
   } catch (e) {
     ElMessage.error('生成反馈 JSON 失败')
@@ -81,6 +96,28 @@ const positiveRate = computed(() => {
   const total = (last.sampleCount || 1)
   return Math.round((last.positiveCount || 0) / total * 100)
 })
+
+function eventCount(type) {
+  const row = eventSummary.value?.eventTypes?.find(item => item.eventType === type)
+  return row?.eventCount || 0
+}
+
+function eventTypeLabel(type) {
+  const map = {
+    SCHEME_CONFIRMED: '方案确认',
+    ITEM_MOVED: '片段移动',
+    ITEM_MARKED_GOOD: '人工标好',
+    ITEM_MARKED_BAD: '人工标差',
+  }
+  return map[type] || type || '-'
+}
+
+const eventCards = computed(() => [
+  { label: '事件总数', value: eventSummary.value?.eventCount || 0, type: 'primary' },
+  { label: '方案确认', value: eventCount('SCHEME_CONFIRMED'), type: 'success' },
+  { label: '片段移动', value: eventCount('ITEM_MOVED'), type: 'warning' },
+  { label: '人工标注', value: eventCount('ITEM_MARKED_GOOD') + eventCount('ITEM_MARKED_BAD'), type: 'danger' },
+])
 
 // 趋势图与分布
 const chartWidth = 400
@@ -187,6 +224,7 @@ function fmtTime(t) {
 
 onMounted(() => {
   loadLatestFeedbackJson()
+  loadEventSummary()
   loadTrainingLogs()
 })
 </script>
@@ -198,10 +236,13 @@ onMounted(() => {
       <div>
         <h2 style="margin: 0">模型训练中心</h2>
         <p style="margin: 4px 0 0; color: #909399; font-size: 13px">
-          反馈数据 → 训练样本 → LightGBM 重训 → 模型版本更新
+          反馈事件 → 样本构造 → LightGBM 重训 → 模型版本更新
         </p>
       </div>
       <div style="display: flex; gap: 8px">
+        <el-button :icon="Refresh" @click="loadEventSummary()" :loading="eventLoading">
+          刷新事件
+        </el-button>
         <el-button :icon="Refresh" @click="generateFeedbackJson()" :loading="feedbackLoading">
           生成反馈 JSON
         </el-button>
@@ -242,6 +283,63 @@ onMounted(() => {
     <!-- 空状态 -->
     <el-empty v-if="!statsCards.length && !training" description="还没有训练记录，请先创建排课任务并生成方案，积累反馈数据后再开始重训" />
 
+    <!-- 反馈事件采集台账 -->
+    <el-card shadow="never">
+      <template #header>
+        <div style="display: flex; align-items: center; gap: 6px; font-weight: 700">
+          <el-icon><DataAnalysis /></el-icon>
+          <span>反馈事件采集台账</span>
+          <el-tag size="small" type="info" style="margin-left: auto">
+            确认/调整/人工标注自动采集
+          </el-tag>
+        </div>
+      </template>
+      <el-row :gutter="12" v-loading="eventLoading">
+        <el-col :span="6" v-for="card in eventCards" :key="card.label">
+          <div class="stat-card">
+            <div class="stat-num" :class="`stat-${card.type}`">{{ card.value }}</div>
+            <div class="stat-label">{{ card.label }}</div>
+          </div>
+        </el-col>
+      </el-row>
+      <el-table
+        :data="eventSummary?.eventTypes || []"
+        size="small"
+        border
+        style="width: 100%; margin-top: 12px"
+        empty-text="暂无反馈事件"
+      >
+        <el-table-column label="事件类型" min-width="160">
+          <template #default="{ row }">{{ eventTypeLabel(row.eventType) }}</template>
+        </el-table-column>
+        <el-table-column prop="eventCount" label="事件数" width="90" align="center" />
+      </el-table>
+      <el-table
+        :data="eventSummary?.recentEvents || []"
+        size="small"
+        border
+        style="width: 100%; margin-top: 12px"
+        empty-text="暂无行为事件"
+      >
+        <el-table-column prop="id" label="事件ID" width="80" align="center" />
+        <el-table-column prop="taskId" label="任务" width="80" align="center" />
+        <el-table-column label="行为类型" min-width="130">
+          <template #default="{ row }">{{ eventTypeLabel(row.eventType) }}</template>
+        </el-table-column>
+        <el-table-column prop="schemeId" label="方案" width="80" align="center" />
+        <el-table-column prop="itemId" label="片段" width="80" align="center" />
+        <el-table-column prop="teachingTaskId" label="教学任务" width="90" align="center" />
+        <el-table-column prop="reasonCode" label="原因码" width="140" show-overflow-tooltip />
+        <el-table-column prop="reasonText" label="说明" min-width="180" show-overflow-tooltip />
+        <el-table-column label="时间" width="160">
+          <template #default="{ row }">{{ fmtTime(row.createdAt) }}</template>
+        </el-table-column>
+      </el-table>
+      <div style="font-size: 12px; color: #909399; margin-top: 10px; line-height: 1.7">
+        当前阶段先沉淀原始反馈事件，不直接把未选候选当负样本。后续样本构造器会按优先级和移动相消规则把事件转成训练样本。
+      </div>
+    </el-card>
+
     <!-- 反馈数据 & 操作 -->
     <el-row :gutter="16">
       <el-col :span="14">
@@ -255,7 +353,7 @@ onMounted(() => {
               </el-tag>
             </div>
           </template>
-          <div v-if="feedbackStats" style="display: grid; grid-template-columns: repeat(5, 1fr); gap: 12px; text-align: center">
+          <div v-if="feedbackStats" style="display: grid; grid-template-columns: repeat(6, 1fr); gap: 12px; text-align: center">
             <div class="stat-card">
               <div class="stat-num">{{ feedbackStats.schemeCount }}</div>
               <div class="stat-label">候选方案</div>
@@ -276,6 +374,10 @@ onMounted(() => {
               <div class="stat-num" style="color: #f56c6c">{{ feedbackStats.conflictCount }}</div>
               <div class="stat-label">冲突记录</div>
             </div>
+            <div class="stat-card">
+              <div class="stat-num" style="color: #409eff">{{ feedbackStats.eventCount || 0 }}</div>
+              <div class="stat-label">反馈事件</div>
+            </div>
           </div>
           <div v-else style="text-align: center; padding: 32px; color: #909399">
             点击“生成反馈 JSON”后查看本次导出的反馈数据统计
@@ -285,10 +387,7 @@ onMounted(() => {
           <el-divider />
           <div style="font-size: 12px; color: #909399; line-height: 1.8">
             <strong>标签策略：</strong>
-            确认明细 → 正样本 (weight=1.0) &nbsp;|&nbsp;
-            冲突明细 → 负样本 (weight=1.3) &nbsp;|&nbsp;
-            调整前 → 负样本 (weight=1.2) &nbsp;|&nbsp;
-            调整后 → 正样本 (weight=1.4)
+            先记录方案确认、片段移动和人工标注事件；真正的正负样本由后续样本构造器统一生成，避免把未选候选误判成负样本。
           </div>
         </el-card>
       </el-col>
@@ -303,12 +402,12 @@ onMounted(() => {
           </template>
           <div v-if="trainingLogs.length" style="text-align: center">
             <div style="font-size: 48px; font-weight: 700; color: #303133; line-height: 1.2">
-              {{ trainingLogs[0].sampleCount || 0 }}
+              {{ trainingLogs[0]?.sampleCount || 0 }}
             </div>
-            <div style="color: #909399; margin-bottom: 16px">最近一次训练样本总数</div>
+            <div style="color: #909399; margin-bottom: 16px">最近训练样本总数</div>
             <div style="display: flex; gap: 12px; justify-content: center">
-              <el-tag type="success" size="large">正样本 {{ trainingLogs[0].positiveCount || 0 }}</el-tag>
-              <el-tag type="danger" size="large">负样本 {{ trainingLogs[0].negativeCount || 0 }}</el-tag>
+              <el-tag type="success" size="large">正样本 {{ trainingLogs[0]?.positiveCount || 0 }}</el-tag>
+              <el-tag type="danger" size="large">负样本 {{ trainingLogs[0]?.negativeCount || 0 }}</el-tag>
             </div>
             <div style="margin-top: 16px">
               <div style="height: 8px; border-radius: 4px; background: #f0f0f0; overflow: hidden">
@@ -465,6 +564,18 @@ onMounted(() => {
   font-weight: 700;
   color: #303133;
   line-height: 1.2;
+}
+.stat-primary {
+  color: #409eff;
+}
+.stat-success {
+  color: #67c23a;
+}
+.stat-danger {
+  color: #f56c6c;
+}
+.stat-warning {
+  color: #e6a23c;
 }
 .stat-label {
   font-size: 12px;

@@ -1169,6 +1169,7 @@ const editingItem = ref(null);
 const classrooms = ref([]);
 const timeSlots = ref([]);
 const savingMove = ref(false);
+const markingItem = ref(false);
 const conflictCollapseActive = ref([]);
 
 function conflictTypeLabel(type) {
@@ -1247,6 +1248,27 @@ async function saveItemMove() {
     }
   } finally {
     savingMove.value = false;
+  }
+}
+
+async function markItemFeedback(markType) {
+  const item = editingItem.value;
+  if (!item?.id || !schemeDetail.value?.id) return;
+  markingItem.value = true;
+  try {
+    await request.post(
+      `/api/allocation-schemes/${schemeDetail.value.id}/items/${item.id}/feedback`,
+      {
+        markType,
+        reasonCode: "MANUAL_JUDGEMENT",
+        reasonText: markType === "GOOD" ? "人工标记为可参考片段" : "人工标记为不满意片段",
+      },
+    );
+    ElMessage.success(markType === "GOOD" ? "已标记为可参考" : "已标记为不满意");
+  } catch (e) {
+    ElMessage.error("标注失败");
+  } finally {
+    markingItem.value = false;
   }
 }
 
@@ -2590,9 +2612,9 @@ onUnmounted(() => {
             />
           </el-select>
         </el-form-item>
-        <el-form-item label="时间段">
-          <el-select
-            v-model="editingItem.timeSlotId"
+	        <el-form-item label="时间段">
+	          <el-select
+	            v-model="editingItem.timeSlotId"
             filterable
             placeholder="选择时间段"
             style="width: 100%"
@@ -2602,10 +2624,28 @@ onUnmounted(() => {
               :key="ts.id"
               :label="timeSlotLabel(ts)"
               :value="ts.id"
-            />
-          </el-select>
-        </el-form-item>
-      </el-form>
+	            />
+	          </el-select>
+	        </el-form-item>
+	        <el-form-item label="人工标注">
+	          <el-button
+	            type="success"
+	            plain
+	            :loading="markingItem"
+	            @click="markItemFeedback('GOOD')"
+	          >
+	            标为可参考
+	          </el-button>
+	          <el-button
+	            type="warning"
+	            plain
+	            :loading="markingItem"
+	            @click="markItemFeedback('BAD')"
+	          >
+	            标为不满意
+	          </el-button>
+	        </el-form-item>
+	      </el-form>
       <template #footer>
         <el-button @click="editDialog = false">取消</el-button>
         <el-button type="primary" :loading="savingMove" @click="saveItemMove"
