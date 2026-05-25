@@ -61,6 +61,7 @@ const schemeVisible = ref(false);
 const currentTaskId = ref(null);
 const generateConfirmVisible = ref(false);
 const generateTargetTask = ref(null);
+const reevaluatingScheme = ref(false);
 
 const generating = ref(false);
 const genStatus = ref(null);
@@ -819,6 +820,37 @@ async function confirmScheme(schemeId) {
   loadTasks();
 }
 
+function updateSchemeRow(updatedScheme) {
+  if (!updatedScheme?.id) return;
+  schemes.value = schemes.value.map((scheme) =>
+    scheme.id === updatedScheme.id ? { ...scheme, ...updatedScheme } : scheme,
+  );
+}
+
+async function refreshSchemeDetail(schemeId) {
+  const [detail, items, conflicts] = await Promise.all([
+    request.get(`/api/allocation-schemes/${schemeId}`),
+    request.get(`/api/allocation-schemes/${schemeId}/items`),
+    request.get(`/api/allocation-schemes/${schemeId}/conflicts`),
+  ]);
+  conflictDiagnosis.value = conflicts || null;
+  schemeDetail.value = { ...schemeDetail.value, ...detail, items };
+  updateSchemeRow(detail);
+  return { detail, items, conflicts };
+}
+
+async function reevaluateCurrentScheme() {
+  if (!schemeDetail.value?.id) return;
+  reevaluatingScheme.value = true;
+  try {
+    const detail = await request.post(`/api/allocation-schemes/${schemeDetail.value.id}/reevaluate`);
+    await refreshSchemeDetail(detail.id || schemeDetail.value.id);
+    ElMessage.success("已重新验收方案");
+  } finally {
+    reevaluatingScheme.value = false;
+  }
+}
+
 // === 课程表视图 ===
 
 const detailVisible = ref(false);
@@ -841,11 +873,36 @@ const teacherProfileAudit = computed(
 const lightgbmStatus = computed(
   () => schemeScores.value?.lightgbm || gaSummary.value?.lightgbm || null,
 );
+const reevaluationStatus = computed(() => schemeScores.value?.reevaluation || null);
+const gaParams = computed(
+  () => schemeScores.value?.ga_summary?.ga_params || gaSummary.value?.ga_params || null,
+);
 const profilePenaltyItems = computed(() =>
   (schemeDetail.value?.items || []).filter(
-    (item) => item.valid !== false && item.conflictMessage,
+    (item) => itemHasProfileExplanation(item),
   ),
 );
+const conflictItemIds = computed(() => {
+  const ids = new Set();
+  for (const row of conflictDiagnosisRows()) {
+    if (row.bizType === "ALLOCATION_ITEM" && row.bizId != null) {
+      ids.add(String(row.bizId));
+    }
+    for (const id of parseConflictItemIds(row.message)) {
+      ids.add(String(id));
+    }
+  }
+  return ids;
+});
+const conflictTaskIds = computed(() => {
+  const ids = new Set();
+  for (const row of conflictDiagnosis.value?.hoursMismatch || []) {
+    if (row.teachingTaskId != null) {
+      ids.add(String(row.teachingTaskId));
+    }
+  }
+  return ids;
+});
 const hardAuditRows = computed(() =>
   (teacherProfileAudit.value?.tasks || [])
     .filter(
@@ -906,6 +963,16 @@ function modelStatusText(status) {
   if (!status) return "未返回模型状态";
   if (status.enabled) return `LightGBM 已启用，特征 ${status.feature_count || 0} 个`;
   return `LightGBM 未启用：${status.disabled_reason || "未找到模型或特征 schema"}`;
+}
+
+function reevaluationStatusText(status) {
+  if (!status?.model_score_stale) return null;
+  return "手动重评已刷新冲突/画像/均衡；模型分沿用生成时状态";
+}
+
+function gaParamsText(params) {
+  if (!params) return "未返回 GA 参数";
+  return `GA ${schemeScores.value?.ga_profile || gaSummary.value?.ga_profile || "default"} · 种群 ${params.population_size} · 迭代 ${params.generations}`;
 }
 const currentWeek = ref(1);
 const dayNames = ["周一", "周二", "周三", "周四", "周五", "周六", "周日"];
@@ -1004,11 +1071,65 @@ function resetTimetableFilters() {
 }
 
 function itemHasConflict(item) {
-  return item.valid === false;
+  if (isInvalidValue(item.valid)) return true;
+  if (item?.id != null && conflictItemIds.value.has(String(item.id))) return true;
+  if (item?.teachingTaskId != null && conflictTaskIds.value.has(String(item.teachingTaskId))) return true;
+  return isHardConflictMessage(item?.conflictMessage);
+}
+
+function schemeIsValid(scheme) {
+  return !isInvalidValue(scheme?.valid);
+}
+
+function schemeStatusLabel(scheme) {
+  const labels = {
+    [SchemeStatus.CANDIDATE]: "候选",
+    [SchemeStatus.CONFIRMED]: "已确认",
+    [SchemeStatus.REJECTED]: "已拒绝",
+  };
+  const lifecycle = labels[scheme?.status] || scheme?.status || "-";
+  return schemeIsValid(scheme) ? lifecycle : `${lifecycle} / 有冲突`;
+}
+
+function schemeStatusType(scheme) {
+  if (!schemeIsValid(scheme)) return "danger";
+  if (scheme?.status === SchemeStatus.CONFIRMED) return "success";
+  if (scheme?.status === SchemeStatus.REJECTED) return "info";
+  return "warning";
+}
+
+function schemeConflictSummary(scheme) {
+  return scheme?.conflictSummary || "无明显冲突";
 }
 
 function itemHasProfileExplanation(item) {
-  return item.valid !== false && !!item.conflictMessage;
+  return !itemHasConflict(item) && !!item.conflictMessage;
+}
+
+function isInvalidValue(value) {
+  return value === false || value === 0 || value === "0" || String(value).toLowerCase() === "false";
+}
+
+function isHardConflictMessage(message) {
+  const text = String(message || "");
+  return ["教师时间冲突", "班级时间冲突", "教室时间冲突", "教师工作量冲突", "课时"].some((label) =>
+    text.includes(label),
+  );
+}
+
+function conflictDiagnosisRows() {
+  const grouped = Object.values(conflictDiagnosis.value?.groups || {}).flat();
+  return [...grouped, ...(conflictDiagnosis.value?.hoursMismatch || [])];
+}
+
+function parseConflictItemIds(message) {
+  const text = String(message || "");
+  const matched = text.match(/明细ID[:：]([^，。；\n]+)/);
+  if (!matched) return [];
+  return matched[1]
+    .split(",")
+    .map((value) => value.trim())
+    .filter((value) => /^\d+$/.test(value));
 }
 
 function itemsAtSlot(dayOfWeek, periodIndex) {
@@ -1100,11 +1221,14 @@ async function saveItemMove() {
     ElMessage.success("修改成功，已记录调整并重新检测冲突");
     editDialog.value = false;
     // 刷新 schemeDetail 完整数据（含 conflictSummary）+ items
-    const [detail, items] = await Promise.all([
+    const [detail, items, conflicts] = await Promise.all([
       request.get(`/api/allocation-schemes/${schemeDetail.value.id}`),
       request.get(`/api/allocation-schemes/${schemeDetail.value.id}/items`),
+      request.get(`/api/allocation-schemes/${schemeDetail.value.id}/conflicts`),
     ]);
+    conflictDiagnosis.value = conflicts || null;
     schemeDetail.value = { ...schemeDetail.value, ...detail, items };
+    updateSchemeRow(detail);
     // 同步刷新 slot 详情弹窗
     const dayIndex =
       ["周一", "周二", "周三", "周四", "周五", "周六", "周日"].indexOf(
@@ -1217,11 +1341,14 @@ async function onTemplateDropToCard(e, targetItem) {
     }
 
     ElMessage.success(`已将该卡片教室改为 ${classroomName || template.classroomId}`);
-    const [detail, items] = await Promise.all([
+    const [detail, items, conflicts] = await Promise.all([
       request.get(`/api/allocation-schemes/${schemeDetail.value.id}`),
       request.get(`/api/allocation-schemes/${schemeDetail.value.id}/items`),
+      request.get(`/api/allocation-schemes/${schemeDetail.value.id}/conflicts`),
     ]);
+    conflictDiagnosis.value = conflicts || null;
     schemeDetail.value = { ...schemeDetail.value, ...detail, items };
+    updateSchemeRow(detail);
   } catch (error) {
     ElMessage.error("应用模板失败");
   } finally {
@@ -1253,11 +1380,14 @@ async function onDrop(e, day, period) {
       { classroomId: item.classroomId, timeSlotId: targetTimeSlotId },
     );
     ElMessage.success("已移动，调整日志已记录");
-    const [detail, items] = await Promise.all([
+    const [detail, items, conflicts] = await Promise.all([
       request.get(`/api/allocation-schemes/${schemeDetail.value.id}`),
       request.get(`/api/allocation-schemes/${schemeDetail.value.id}/items`),
+      request.get(`/api/allocation-schemes/${schemeDetail.value.id}/conflicts`),
     ]);
+    conflictDiagnosis.value = conflicts || null;
     schemeDetail.value = { ...schemeDetail.value, ...detail, items };
+    updateSchemeRow(detail);
   } catch (e) {
     ElMessage.error("移动失败");
   } finally {
@@ -1275,6 +1405,7 @@ async function viewSchemeDetail(schemeId) {
   ]);
   conflictDiagnosis.value = conflicts || null;
   classrooms.value = allRooms;
+  updateSchemeRow(detail);
   // 从任务列表中找到对应任务的周次范围
   const task = tasks.value.find((t) => t.id === detail.taskId);
   buildTimeSlotMap(allTimeSlots);
@@ -1776,17 +1907,29 @@ onUnmounted(() => {
         </el-table-column>
         <el-table-column prop="valid" label="有效" width="70">
           <template #default="{ row }">
-            <el-tag :type="row.valid ? 'success' : 'danger'" size="small">{{
-              row.valid ? "是" : "否"
+            <el-tag :type="schemeIsValid(row) ? 'success' : 'danger'" size="small">{{
+              schemeIsValid(row) ? "是" : "否"
             }}</el-tag>
           </template>
         </el-table-column>
-        <el-table-column prop="status" label="状态" width="100" />
+        <el-table-column prop="status" label="状态" width="130">
+          <template #default="{ row }">
+            <el-tag :type="schemeStatusType(row)" size="small" effect="plain">
+              {{ schemeStatusLabel(row) }}
+            </el-tag>
+          </template>
+        </el-table-column>
         <el-table-column
           prop="conflictSummary"
           label="冲突摘要"
           show-overflow-tooltip
-        />
+        >
+          <template #default="{ row }">
+            <span :style="{ color: schemeIsValid(row) ? '#606266' : '#f56c6c' }">
+              {{ schemeConflictSummary(row) }}
+            </span>
+          </template>
+        </el-table-column>
         <el-table-column label="操作" width="180">
           <template #default="{ row }">
             <el-button
@@ -1798,7 +1941,7 @@ onUnmounted(() => {
             <el-button
               type="success"
               size="small"
-              :disabled="!row.valid"
+              :disabled="!schemeIsValid(row)"
               @click="confirmScheme(row.id)"
               >{{
                 row.status === SchemeStatus.CONFIRMED ? "重新确认" : "确认"
@@ -1831,12 +1974,18 @@ onUnmounted(() => {
               {{ schemeDetail.summary }}
             </span>
           </div>
-          <div>
+          <div style="display: flex; align-items: center; gap: 8px">
             <el-tag
               v-if="schemeDetail.conflictSummary"
               type="danger"
               size="small"
               >冲突: {{ schemeDetail.conflictSummary }}</el-tag
+            >
+            <el-button
+              size="small"
+              :loading="reevaluatingScheme"
+              @click="reevaluateCurrentScheme"
+              >重新验收</el-button
             >
           </div>
         </div>
@@ -1887,6 +2036,15 @@ onUnmounted(() => {
             </div>
             <div style="font-size: 12px; color: #606266; margin-top: 6px">
               {{ modelStatusText(lightgbmStatus) }}
+            </div>
+            <div style="font-size: 12px; color: #909399; margin-top: 4px">
+              {{ gaParamsText(gaParams) }}
+            </div>
+            <div
+              v-if="reevaluationStatusText(reevaluationStatus)"
+              style="font-size: 12px; color: #e6a23c; margin-top: 4px"
+            >
+              {{ reevaluationStatusText(reevaluationStatus) }}
             </div>
           </div>
         </div>
@@ -2321,7 +2479,14 @@ onUnmounted(() => {
                         {{ item.classGroupName }}
                       </div>
                       <el-tag
-                        v-if="itemHasProfileExplanation(item)"
+                        v-if="itemHasConflict(item)"
+                        type="danger"
+                        size="small"
+                        effect="plain"
+                        >冲突</el-tag
+                      >
+                      <el-tag
+                        v-else-if="itemHasProfileExplanation(item)"
                         type="warning"
                         size="small"
                         effect="plain"

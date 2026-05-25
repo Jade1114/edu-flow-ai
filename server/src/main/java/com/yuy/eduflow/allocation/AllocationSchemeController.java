@@ -68,6 +68,11 @@ public class AllocationSchemeController {
 		return ApiResponse.success(allocationSchemeConfirmService.confirm(id));
 	}
 
+	@PostMapping("/{id}/reevaluate")
+	public ApiResponse<AllocationScheme> reevaluate(@PathVariable Long id) {
+		return ApiResponse.success(allocationItemService.reevaluateScheme(id));
+	}
+
 	@PutMapping("/{id}")
 	public ApiResponse<AllocationScheme> update(@PathVariable Long id, @RequestBody AllocationSchemeRequest request) {
 		return ApiResponse.success(allocationSchemeService.update(id, request));

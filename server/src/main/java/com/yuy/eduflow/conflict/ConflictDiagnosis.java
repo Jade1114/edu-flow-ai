@@ -15,6 +15,8 @@ public record ConflictDiagnosis(
 ) {
     public record ConflictDiagnosisItem(
         Long id,
+        String bizType,
+        Long bizId,
         String conflictType,
         String typeLabel,
         String message,

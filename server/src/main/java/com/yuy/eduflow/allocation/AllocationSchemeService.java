@@ -79,6 +79,8 @@ public class AllocationSchemeService {
 		for (ConflictCheckResult r : raw) {
 			ConflictDiagnosis.ConflictDiagnosisItem item = new ConflictDiagnosis.ConflictDiagnosisItem(
 				r.getId(),
+				r.getBizType(),
+				r.getBizId(),
 				r.getConflictType(),
 				typeLabel(r.getConflictType()),
 				r.getMessage(),

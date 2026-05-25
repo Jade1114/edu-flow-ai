@@ -120,4 +120,13 @@ public interface ConflictCheckResultMapper {
 		WHERE id = #{id}
 		""")
 	int delete(Long id);
+
+	@Delete("""
+		DELETE ccr
+		FROM conflict_check_result ccr
+		LEFT JOIN allocation_item ai ON ccr.biz_id = ai.id AND ccr.biz_type = 'ALLOCATION_ITEM'
+		WHERE (ai.scheme_id = #{schemeId})
+		   OR (ccr.biz_type = 'SCHEME' AND ccr.biz_id = #{schemeId})
+		""")
+	int deleteBySchemeId(@Param("schemeId") Long schemeId);
 }

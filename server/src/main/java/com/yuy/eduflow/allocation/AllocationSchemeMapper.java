@@ -130,4 +130,20 @@ public interface AllocationSchemeMapper {
 		@Param("valid") Boolean valid,
 		@Param("conflictSummary") String conflictSummary
 	);
+
+	@Update("""
+		UPDATE allocation_scheme
+		SET scheme_score = #{schemeScore},
+		    evaluation_summary = #{evaluationSummary},
+		    valid = #{valid},
+		    conflict_summary = #{conflictSummary}
+		WHERE id = #{id}
+		""")
+	int updateEvaluationState(
+		@Param("id") Long id,
+		@Param("schemeScore") Double schemeScore,
+		@Param("evaluationSummary") String evaluationSummary,
+		@Param("valid") Boolean valid,
+		@Param("conflictSummary") String conflictSummary
+	);
 }
