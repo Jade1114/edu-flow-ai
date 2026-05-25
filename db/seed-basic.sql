@@ -54,6 +54,17 @@ INSERT INTO course (name, course_type, required_hours, description, status) VALU
 ('项目管理',            '专业选修课', 24, '项目计划、风险管理、团队协作、文档规范', 'ACTIVE')
 ON DUPLICATE KEY UPDATE description = VALUES(description);
 
+UPDATE course
+SET required_room_type = CASE
+    WHEN name IN ('Python程序设计', 'Web前端开发', 'Linux系统应用') THEN '机房实验室'
+    ELSE NULL
+END
+WHERE name IN (
+    'Java程序设计', '数据库原理', '数据结构', '计算机网络', '操作系统',
+    '软件工程导论', 'Python程序设计', 'Web前端开发', '算法设计与分析',
+    '计算机组成原理', '人工智能导论', '大数据技术基础', 'Linux系统应用', '项目管理'
+);
+
 -- ============================================================
 -- 班级（8个班，4个专业 × 2个班，均为2023级）
 -- ============================================================
@@ -76,13 +87,17 @@ INSERT INTO classroom (name, building, capacity, classroom_type, status) VALUES
 ('08102', '综合楼A座', 80,  '普通教室',  'ACTIVE'),
 ('08103', '综合楼A座', 80,  '普通教室',  'ACTIVE'),
 ('08104', '综合楼A座', 100, '阶梯教室',  'ACTIVE'),
-('08105', '综合楼A座', 60,  '机房/实验室', 'ACTIVE'),
+('08105', '综合楼A座', 60,  '机房实验室', 'ACTIVE'),
 ('08201', '综合楼B座', 80,  '普通教室',  'ACTIVE'),
 ('08202', '综合楼B座', 80,  '普通教室',  'ACTIVE'),
 ('08203', '综合楼B座', 90,  '阶梯教室',  'ACTIVE'),
-('08204', '综合楼B座', 60,  '机房/实验室', 'ACTIVE'),
-('08205', '综合楼B座', 60,  '机房/实验室', 'ACTIVE')
-ON DUPLICATE KEY UPDATE building = VALUES(building);
+('08204', '综合楼B座', 60,  '机房实验室', 'ACTIVE'),
+('08205', '综合楼B座', 60,  '机房实验室', 'ACTIVE')
+ON DUPLICATE KEY UPDATE
+    building = VALUES(building),
+    capacity = VALUES(capacity),
+    classroom_type = VALUES(classroom_type),
+    status = VALUES(status);
 
 -- ============================================================
 -- 时间段（第1~18周，周一~周日，每天5节）
@@ -432,7 +447,13 @@ INSERT INTO course (name, course_type, required_room_type, required_hours, descr
 ('移动应用开发',        '专业选修课', '机房实验室', 36, 'Android/iOS基础、Flutter跨平台开发', 'ACTIVE'),
 ('云计算概论',          '专业选修课', '普通教室',   36, '虚拟化、容器技术、云原生架构', 'ACTIVE'),
 ('数据挖掘',            '专业选修课', '机房实验室', 36, '关联规则、聚类、分类、推荐系统', 'ACTIVE')
-ON DUPLICATE KEY UPDATE description = VALUES(description);
+ON DUPLICATE KEY UPDATE
+    required_room_type = VALUES(required_room_type),
+    description = VALUES(description);
+
+UPDATE course
+SET required_room_type = NULL
+WHERE required_room_type = '普通教室';
 
 -- ============================================================
 -- 扩展班级（+8个 2024级）
@@ -460,7 +481,11 @@ INSERT INTO classroom (name, building, capacity, classroom_type, status) VALUES
 ('08106', '综合楼A座', 120, '阶梯教室',  'ACTIVE'),
 ('08206', '综合楼B座', 70,  '普通教室',  'ACTIVE'),
 ('08207', '综合楼B座', 70,  '普通教室',  'ACTIVE')
-ON DUPLICATE KEY UPDATE building = VALUES(building);
+ON DUPLICATE KEY UPDATE
+    building = VALUES(building),
+    capacity = VALUES(capacity),
+    classroom_type = VALUES(classroom_type),
+    status = VALUES(status);
 
 -- ============================================================
 -- 扩展教学任务（+18个，TT19~TT36）
@@ -704,5 +729,121 @@ JOIN course c ON tt.course_id = c.id JOIN teacher t ON tt.primary_teacher_id = t
 CROSS JOIN class_group cg
 WHERE c.name='数据挖掘' AND t.employee_no='T1020' AND tt.notes='上机实践课，24级'
   AND cg.name='24级数据科学与大数据技术1班';
+
+-- ============================================================
+-- 同步教学任务教室类型：GA 读取 teaching_task.required_room_type 做候选教室过滤
+-- ============================================================
+UPDATE teaching_task tt
+JOIN course c ON c.id = tt.course_id
+SET tt.required_room_type = c.required_room_type;
+
+COMMIT;
+
+-- ============================================================
+-- 默认排课任务：重置数据库后可直接用于验证核心链路
+-- ============================================================
+
+START TRANSACTION;
+
+INSERT INTO allocation_task (name, description, start_week, end_week, status, created_by)
+VALUES (
+    '核心链路测试任务（10门课）',
+    '用于验证可用周/星期/节次硬过滤、多方案生成、教师画像 JSONL 快照和 GA 输出入库。',
+    1,
+    18,
+    'DRAFT',
+    'seed'
+)
+ON DUPLICATE KEY UPDATE
+    description = VALUES(description),
+    start_week = VALUES(start_week),
+    end_week = VALUES(end_week),
+    status = VALUES(status);
+
+INSERT INTO allocation_task_generation_config (
+    task_id,
+    allowed_weeks,
+    allowed_weekdays,
+    allowed_periods,
+    scheme_count,
+    teacher_profile_penalty_scale,
+    distribution_penalty_scale,
+    classroom_stickiness_weight,
+    compact_bonus_weight,
+    weekday_load_penalty,
+    room_day_load_penalty,
+    room_week_load_penalty,
+    task_day_load_penalty,
+    early_period_penalty,
+    late_period_penalty,
+    random_jitter,
+    classroom_stickiness_bonus,
+    weekend_penalty,
+    llm_prompt,
+    llm_result_json
+)
+SELECT
+    at.id,
+    '1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18',
+    '1,2,3,4,5',
+    '1,2,3,4',
+    2,
+    80.0000,
+    10.0000,
+    15.0000,
+    0.0000,
+    0.030000,
+    0.015000,
+    0.008000,
+    0.050000,
+    0.040000,
+    0.030000,
+    0.001000,
+    0.020000,
+    0.050000,
+    '默认测试配置：仅周一到周五、第1到第4节，生成2套候选方案。',
+    '{"allowed_weeks":[1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18],"allowed_weekdays":[1,2,3,4,5],"allowed_periods":[1,2,3,4],"scheme_count":2}'
+FROM allocation_task at
+WHERE at.name = '核心链路测试任务（10门课）'
+ON DUPLICATE KEY UPDATE
+    allowed_weeks = VALUES(allowed_weeks),
+    allowed_weekdays = VALUES(allowed_weekdays),
+    allowed_periods = VALUES(allowed_periods),
+    scheme_count = VALUES(scheme_count),
+    teacher_profile_penalty_scale = VALUES(teacher_profile_penalty_scale),
+    distribution_penalty_scale = VALUES(distribution_penalty_scale),
+    classroom_stickiness_weight = VALUES(classroom_stickiness_weight),
+    compact_bonus_weight = VALUES(compact_bonus_weight),
+    weekday_load_penalty = VALUES(weekday_load_penalty),
+    room_day_load_penalty = VALUES(room_day_load_penalty),
+    room_week_load_penalty = VALUES(room_week_load_penalty),
+    task_day_load_penalty = VALUES(task_day_load_penalty),
+    early_period_penalty = VALUES(early_period_penalty),
+    late_period_penalty = VALUES(late_period_penalty),
+    random_jitter = VALUES(random_jitter),
+    classroom_stickiness_bonus = VALUES(classroom_stickiness_bonus),
+    weekend_penalty = VALUES(weekend_penalty),
+    llm_prompt = VALUES(llm_prompt),
+    llm_result_json = VALUES(llm_result_json);
+
+INSERT IGNORE INTO allocation_task_teaching_task (allocation_task_id, teaching_task_id)
+SELECT at.id, tt.id
+FROM allocation_task at
+JOIN teaching_task tt ON tt.status = 'ACTIVE'
+JOIN course c ON c.id = tt.course_id
+JOIN teacher t ON t.id = tt.primary_teacher_id
+WHERE at.name = '核心链路测试任务（10门课）'
+  AND (
+      (c.name='Java程序设计' AND t.employee_no='T1001' AND tt.notes='合班授课，需80座教室')
+      OR (c.name='数据库原理' AND t.employee_no='T1002' AND tt.notes IS NULL)
+      OR (c.name='数据结构' AND t.employee_no='T1003' AND tt.notes IS NULL)
+      OR (c.name='计算机网络' AND t.employee_no='T1004' AND tt.notes='合班授课')
+      OR (c.name='操作系统' AND t.employee_no='T1005' AND tt.notes IS NULL)
+      OR (c.name='软件工程导论' AND t.employee_no='T1006' AND tt.notes IS NULL)
+      OR (c.name='Python程序设计' AND t.employee_no='T1007' AND tt.notes='上机实践课')
+      OR (c.name='Web前端开发' AND t.employee_no='T1009' AND tt.notes='上机实践课')
+      OR (c.name='计算机组成原理' AND t.employee_no='T1008' AND tt.notes IS NULL)
+      OR (c.name='人工智能导论' AND t.employee_no='T1010' AND tt.notes IS NULL)
+  );
 
 COMMIT;

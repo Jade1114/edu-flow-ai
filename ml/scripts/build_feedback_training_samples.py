@@ -108,6 +108,67 @@ def truthy(value: Any) -> bool:
     return str(value).lower() in {"true", "1", "yes"}
 
 
+def parse_json_object(value: Any) -> dict[str, Any]:
+    if isinstance(value, dict):
+        return value
+    if not value:
+        return {}
+    try:
+        parsed = json.loads(str(value))
+    except json.JSONDecodeError:
+        return {}
+    return parsed if isinstance(parsed, dict) else {}
+
+
+def parse_availability_matrix(value: Any) -> set[tuple[int, int]]:
+    if not value:
+        return set()
+    try:
+        matrix = json.loads(str(value)) if isinstance(value, str) else value
+    except json.JSONDecodeError:
+        return set()
+    if not isinstance(matrix, list):
+        return set()
+    slots: set[tuple[int, int]] = set()
+    for period_index, row in enumerate(matrix[:5], start=1):
+        if not isinstance(row, list):
+            continue
+        for weekday, cell in enumerate(row[:7], start=1):
+            if as_int(cell) == -1:
+                slots.add((weekday, period_index))
+    return slots
+
+
+def parse_avoid_slots(value: Any) -> set[tuple[int, int]]:
+    result: set[tuple[int, int]] = set()
+    weekday_map = {
+        "周一": 1, "星期一": 1,
+        "周二": 2, "星期二": 2,
+        "周三": 3, "星期三": 3,
+        "周四": 4, "星期四": 4,
+        "周五": 5, "星期五": 5,
+        "周六": 6, "星期六": 6,
+        "周日": 7, "星期日": 7, "星期天": 7,
+    }
+    items = value if isinstance(value, list) else [value] if value else []
+    for item in items:
+        if isinstance(item, dict):
+            weekday = as_int(item.get("weekday"))
+            periods = item.get("periods") or item.get("period")
+            period_items = periods if isinstance(periods, list) else [periods]
+            for period in period_items:
+                parsed_period = as_int(period)
+                if 1 <= weekday <= 7 and 1 <= parsed_period <= 5:
+                    result.add((weekday, parsed_period))
+            continue
+        text = str(item)
+        for token, weekday in weekday_map.items():
+            if token in text:
+                for period in range(1, 6):
+                    result.add((weekday, period))
+    return result
+
+
 def build_item_index(items: list[dict[str, Any]]) -> dict[int, dict[str, Any]]:
     return {as_int(normalize_key(item, "id")): item for item in items}
 
@@ -137,6 +198,12 @@ def base_sample(item: dict[str, Any], sample_id: str, label: float, weight: floa
     capacity_ratio = round(total_students / room_capacity, 4) if room_capacity else 1.0
     period_index = as_int(normalize_key(item, "period_index"))
     day_of_week = as_int(normalize_key(item, "day_of_week"))
+    profile_preference = parse_json_object(normalize_key(item, "profile_preference_json"))
+    unavailable_slots = parse_availability_matrix(normalize_key(item, "availability_matrix_json"))
+    preferred_weekdays = set(profile_preference.get("preferredWeekdays") or [])
+    avoid_slots = parse_avoid_slots(profile_preference.get("avoidSlots"))
+    avoid_first_period = int(bool(profile_preference.get("avoidFirstPeriod")))
+    avoid_last_period = int(bool(profile_preference.get("avoidLastPeriod")))
     has_conflict = not truthy(normalize_key(item, "valid")) or bool(normalize_key(item, "conflict_message")) or label <= 0
 
     return {
@@ -167,13 +234,13 @@ def base_sample(item: dict[str, Any], sample_id: str, label: float, weight: floa
         "is_early_period": 1 if period_index == 1 else 0,
         "is_late_period": 1 if period_index >= 5 else 0,
         "required_fragments": max(1, as_int(normalize_key(item, "total_hours")) // 2),
-        "teacher_matrix_value": as_int(normalize_key(item, "teacher_matrix_value")),
-        "teacher_preferred_max_weekly_hours": as_int(normalize_key(item, "teacher_preferred_max_weekly_hours")),
-        "teacher_avoid_first_period": as_int(normalize_key(item, "teacher_avoid_first_period")),
-        "teacher_avoid_last_period": as_int(normalize_key(item, "teacher_avoid_last_period")),
-        "teacher_prefer_compact_schedule": as_int(normalize_key(item, "teacher_prefer_compact_schedule")),
-        "teacher_preferred_weekday_match": as_int(normalize_key(item, "teacher_preferred_weekday_match")),
-        "teacher_avoid_slot_match": as_int(normalize_key(item, "teacher_avoid_slot_match")),
+        "teacher_matrix_value": -1 if (day_of_week, period_index) in unavailable_slots else as_int(normalize_key(item, "teacher_matrix_value")),
+        "teacher_preferred_max_weekly_hours": as_int(profile_preference.get("preferredMaxWeeklyHours")) or as_int(normalize_key(item, "teacher_preferred_max_weekly_hours")),
+        "teacher_avoid_first_period": avoid_first_period or as_int(normalize_key(item, "teacher_avoid_first_period")),
+        "teacher_avoid_last_period": avoid_last_period or as_int(normalize_key(item, "teacher_avoid_last_period")),
+        "teacher_prefer_compact_schedule": int(bool(profile_preference.get("preferCompactSchedule"))) or as_int(normalize_key(item, "teacher_prefer_compact_schedule")),
+        "teacher_preferred_weekday_match": int(day_of_week in preferred_weekdays) if preferred_weekdays else as_int(normalize_key(item, "teacher_preferred_weekday_match")),
+        "teacher_avoid_slot_match": int((day_of_week, period_index) in avoid_slots or (avoid_first_period and period_index == 1) or (avoid_last_period and period_index == 5)) or as_int(normalize_key(item, "teacher_avoid_slot_match")),
         "teacher_occupied_at_slot": as_int(normalize_key(item, "teacher_occupied_at_slot")),
         "class_occupied_at_slot": as_int(normalize_key(item, "class_occupied_at_slot")),
         "room_occupied_at_slot": as_int(normalize_key(item, "room_occupied_at_slot")),

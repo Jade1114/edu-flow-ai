@@ -44,6 +44,7 @@ CREATE TABLE IF NOT EXISTS course (
     status VARCHAR(20) NOT NULL DEFAULT 'ACTIVE',
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    UNIQUE KEY uk_course_name (name),
     INDEX idx_course_status (status),
     INDEX idx_course_name (name)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
@@ -57,6 +58,7 @@ CREATE TABLE IF NOT EXISTS class_group (
     description TEXT NULL,
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    UNIQUE KEY uk_class_group_name (name),
     INDEX idx_class_group_name (name),
     INDEX idx_class_group_major (major)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
@@ -70,6 +72,7 @@ CREATE TABLE IF NOT EXISTS classroom (
     status VARCHAR(20) NOT NULL DEFAULT 'ACTIVE',
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    UNIQUE KEY uk_classroom_name (name),
     INDEX idx_classroom_status (status),
     INDEX idx_classroom_name (name)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
@@ -146,6 +149,7 @@ CREATE TABLE IF NOT EXISTS allocation_task (
     created_by VARCHAR(50) NULL,
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    UNIQUE KEY uk_allocation_task_name (name),
     INDEX idx_allocation_task_status (status)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 

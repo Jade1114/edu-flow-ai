@@ -77,6 +77,7 @@ public interface MlFeedbackTrainingMapper {
 		       c.course_type,
 		       t.department AS teacher_department, t.title AS teacher_title,
 		       t.max_weekly_hours AS teacher_max_weekly_hours,
+		       tp.availability_matrix_json, tp.profile_preference_json,
 		       cr.capacity AS room_capacity, cr.classroom_type AS room_type, cr.building AS room_building,
 		       ts.week_number, ts.day_of_week, ts.period_index,
 		       COUNT(cg.id) AS class_group_count,
@@ -86,6 +87,7 @@ public interface MlFeedbackTrainingMapper {
 		JOIN teaching_task tt ON tt.id = i.teaching_task_id
 		JOIN course c ON c.id = tt.course_id
 		JOIN teacher t ON t.id = tt.primary_teacher_id
+		LEFT JOIN teacher_profile tp ON tp.teacher_id = t.id
 		JOIN classroom cr ON cr.id = i.classroom_id
 		JOIN time_slot ts ON ts.id = i.time_slot_id
 		LEFT JOIN teaching_task_class_group ttcg ON ttcg.teaching_task_id = tt.id
@@ -98,6 +100,7 @@ public interface MlFeedbackTrainingMapper {
 		         i.valid, i.conflict_message, i.created_at, i.updated_at,
 		         s.task_id, s.status, tt.total_hours, tt.required_room_type,
 		         c.course_type, t.department, t.title, t.max_weekly_hours,
+		         tp.availability_matrix_json, tp.profile_preference_json,
 		         cr.capacity, cr.classroom_type, cr.building,
 		         ts.week_number, ts.day_of_week, ts.period_index
 		ORDER BY i.id
