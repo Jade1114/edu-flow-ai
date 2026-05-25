@@ -50,6 +50,8 @@ RANKED_SUMMARY_COLUMNS = [
     "teacher_satisfaction",
     "teacher_unavailable_hit_count",
     "teacher_overload_count",
+    "teacher_profile_penalty_total",
+    "teacher_profile_penalty_hit_count",
     "weekday_distribution",
     "period_distribution",
     "top_rooms",
@@ -79,6 +81,8 @@ class SchemeMetrics:
     teacher_satisfaction: float
     teacher_unavailable_hit_count: int
     teacher_overload_count: int
+    teacher_profile_penalty_total: float
+    teacher_profile_penalty_hit_count: int
     scheme_score: float
 
 
@@ -244,6 +248,7 @@ def evaluate_scheme(rows: list[dict[str, Any]], teacher_penalties: dict[str, dic
 
     predicted_scores = [as_float(row, "predicted_score") for row in rows]
     rule_scores = [as_float(row, "rule_score") for row in rows]
+    teacher_profile_penalties = [as_float(row, "teacher_profile_penalty") for row in rows]
     hard_conflicts = [row for row in rows if as_int(row, "has_hard_conflict") == 1]
     early_period_count = sum(1 for row in rows if as_int(row, "period_index") == 1)
     late_period_count = sum(1 for row in rows if as_int(row, "period_index") >= 5)
@@ -269,6 +274,8 @@ def evaluate_scheme(rows: list[dict[str, Any]], teacher_penalties: dict[str, dic
         teacher_penalties or {},
         teacher_week_load,
     )
+    teacher_profile_penalty_total = sum(teacher_profile_penalties)
+    teacher_profile_penalty_hit_count = sum(1 for value in teacher_profile_penalties if value > 0)
 
     avg_predicted_score = sum(predicted_scores) / len(predicted_scores)
     avg_rule_score = sum(rule_scores) / len(rule_scores)
@@ -292,6 +299,8 @@ def evaluate_scheme(rows: list[dict[str, Any]], teacher_penalties: dict[str, dic
         "teacher_satisfaction_penalty": round(teacher_satisfaction_penalty, 6),
         "teacher_unavailable_hit_count": unavailable_hit_count,
         "teacher_overload_count": overload_count,
+        "teacher_profile_penalty_total": round(teacher_profile_penalty_total, 6),
+        "teacher_profile_penalty_hit_count": teacher_profile_penalty_hit_count,
     })
     scheme_score = max(
         0.0,
@@ -329,6 +338,8 @@ def evaluate_scheme(rows: list[dict[str, Any]], teacher_penalties: dict[str, dic
         teacher_satisfaction=teacher_satisfaction,
         teacher_unavailable_hit_count=unavailable_hit_count,
         teacher_overload_count=overload_count,
+        teacher_profile_penalty_total=teacher_profile_penalty_total,
+        teacher_profile_penalty_hit_count=teacher_profile_penalty_hit_count,
         scheme_score=scheme_score,
     )
 
@@ -357,6 +368,8 @@ def print_metrics(metrics: SchemeMetrics) -> None:
     print(f"Teacher satisfaction   : {metrics.teacher_satisfaction:.2f}/100")
     print(f"Teacher unavailable hit: {metrics.teacher_unavailable_hit_count}")
     print(f"Teacher overload count : {metrics.teacher_overload_count}")
+    print(f"Teacher profile penalty: {metrics.teacher_profile_penalty_total:.2f}")
+    print(f"Profile penalty hits   : {metrics.teacher_profile_penalty_hit_count}")
     print(f"Scheme score           : {metrics.scheme_score:.2f}/100")
 
 

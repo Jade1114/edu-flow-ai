@@ -194,6 +194,160 @@ public class AllocationMlSchemeService {
 		}
 	}
 
+	private record GaSummaryData(String rawJson, String teacherProfileAuditJson, String lightgbmJson) {}
+
+	private List<GaSummaryData> loadGaSummaries(Path outputDir) {
+		Path jsonPath = outputDir.resolve("ga_summary.json");
+		if (!Files.exists(jsonPath)) {
+			return List.of();
+		}
+		try {
+			String rawJson = Files.readString(jsonPath, StandardCharsets.UTF_8);
+			List<String> rawSummaries = splitTopLevelJsonObjects(rawJson);
+			List<GaSummaryData> summaries = new ArrayList<>();
+			for (String rawSummary : rawSummaries) {
+				summaries.add(new GaSummaryData(
+					rawSummary,
+					extractJsonField(rawSummary, "teacher_profile_audit"),
+					extractJsonField(rawSummary, "lightgbm")
+				));
+			}
+			return summaries;
+		} catch (IOException e) {
+			log.warn("Failed to parse GA summary JSON {}: {}", jsonPath, e.getMessage());
+			return List.of();
+		}
+	}
+
+	private String mergeEvaluationSummary(EvaluationData evaluation, GaSummaryData gaSummary) {
+		String evaluationJson = evaluation != null ? cleanJsonObject(evaluation.evaluationSummary()) : null;
+		if (gaSummary == null || gaSummary.rawJson() == null || gaSummary.rawJson().isBlank()) {
+			return evaluationJson;
+		}
+		List<String> extraFields = new ArrayList<>();
+		extraFields.add("\"ga_summary\":" + gaSummary.rawJson());
+		if (gaSummary.teacherProfileAuditJson() != null) {
+			extraFields.add("\"teacher_profile_audit\":" + gaSummary.teacherProfileAuditJson());
+		}
+		if (gaSummary.lightgbmJson() != null) {
+			extraFields.add("\"lightgbm\":" + gaSummary.lightgbmJson());
+		}
+		if (evaluationJson == null || evaluationJson.isBlank()) {
+			return "{" + String.join(",", extraFields) + "}";
+		}
+		String body = evaluationJson.substring(1, evaluationJson.length() - 1).trim();
+		return "{" + (body.isBlank() ? "" : body + ",") + String.join(",", extraFields) + "}";
+	}
+
+	private String cleanJsonObject(String rawJson) {
+		if (rawJson == null || rawJson.isBlank()) {
+			return null;
+		}
+		String trimmed = rawJson.trim();
+		if (!trimmed.startsWith("{") || !trimmed.endsWith("}")) {
+			return null;
+		}
+		return trimmed;
+	}
+
+	private List<String> splitTopLevelJsonObjects(String rawJson) {
+		String trimmed = rawJson == null ? "" : rawJson.trim();
+		if (!trimmed.startsWith("[") || !trimmed.endsWith("]")) {
+			return List.of();
+		}
+		List<String> objects = new ArrayList<>();
+		int depth = 0;
+		int start = -1;
+		boolean inString = false;
+		boolean escaped = false;
+		for (int i = 0; i < trimmed.length(); i++) {
+			char ch = trimmed.charAt(i);
+			if (inString) {
+				if (escaped) {
+					escaped = false;
+				} else if (ch == '\\') {
+					escaped = true;
+				} else if (ch == '"') {
+					inString = false;
+				}
+				continue;
+			}
+			if (ch == '"') {
+				inString = true;
+				continue;
+			}
+			if (ch == '{') {
+				if (depth == 0) {
+					start = i;
+				}
+				depth++;
+			} else if (ch == '}') {
+				depth--;
+				if (depth == 0 && start >= 0) {
+					objects.add(trimmed.substring(start, i + 1));
+					start = -1;
+				}
+			}
+		}
+		return objects;
+	}
+
+	private String extractJsonField(String rawJson, String fieldName) {
+		String key = "\"" + fieldName + "\"";
+		int keyIndex = rawJson.indexOf(key);
+		if (keyIndex < 0) {
+			return null;
+		}
+		int colonIndex = rawJson.indexOf(':', keyIndex + key.length());
+		if (colonIndex < 0) {
+			return null;
+		}
+		int valueStart = colonIndex + 1;
+		while (valueStart < rawJson.length() && Character.isWhitespace(rawJson.charAt(valueStart))) {
+			valueStart++;
+		}
+		if (valueStart >= rawJson.length()) {
+			return null;
+		}
+		char opener = rawJson.charAt(valueStart);
+		char closer = opener == '{' ? '}' : opener == '[' ? ']' : '\0';
+		if (closer == '\0') {
+			return null;
+		}
+		int valueEnd = findMatchingJsonEnd(rawJson, valueStart, opener, closer);
+		return valueEnd > valueStart ? rawJson.substring(valueStart, valueEnd + 1) : null;
+	}
+
+	private int findMatchingJsonEnd(String rawJson, int start, char opener, char closer) {
+		int depth = 0;
+		boolean inString = false;
+		boolean escaped = false;
+		for (int i = start; i < rawJson.length(); i++) {
+			char ch = rawJson.charAt(i);
+			if (inString) {
+				if (escaped) {
+					escaped = false;
+				} else if (ch == '\\') {
+					escaped = true;
+				} else if (ch == '"') {
+					inString = false;
+				}
+				continue;
+			}
+			if (ch == '"') {
+				inString = true;
+			} else if (ch == opener) {
+				depth++;
+			} else if (ch == closer) {
+				depth--;
+				if (depth == 0) {
+					return i;
+				}
+			}
+		}
+		return -1;
+	}
+
 	private List<AllocationParsedScheme> parseGeneratedSchemes(Path outputDir, Long taskId) throws IOException {
 		Path schemesJson = outputDir.resolve("schemes.json");
 		if (!Files.exists(schemesJson)) {
@@ -203,6 +357,7 @@ public class AllocationMlSchemeService {
 		@SuppressWarnings("unchecked")
 		List<Map<String, Object>> schemesData = objectMapper.readValue(rawJson, List.class);
 		log.info("ML parsed schemes.json: schemeCount={}", schemesData.size());
+		List<GaSummaryData> gaSummaries = loadGaSummaries(outputDir);
 		int existingMaxIndex = allocationSchemeMapper.selectMaxSchemeIndex(taskId);
 		log.info("Existing max scheme index for taskId={}: {}", taskId, existingMaxIndex);
 		List<AllocationParsedScheme> schemes = new ArrayList<>();
@@ -225,14 +380,18 @@ public class AllocationMlSchemeService {
 			}
 			String summary = buildSummary(items, itemsData);
 			EvaluationData evaluation = loadEvaluation(outputDir, "scheme_" + String.format("%03d", i + 1));
-			log.info("ML parsed scheme: index={}, itemCount={}, summary={}, evaluationScore={}", i + 1, items.size(), summary, evaluation != null ? evaluation.schemeScore() : null);
+			GaSummaryData gaSummary = i < gaSummaries.size() ? gaSummaries.get(i) : null;
+			String evaluationSummary = mergeEvaluationSummary(evaluation, gaSummary);
+			String profileAudit = gaSummary != null ? gaSummary.teacherProfileAuditJson() : null;
+			log.info("ML parsed scheme: index={}, itemCount={}, summary={}, evaluationScore={}, teacherProfileAudit={}",
+				i + 1, items.size(), summary, evaluation != null ? evaluation.schemeScore() : null, profileAudit);
 			int schemeIndex = existingMaxIndex + i + 1;
 			schemes.add(new AllocationParsedScheme(
 				"自训练模型方案 " + String.format("%03d", schemeIndex),
 				summary,
 				items,
 				evaluation != null ? evaluation.schemeScore() : null,
-				evaluation != null ? evaluation.evaluationSummary() : null,
+				evaluationSummary,
 				"v1"
 			));
 		}

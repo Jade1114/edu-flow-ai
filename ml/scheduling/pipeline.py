@@ -60,6 +60,16 @@ def generate_scheme(
     # ── 2. 构建 AllocationTask ──────────────────────────
     alloc_tasks: list[AllocationTask] = []
     infeasible_task_ids: list[int] = []
+    profile_audit: dict[str, Any] = {
+        "task_count": 0,
+        "tasks_with_profile": 0,
+        "tasks_with_hard_unavailable": 0,
+        "hard_unavailable_slot_total": 0,
+        "candidate_slot_total_before_hard_filter": 0,
+        "candidate_slot_total_after_hard_filter": 0,
+        "candidate_slot_removed_by_hard_filter": 0,
+        "tasks": [],
+    }
     for td in tasks_data:
         tid = int(td.get("teaching_task_id") or 0)
         teacher_id = int(td.get("teacher_id") or 0)
@@ -71,6 +81,7 @@ def generate_scheme(
 
         if tid <= 0:
             continue
+        profile_audit["task_count"] += 1
         if total_lessons <= 0:
             infeasible_task_ids.append(tid)
             continue
@@ -91,6 +102,30 @@ def generate_scheme(
             sid for sid in candidate_slot_ids
             if slot_to_day_period(sid) not in hard_unavailable
         ]
+        before_count = len(candidate_slot_ids)
+        after_count = len(task_candidate_slot_ids)
+        removed_count = before_count - after_count
+        if teacher_profile:
+            profile_audit["tasks_with_profile"] += 1
+        if hard_unavailable:
+            profile_audit["tasks_with_hard_unavailable"] += 1
+        profile_audit["hard_unavailable_slot_total"] += len(hard_unavailable)
+        profile_audit["candidate_slot_total_before_hard_filter"] += before_count
+        profile_audit["candidate_slot_total_after_hard_filter"] += after_count
+        profile_audit["candidate_slot_removed_by_hard_filter"] += removed_count
+        profile_audit["tasks"].append({
+            "teaching_task_id": tid,
+            "teacher_id": teacher_id,
+            "teacher_name": td.get("teacher_name") or "",
+            "has_profile": bool(teacher_profile),
+            "hard_unavailable_slots": [
+                {"weekday": day, "period": period}
+                for day, period in sorted(hard_unavailable)
+            ],
+            "candidate_slots_before_hard_filter": before_count,
+            "candidate_slots_after_hard_filter": after_count,
+            "candidate_slots_removed_by_hard_filter": removed_count,
+        })
         if not task_candidate_slot_ids:
             infeasible_task_ids.append(tid)
             continue
@@ -140,6 +175,7 @@ def generate_scheme(
     metrics["weeks_covered"] = len(week_dist)
     metrics["task_count"] = len(alloc_tasks)
     metrics["lightgbm"] = scorer.model_status
+    metrics["teacher_profile_audit"] = profile_audit
 
     return rows, metrics
 

@@ -833,6 +833,80 @@ const schemeScores = computed(() => {
     return null;
   }
 });
+
+const gaSummary = computed(() => schemeScores.value?.ga_summary || null);
+const teacherProfileAudit = computed(
+  () => schemeScores.value?.teacher_profile_audit || gaSummary.value?.teacher_profile_audit || null,
+);
+const lightgbmStatus = computed(
+  () => schemeScores.value?.lightgbm || gaSummary.value?.lightgbm || null,
+);
+const profilePenaltyItems = computed(() =>
+  (schemeDetail.value?.items || []).filter(
+    (item) => item.valid !== false && item.conflictMessage,
+  ),
+);
+const hardAuditRows = computed(() =>
+  (teacherProfileAudit.value?.tasks || [])
+    .filter(
+      (item) =>
+        item.has_profile ||
+        item.hard_unavailable_slots?.length ||
+        item.candidate_slots_removed_by_hard_filter,
+    )
+    .map((item) => ({
+      ...item,
+      teacherName: item.teacher_name || item.teacherName || "-",
+      teachingTaskId: item.teaching_task_id || item.teachingTaskId,
+    })),
+);
+const profilePenaltyByTeacher = computed(() => {
+  const map = new Map();
+  for (const item of profilePenaltyItems.value) {
+    const key = item.teacherName || "未命名教师";
+    const current = map.get(key) || { teacherName: key, count: 0, reasons: new Set() };
+    current.count += 1;
+    String(item.conflictMessage || "")
+      .split("；")
+      .map((value) => value.trim())
+      .filter(Boolean)
+      .forEach((reason) => current.reasons.add(reason));
+    map.set(key, current);
+  }
+  return [...map.values()]
+    .map((item) => ({
+      teacherName: item.teacherName,
+      count: item.count,
+      reasons: [...item.reasons].join("；"),
+    }))
+    .sort((a, b) => b.count - a.count);
+});
+
+function numberOrDash(value, digits = 1) {
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric)) return "-";
+  return numeric.toFixed(digits);
+}
+
+function auditSlotLabel(slot) {
+  const days = ["一", "二", "三", "四", "五", "六", "日"];
+  if (!slot) return "-";
+  return `周${days[(slot.weekday || 1) - 1] || slot.weekday} 第${slot.period}节`;
+}
+
+function hardFilterSummary(audit) {
+  if (!audit) return "暂无教师画像硬约束审计";
+  const removed = audit.candidate_slot_removed_by_hard_filter || 0;
+  const taskCount = audit.tasks_with_hard_unavailable || 0;
+  if (removed === 0) return "本方案生成时未命中教师硬不可排过滤";
+  return `${taskCount} 个教学任务启用硬不可排，共过滤 ${removed} 个候选星期/节次`;
+}
+
+function modelStatusText(status) {
+  if (!status) return "未返回模型状态";
+  if (status.enabled) return `LightGBM 已启用，特征 ${status.feature_count || 0} 个`;
+  return `LightGBM 未启用：${status.disabled_reason || "未找到模型或特征 schema"}`;
+}
 const currentWeek = ref(1);
 const dayNames = ["周一", "周二", "周三", "周四", "周五", "周六", "周日"];
 const timetableFilters = ref({
@@ -1766,6 +1840,104 @@ onUnmounted(() => {
             >
           </div>
         </div>
+
+        <!-- 模型验收面板 -->
+        <div
+          v-if="schemeScores || teacherProfileAudit || lightgbmStatus"
+          style="
+            display: grid;
+            grid-template-columns: repeat(4, minmax(150px, 1fr));
+            gap: 10px;
+            margin-bottom: 12px;
+          "
+        >
+          <div style="border: 1px solid #ebeef5; border-radius: 6px; padding: 10px 12px">
+            <div style="font-size: 12px; color: #909399">综合评分</div>
+            <div style="font-size: 22px; font-weight: 700; color: #67c23a">
+              {{ numberOrDash(schemeScores?.scheme_score ?? schemeDetail.schemeScore) }}
+            </div>
+            <div style="font-size: 12px; color: #909399">
+              教师向 {{ numberOrDash(schemeScores?.teacher_score, 0) }} / 班级均衡 {{ numberOrDash(schemeScores?.class_balance_score, 0) }}
+            </div>
+          </div>
+          <div style="border: 1px solid #ebeef5; border-radius: 6px; padding: 10px 12px">
+            <div style="font-size: 12px; color: #909399">硬不可排过滤</div>
+            <div style="font-size: 22px; font-weight: 700; color: #409eff">
+              {{ teacherProfileAudit?.candidate_slot_removed_by_hard_filter || 0 }}
+            </div>
+            <div style="font-size: 12px; color: #606266">
+              {{ hardFilterSummary(teacherProfileAudit) }}
+            </div>
+          </div>
+          <div style="border: 1px solid #ebeef5; border-radius: 6px; padding: 10px 12px">
+            <div style="font-size: 12px; color: #909399">画像扣分命中</div>
+            <div style="font-size: 22px; font-weight: 700; color: #e6a23c">
+              {{ schemeScores?.teacher_profile_penalty_hit_count || profilePenaltyItems.length }}
+            </div>
+            <div style="font-size: 12px; color: #606266">
+              累计扣分 {{ numberOrDash(schemeScores?.teacher_profile_penalty_total || 0) }}
+            </div>
+          </div>
+          <div style="border: 1px solid #ebeef5; border-radius: 6px; padding: 10px 12px">
+            <div style="font-size: 12px; color: #909399">自训练模型</div>
+            <div>
+              <el-tag :type="lightgbmStatus?.enabled ? 'success' : 'warning'" size="small">
+                {{ lightgbmStatus?.enabled ? "已启用" : "未启用" }}
+              </el-tag>
+            </div>
+            <div style="font-size: 12px; color: #606266; margin-top: 6px">
+              {{ modelStatusText(lightgbmStatus) }}
+            </div>
+          </div>
+        </div>
+
+        <el-collapse
+          v-if="hardAuditRows.length || profilePenaltyByTeacher.length"
+          style="margin-bottom: 12px"
+        >
+          <el-collapse-item name="model-audit">
+            <template #title>
+              <span style="font-size: 13px; color: #303133; font-weight: 600">
+                教师画像与模型验收明细
+              </span>
+            </template>
+            <div v-if="hardAuditRows.length" style="margin-bottom: 14px">
+              <div style="font-weight: 600; font-size: 13px; margin-bottom: 6px">
+                硬不可排过滤明细
+              </div>
+              <el-table :data="hardAuditRows" size="small" border>
+                <el-table-column prop="teacherName" label="教师" width="100" />
+                <el-table-column prop="teachingTaskId" label="教学任务" width="90" />
+                <el-table-column label="不可排时间" min-width="220" show-overflow-tooltip>
+                  <template #default="{ row }">
+                    <span v-if="row.hard_unavailable_slots?.length">
+                      {{ row.hard_unavailable_slots.map(auditSlotLabel).join("；") }}
+                    </span>
+                    <span v-else style="color: #909399">-</span>
+                  </template>
+                </el-table-column>
+                <el-table-column label="候选变化" width="160">
+                  <template #default="{ row }">
+                    {{ row.candidate_slots_before_hard_filter }} → {{ row.candidate_slots_after_hard_filter }}
+                    <span style="color: #f56c6c">
+                      (-{{ row.candidate_slots_removed_by_hard_filter || 0 }})
+                    </span>
+                  </template>
+                </el-table-column>
+              </el-table>
+            </div>
+            <div v-if="profilePenaltyByTeacher.length">
+              <div style="font-weight: 600; font-size: 13px; margin-bottom: 6px">
+                画像软偏好扣分汇总
+              </div>
+              <el-table :data="profilePenaltyByTeacher" size="small" border>
+                <el-table-column prop="teacherName" label="教师" width="100" />
+                <el-table-column prop="count" label="命中片段" width="90" />
+                <el-table-column prop="reasons" label="扣分原因" show-overflow-tooltip />
+              </el-table>
+            </div>
+          </el-collapse-item>
+        </el-collapse>
 
         <!-- 冲突诊断面板 -->
         <div v-if="conflictDiagnosis" style="margin-bottom: 12px">

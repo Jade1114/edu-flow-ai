@@ -163,6 +163,10 @@ class SchedulingCoreTest(unittest.TestCase):
 
         self.assertEqual(rows[0]["day_of_week"], 2)
         self.assertEqual(rows[0]["time_slot_id"], 12)
+        audit = metrics["teacher_profile_audit"]
+        self.assertEqual(audit["tasks_with_hard_unavailable"], 1)
+        self.assertEqual(audit["candidate_slot_removed_by_hard_filter"], 1)
+        self.assertEqual(audit["tasks"][0]["hard_unavailable_slots"], [{"weekday": 1, "period": 1}])
 
     def test_load_teacher_profiles_jsonl_normalizes_slots(self) -> None:
         from tempfile import TemporaryDirectory
