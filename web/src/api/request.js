@@ -14,7 +14,7 @@ request.interceptors.request.use(
     }
     return config
   },
-  (error) => Promise.reject(error)
+  (error) => Promise.reject(error),
 )
 
 request.interceptors.response.use(
@@ -30,7 +30,7 @@ request.interceptors.response.use(
     const msg = error.response?.data?.message || error.message || '网络错误'
     ElMessage.error(msg)
     return Promise.reject(error)
-  }
+  },
 )
 
 export default request

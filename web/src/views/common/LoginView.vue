@@ -44,14 +44,32 @@ async function handleLogin() {
         <h2 class="login-title">Edu Flow AI</h2>
         <p class="login-subtitle">智能教务管理系统</p>
       </template>
-      <el-form ref="formRef" :model="form" :rules="rules" label-position="top" @keyup.enter="handleLogin">
+      <el-form
+        ref="formRef"
+        :model="form"
+        :rules="rules"
+        label-position="top"
+        @keyup.enter="handleLogin"
+      >
         <el-form-item label="工号" prop="employeeNo">
           <el-input v-model="form.employeeNo" :prefix-icon="User" placeholder="请输入工号" />
         </el-form-item>
         <el-form-item label="密码" prop="password">
-          <el-input v-model="form.password" :prefix-icon="Lock" type="password" placeholder="请输入密码" show-password />
+          <el-input
+            v-model="form.password"
+            :prefix-icon="Lock"
+            type="password"
+            placeholder="请输入密码"
+            show-password
+          />
         </el-form-item>
-        <el-button type="primary" size="large" style="width: 100%" :loading="loading" @click="handleLogin">
+        <el-button
+          type="primary"
+          size="large"
+          style="width: 100%"
+          :loading="loading"
+          @click="handleLogin"
+        >
           登录
         </el-button>
       </el-form>

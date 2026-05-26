@@ -1,20 +1,28 @@
 <script setup>
-import { ref, onMounted } from 'vue'
+import { ref, onMounted, computed, watch } from 'vue'
 import request from '@/api/request.js'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { ActiveStatus } from '@/constants/status.js'
 
-const activeTab = ref('teacher')
+const activeTab = ref('teachingTask')
+watch(activeTab, (newTab, oldTab) => {
+  console.log('从 ${oldTab} 切到了 ${newTab}')
+})
 
 // TeachingTask
 const teachingTasks = ref([])
 const teachingTaskDialog = ref(false)
 const teachingTaskFormRef = ref()
 const teachingTaskForm = ref({
-  id: null, courseId: '', primaryTeacherId: '', assistantTeacherId: '',
+  id: null,
+  courseId: '',
+  primaryTeacherId: '',
+  assistantTeacherId: '',
   classroomId: '',
-  totalHours: 32, notes: '', status: ActiveStatus.ACTIVE,
-  classGroupIds: []
+  totalHours: 32,
+  notes: '',
+  status: ActiveStatus.ACTIVE,
+  classGroupIds: [],
 })
 const teachingTaskRules = {
   courseId: [{ required: true, message: '请选择课程', trigger: 'change' }],
@@ -37,13 +45,19 @@ function openTeachingTaskDialog(row) {
       totalHours: row.totalHours || 32,
       notes: row.notes || '',
       status: row.status || 'ACTIVE',
-      classGroupIds: row.classGroups ? row.classGroups.map(cg => cg.id) : []
+      classGroupIds: row.classGroups ? row.classGroups.map((cg) => cg.id) : [],
     }
   } else {
     teachingTaskForm.value = {
-      id: null, courseId: '', primaryTeacherId: '', assistantTeacherId: '',
-      classroomId: '', totalHours: 32, notes: '', status: ActiveStatus.ACTIVE,
-      classGroupIds: []
+      id: null,
+      courseId: '',
+      primaryTeacherId: '',
+      assistantTeacherId: '',
+      classroomId: '',
+      totalHours: 32,
+      notes: '',
+      status: ActiveStatus.ACTIVE,
+      classGroupIds: [],
     }
   }
   teachingTaskDialog.value = true
@@ -68,7 +82,9 @@ async function saveTeachingTask() {
   loadTeachingTasks()
 }
 async function deleteTeachingTask(id) {
-  await ElMessageBox.confirm('确认删除该教学任务？', '提示', { type: 'warning' })
+  await ElMessageBox.confirm('确认删除该教学任务？', '提示', {
+    type: 'warning',
+  })
   await request.delete(`/api/teaching-tasks/${id}`)
   ElMessage.success('删除成功')
   loadTeachingTasks()
@@ -78,7 +94,17 @@ async function deleteTeachingTask(id) {
 const teachers = ref([])
 const teacherDialog = ref(false)
 const teacherFormRef = ref()
-const teacherForm = ref({ id: null, employeeNo: '', name: '', department: '', title: '', maxWeeklyHours: 8, status: ActiveStatus.ACTIVE, password: '123456', role: 'TEACHER' })
+const teacherForm = ref({
+  id: null,
+  employeeNo: '',
+  name: '',
+  department: '',
+  title: '',
+  maxWeeklyHours: 8,
+  status: ActiveStatus.ACTIVE,
+  password: '123456',
+  role: 'TEACHER',
+})
 const teacherRules = {
   employeeNo: [{ required: true, message: '请输入工号', trigger: 'blur' }],
   name: [{ required: true, message: '请输入姓名', trigger: 'blur' }],
@@ -92,7 +118,17 @@ function openTeacherDialog(row) {
   if (row) {
     teacherForm.value = { ...row, password: '' }
   } else {
-    teacherForm.value = { id: null, employeeNo: '', name: '', department: '', title: '', maxWeeklyHours: 8, status: ActiveStatus.ACTIVE, password: '123456', role: 'TEACHER' }
+    teacherForm.value = {
+      id: null,
+      employeeNo: '',
+      name: '',
+      department: '',
+      title: '',
+      maxWeeklyHours: 8,
+      status: ActiveStatus.ACTIVE,
+      password: '123456',
+      role: 'TEACHER',
+    }
   }
   teacherDialog.value = true
 }
@@ -119,14 +155,32 @@ async function deleteTeacher(id) {
 const courses = ref([])
 const courseDialog = ref(false)
 const courseFormRef = ref()
-const courseForm = ref({ id: null, name: '', courseType: '', requiredHours: 32, description: '', status: ActiveStatus.ACTIVE })
-const courseRules = { name: [{ required: true, message: '请输入课程名称', trigger: 'blur' }] }
+const courseForm = ref({
+  id: null,
+  name: '',
+  courseType: '',
+  requiredHours: 32,
+  description: '',
+  status: ActiveStatus.ACTIVE,
+})
+const courseRules = {
+  name: [{ required: true, message: '请输入课程名称', trigger: 'blur' }],
+}
 
 async function loadCourses() {
   courses.value = await request.get('/api/courses')
 }
 function openCourseDialog(row) {
-  courseForm.value = row ? { ...row } : { id: null, name: '', courseType: '', requiredHours: 32, description: '', status: ActiveStatus.ACTIVE }
+  courseForm.value = row
+    ? { ...row }
+    : {
+        id: null,
+        name: '',
+        courseType: '',
+        requiredHours: 32,
+        description: '',
+        status: ActiveStatus.ACTIVE,
+      }
   courseDialog.value = true
 }
 async function saveCourse() {
@@ -152,14 +206,32 @@ async function deleteCourse(id) {
 const classGroups = ref([])
 const classGroupDialog = ref(false)
 const classGroupFormRef = ref()
-const classGroupForm = ref({ id: null, name: '', major: '', grade: '', studentCount: 0, description: '' })
-const classGroupRules = { name: [{ required: true, message: '请输入班级名称', trigger: 'blur' }] }
+const classGroupForm = ref({
+  id: null,
+  name: '',
+  major: '',
+  grade: '',
+  studentCount: 0,
+  description: '',
+})
+const classGroupRules = {
+  name: [{ required: true, message: '请输入班级名称', trigger: 'blur' }],
+}
 
 async function loadClassGroups() {
   classGroups.value = await request.get('/api/class-groups')
 }
 function openClassGroupDialog(row) {
-  classGroupForm.value = row ? { ...row } : { id: null, name: '', major: '', grade: '', studentCount: 0, description: '' }
+  classGroupForm.value = row
+    ? { ...row }
+    : {
+        id: null,
+        name: '',
+        major: '',
+        grade: '',
+        studentCount: 0,
+        description: '',
+      }
   classGroupDialog.value = true
 }
 async function saveClassGroup() {
@@ -182,17 +254,52 @@ async function deleteClassGroup(id) {
 }
 
 // Classroom
+const loadingClassrooms = ref(false)
+const classroomSearch = ref('')
+const filteredClassrooms = computed(() => {
+  const keyword = classroomSearch.value.trim().toLowerCase()
+  if (!keyword) return classrooms.value
+  return classrooms.value.filter(
+    (c) =>
+      c.name.toLowerCase().includes(keyword) ||
+      c.building.toLowerCase().includes(keyword) ||
+      c.classroomType.toLowerCase().includes(keyword),
+  )
+})
 const classrooms = ref([])
 const classroomDialog = ref(false)
 const classroomFormRef = ref()
-const classroomForm = ref({ id: null, name: '', building: '', capacity: 60, classroomType: '普通教室', status: ActiveStatus.ACTIVE })
-const classroomRules = { name: [{ required: true, message: '请输入教室名称', trigger: 'blur' }] }
+const classroomForm = ref({
+  id: null,
+  name: '',
+  building: '',
+  capacity: 60,
+  classroomType: '普通教室',
+  status: ActiveStatus.ACTIVE,
+})
+const classroomRules = {
+  name: [{ required: true, message: '请输入教室名称', trigger: 'blur' }],
+}
 
 async function loadClassrooms() {
-  classrooms.value = await request.get('/api/classrooms')
+  loadingClassrooms.value = true
+  try {
+    classrooms.value = await request.get('/api/classrooms')
+  } finally {
+    loadingClassrooms.value = false
+  }
 }
 function openClassroomDialog(row) {
-  classroomForm.value = row ? { ...row } : { id: null, name: '', building: '', capacity: 60, classroomType: '普通教室', status: ActiveStatus.ACTIVE }
+  classroomForm.value = row
+    ? { ...row }
+    : {
+        id: null,
+        name: '',
+        building: '',
+        capacity: 60,
+        classroomType: '普通教室',
+        status: ActiveStatus.ACTIVE,
+      }
   classroomDialog.value = true
 }
 async function saveClassroom() {
@@ -230,7 +337,7 @@ onMounted(() => {
       <!-- TeachingTask -->
       <el-tab-pane label="教学任务" name="teachingTask">
         <div style="margin-bottom: 12px">
-          <el-button type="primary" @click="openTeachingTaskDialog()">新增教学任务</el-button>
+          <el-button type="primary" @click="openTeachingTaskDialog()">新增教学任务 </el-button>
         </div>
         <el-table :data="teachingTasks" border size="small">
           <el-table-column prop="id" label="ID" width="60" />
@@ -245,14 +352,24 @@ onMounted(() => {
           </el-table-column>
           <el-table-column label="班级" show-overflow-tooltip>
             <template #default="{ row }">
-              {{ row.classGroups?.map(cg => cg.name).join(', ') || '-' }}
+              {{ row.classGroups?.map((cg) => cg.name).join(', ') || '-' }}
             </template>
           </el-table-column>
-          <el-table-column prop="status" label="状态" width="80" />
+          <el-table-column label="状态" width="80">
+            <template #default="{ row }">
+              <el-tag :type="row.status === 'ACTIVE' ? 'success' : 'info'">
+                {{ row.status === 'ACTIVE' ? '启用' : '停用' }}
+              </el-tag>
+            </template>
+          </el-table-column>
           <el-table-column label="操作" width="140">
             <template #default="{ row }">
-              <el-button type="primary" size="small" @click="openTeachingTaskDialog(row)">编辑</el-button>
-              <el-button type="danger" size="small" @click="deleteTeachingTask(row.id)">删除</el-button>
+              <el-button type="primary" size="small" @click="openTeachingTaskDialog(row)"
+                >编辑</el-button
+              >
+              <el-button type="danger" size="small" @click="deleteTeachingTask(row.id)"
+                >删除</el-button
+              >
             </template>
           </el-table-column>
         </el-table>
@@ -260,7 +377,7 @@ onMounted(() => {
 
       <!-- Teacher -->
       <el-tab-pane label="教师管理" name="teacher">
-        <div style="margin-bottom: 12px; display: flex; gap: 8px; align-items: center;">
+        <div style="margin-bottom: 12px; display: flex; gap: 8px; align-items: center">
           <el-button type="primary" @click="openTeacherDialog()">新增教师</el-button>
         </div>
         <el-table :data="teachers" border size="small">
@@ -270,15 +387,22 @@ onMounted(() => {
           <el-table-column prop="title" label="职称" width="100" />
           <el-table-column prop="maxWeeklyHours" label="最大周课时" width="100" />
           <el-table-column prop="role" label="角色" width="100" />
-          <el-table-column prop="status" label="状态" width="80" />
+          <el-table-column label="状态" width="80">
+            <template #default="{ row }">
+              <el-tag :type="row.status === 'ACTIVE' ? 'success' : 'info'">
+                {{ row.status === 'ACTIVE' ? '启用' : '停用' }}
+              </el-tag>
+            </template>
+          </el-table-column>
           <el-table-column label="操作" width="160">
             <template #default="{ row }">
-              <el-button type="primary" size="small" @click="openTeacherDialog(row)">编辑</el-button>
+              <el-button type="primary" size="small" @click="openTeacherDialog(row)"
+                >编辑</el-button
+              >
               <el-button type="danger" size="small" @click="deleteTeacher(row.id)">删除</el-button>
             </template>
           </el-table-column>
         </el-table>
-
       </el-tab-pane>
 
       <!-- Course -->
@@ -291,7 +415,13 @@ onMounted(() => {
           <el-table-column prop="courseType" label="课程类型" width="120" />
           <el-table-column prop="requiredHours" label="学时" width="80" />
           <el-table-column prop="description" label="描述" show-overflow-tooltip />
-          <el-table-column prop="status" label="状态" width="80" />
+          <el-table-column label="状态" width="80">
+            <template #default="{ row }">
+              <el-tag :type="row.status === 'ACTIVE' ? 'success' : 'info'">
+                {{ row.status === 'ACTIVE' ? '启用' : '停用' }}
+              </el-tag>
+            </template>
+          </el-table-column>
           <el-table-column label="操作" width="140">
             <template #default="{ row }">
               <el-button type="primary" size="small" @click="openCourseDialog(row)">编辑</el-button>
@@ -313,8 +443,12 @@ onMounted(() => {
           <el-table-column prop="studentCount" label="人数" width="80" />
           <el-table-column label="操作" width="140">
             <template #default="{ row }">
-              <el-button type="primary" size="small" @click="openClassGroupDialog(row)">编辑</el-button>
-              <el-button type="danger" size="small" @click="deleteClassGroup(row.id)">删除</el-button>
+              <el-button type="primary" size="small" @click="openClassGroupDialog(row)"
+                >编辑</el-button
+              >
+              <el-button type="danger" size="small" @click="deleteClassGroup(row.id)"
+                >删除</el-button
+              >
             </template>
           </el-table-column>
         </el-table>
@@ -324,17 +458,36 @@ onMounted(() => {
       <el-tab-pane label="教室管理" name="classroom">
         <div style="margin-bottom: 12px">
           <el-button type="primary" @click="openClassroomDialog()">新增教室</el-button>
+          <el-input
+            v-model="classroomSearch"
+            placeholder="搜索教室名称,类型或者教学楼"
+            clearable
+            style="width: 240px; margin-left: 12px"
+          />
         </div>
-        <el-table :data="classrooms" border size="small">
+        <el-table :data="filteredClassrooms" v-loading="loadingClassrooms" border size="small">
+          <template #empty>
+            <el-empty description="暂无教室数据" />
+          </template>
           <el-table-column prop="name" label="教室名称" />
           <el-table-column prop="building" label="教学楼" />
           <el-table-column prop="capacity" label="容量" width="80" />
           <el-table-column prop="classroomType" label="类型" width="120" />
-          <el-table-column prop="status" label="状态" width="80" />
+          <el-table-column prop="status" label="状态" width="80">
+            <template #default="{ row }">
+              <el-tag :type="row.status === 'ACTIVE' ? 'success' : 'info'">
+                {{ row.status === 'ACTIVE' ? '启用' : '停用' }}
+              </el-tag>
+            </template>
+          </el-table-column>
           <el-table-column label="操作" width="140">
             <template #default="{ row }">
-              <el-button type="primary" size="small" @click="openClassroomDialog(row)">编辑</el-button>
-              <el-button type="danger" size="small" @click="deleteClassroom(row.id)">删除</el-button>
+              <el-button type="primary" size="small" @click="openClassroomDialog(row)"
+                >编辑</el-button
+              >
+              <el-button type="danger" size="small" @click="deleteClassroom(row.id)"
+                >删除</el-button
+              >
             </template>
           </el-table-column>
         </el-table>
@@ -342,7 +495,11 @@ onMounted(() => {
     </el-tabs>
 
     <!-- Teacher Dialog -->
-    <el-dialog v-model="teacherDialog" :title="teacherForm.id ? '编辑教师' : '新增教师'" width="480px">
+    <el-dialog
+      v-model="teacherDialog"
+      :title="teacherForm.id ? '编辑教师' : '新增教师'"
+      width="480px"
+    >
       <el-form ref="teacherFormRef" :model="teacherForm" :rules="teacherRules" label-width="100px">
         <el-form-item label="工号" prop="employeeNo">
           <el-input v-model="teacherForm.employeeNo" :disabled="!!teacherForm.id" />
@@ -382,7 +539,11 @@ onMounted(() => {
     </el-dialog>
 
     <!-- Course Dialog -->
-    <el-dialog v-model="courseDialog" :title="courseForm.id ? '编辑课程' : '新增课程'" width="480px">
+    <el-dialog
+      v-model="courseDialog"
+      :title="courseForm.id ? '编辑课程' : '新增课程'"
+      width="480px"
+    >
       <el-form ref="courseFormRef" :model="courseForm" :rules="courseRules" label-width="100px">
         <el-form-item label="课程名称" prop="name">
           <el-input v-model="courseForm.name" />
@@ -410,8 +571,17 @@ onMounted(() => {
     </el-dialog>
 
     <!-- ClassGroup Dialog -->
-    <el-dialog v-model="classGroupDialog" :title="classGroupForm.id ? '编辑班级' : '新增班级'" width="480px">
-      <el-form ref="classGroupFormRef" :model="classGroupForm" :rules="classGroupRules" label-width="100px">
+    <el-dialog
+      v-model="classGroupDialog"
+      :title="classGroupForm.id ? '编辑班级' : '新增班级'"
+      width="480px"
+    >
+      <el-form
+        ref="classGroupFormRef"
+        :model="classGroupForm"
+        :rules="classGroupRules"
+        label-width="100px"
+      >
         <el-form-item label="班级名称" prop="name">
           <el-input v-model="classGroupForm.name" />
         </el-form-item>
@@ -435,8 +605,17 @@ onMounted(() => {
     </el-dialog>
 
     <!-- Classroom Dialog -->
-    <el-dialog v-model="classroomDialog" :title="classroomForm.id ? '编辑教室' : '新增教室'" width="480px">
-      <el-form ref="classroomFormRef" :model="classroomForm" :rules="classroomRules" label-width="100px">
+    <el-dialog
+      v-model="classroomDialog"
+      :title="classroomForm.id ? '编辑教室' : '新增教室'"
+      width="480px"
+    >
+      <el-form
+        ref="classroomFormRef"
+        :model="classroomForm"
+        :rules="classroomRules"
+        label-width="100px"
+      >
         <el-form-item label="教室名称" prop="name">
           <el-input v-model="classroomForm.name" />
         </el-form-item>
@@ -463,20 +642,42 @@ onMounted(() => {
     </el-dialog>
 
     <!-- TeachingTask Dialog -->
-    <el-dialog v-model="teachingTaskDialog" :title="teachingTaskForm.id ? '编辑教学任务' : '新增教学任务'" width="560px">
-      <el-form ref="teachingTaskFormRef" :model="teachingTaskForm" :rules="teachingTaskRules" label-width="100px">
+    <el-dialog
+      v-model="teachingTaskDialog"
+      :title="teachingTaskForm.id ? '编辑教学任务' : '新增教学任务'"
+      width="560px"
+    >
+      <el-form
+        ref="teachingTaskFormRef"
+        :model="teachingTaskForm"
+        :rules="teachingTaskRules"
+        label-width="100px"
+      >
         <el-form-item label="课程" prop="courseId">
-          <el-select v-model="teachingTaskForm.courseId" placeholder="请选择课程" style="width: 100%">
+          <el-select
+            v-model="teachingTaskForm.courseId"
+            placeholder="请选择课程"
+            style="width: 100%"
+          >
             <el-option v-for="c in courses" :key="c.id" :label="c.name" :value="c.id" />
           </el-select>
         </el-form-item>
         <el-form-item label="主讲教师" prop="primaryTeacherId">
-          <el-select v-model="teachingTaskForm.primaryTeacherId" placeholder="请选择主讲教师" style="width: 100%">
+          <el-select
+            v-model="teachingTaskForm.primaryTeacherId"
+            placeholder="请选择主讲教师"
+            style="width: 100%"
+          >
             <el-option v-for="t in teachers" :key="t.id" :label="t.name" :value="t.id" />
           </el-select>
         </el-form-item>
         <el-form-item label="协作教师">
-          <el-select v-model="teachingTaskForm.assistantTeacherId" clearable placeholder="可选" style="width: 100%">
+          <el-select
+            v-model="teachingTaskForm.assistantTeacherId"
+            clearable
+            placeholder="可选"
+            style="width: 100%"
+          >
             <el-option v-for="t in teachers" :key="t.id" :label="t.name" :value="t.id" />
           </el-select>
         </el-form-item>
@@ -485,12 +686,28 @@ onMounted(() => {
           <span style="color: #909399; font-size: 12px; margin-left: 8px">必须是2的倍数</span>
         </el-form-item>
         <el-form-item label="推荐教室">
-          <el-select v-model="teachingTaskForm.classroomId" placeholder="可选，不选则由排课自动分配" clearable :value-on-clear="null" style="width: 100%">
-            <el-option v-for="cr in classrooms" :key="cr.id" :label="`${cr.name}(${cr.building}, ${cr.capacity}座, ${cr.classroomType})`" :value="cr.id" />
+          <el-select
+            v-model="teachingTaskForm.classroomId"
+            placeholder="可选，不选则由排课自动分配"
+            clearable
+            :value-on-clear="null"
+            style="width: 100%"
+          >
+            <el-option
+              v-for="cr in classrooms"
+              :key="cr.id"
+              :label="`${cr.name}(${cr.building}, ${cr.capacity}座, ${cr.classroomType})`"
+              :value="cr.id"
+            />
           </el-select>
         </el-form-item>
         <el-form-item label="班级" prop="classGroupIds">
-          <el-select v-model="teachingTaskForm.classGroupIds" multiple placeholder="至少选择1个班级" style="width: 100%">
+          <el-select
+            v-model="teachingTaskForm.classGroupIds"
+            multiple
+            placeholder="至少选择1个班级"
+            style="width: 100%"
+          >
             <el-option v-for="cg in classGroups" :key="cg.id" :label="cg.name" :value="cg.id" />
           </el-select>
         </el-form-item>

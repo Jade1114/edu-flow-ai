@@ -2,7 +2,16 @@
 import { ref, computed, onMounted } from 'vue'
 import request from '@/api/request.js'
 import { ElMessage } from 'element-plus'
-import { Cpu, DataAnalysis, Refresh, TrendCharts, Finished, VideoPlay, CircleCheck, CircleClose } from '@element-plus/icons-vue'
+import {
+  Cpu,
+  DataAnalysis,
+  Refresh,
+  TrendCharts,
+  Finished,
+  VideoPlay,
+  CircleCheck,
+  CircleClose,
+} from '@element-plus/icons-vue'
 
 // === 反馈数据 ===
 const feedbackStats = ref(null)
@@ -93,12 +102,12 @@ async function loadTrainingLogs() {
 const positiveRate = computed(() => {
   if (!trainingLogs.value.length) return 0
   const last = trainingLogs.value[0]
-  const total = (last.sampleCount || 1)
-  return Math.round((last.positiveCount || 0) / total * 100)
+  const total = last.sampleCount || 1
+  return Math.round(((last.positiveCount || 0) / total) * 100)
 })
 
 function eventCount(type) {
-  const row = eventSummary.value?.eventTypes?.find(item => item.eventType === type)
+  const row = eventSummary.value?.eventTypes?.find((item) => item.eventType === type)
   return row?.eventCount || 0
 }
 
@@ -116,24 +125,34 @@ const eventCards = computed(() => [
   { label: '事件总数', value: eventSummary.value?.eventCount || 0, type: 'primary' },
   { label: '方案确认', value: eventCount('SCHEME_CONFIRMED'), type: 'success' },
   { label: '片段移动', value: eventCount('ITEM_MOVED'), type: 'warning' },
-  { label: '人工标注', value: eventCount('ITEM_MARKED_GOOD') + eventCount('ITEM_MARKED_BAD'), type: 'danger' },
+  {
+    label: '人工标注',
+    value: eventCount('ITEM_MARKED_GOOD') + eventCount('ITEM_MARKED_BAD'),
+    type: 'danger',
+  },
 ])
 
 // 趋势图与分布
 const chartWidth = 400
 
 const aucPoints = computed(() =>
-  [...trainingLogs.value].reverse().map(r => {
-    const v = validationMetrics(r)
-    return r.evalAuc ?? v?.auc ?? null
-  }).filter(v => v != null)
+  [...trainingLogs.value]
+    .reverse()
+    .map((r) => {
+      const v = validationMetrics(r)
+      return r.evalAuc ?? v?.auc ?? null
+    })
+    .filter((v) => v != null),
 )
 
 const sepPoints = computed(() =>
-  [...trainingLogs.value].reverse().map(r => {
-    const v = validationMetrics(r)
-    return r.evalAccuracy ?? v?.score_separation ?? null
-  }).filter(v => v != null)
+  [...trainingLogs.value]
+    .reverse()
+    .map((r) => {
+      const v = validationMetrics(r)
+      return r.evalAccuracy ?? v?.score_separation ?? null
+    })
+    .filter((v) => v != null),
 )
 
 const latestScoreDist = computed(() => {
@@ -152,8 +171,26 @@ const statsCards = computed(() => {
     { label: '训练类型', value: typeLabel(last.trainingType), icon: VideoPlay },
     { label: '样本总数', value: last.sampleCount || 0, icon: DataAnalysis },
     { label: '正样本率', value: positiveRate.value + '%', icon: CircleCheck },
-    { label: 'AUC', value: last.evalAuc != null ? last.evalAuc.toFixed(4) : (valMetrics?.auc != null ? valMetrics.auc.toFixed(4) : '-'), icon: TrendCharts },
-    { label: '评分分离度', value: last.evalAccuracy != null ? last.evalAccuracy.toFixed(4) : (valMetrics?.score_separation != null ? valMetrics.score_separation.toFixed(4) : '-'), icon: Finished },
+    {
+      label: 'AUC',
+      value:
+        last.evalAuc != null
+          ? last.evalAuc.toFixed(4)
+          : valMetrics?.auc != null
+            ? valMetrics.auc.toFixed(4)
+            : '-',
+      icon: TrendCharts,
+    },
+    {
+      label: '评分分离度',
+      value:
+        last.evalAccuracy != null
+          ? last.evalAccuracy.toFixed(4)
+          : valMetrics?.score_separation != null
+            ? valMetrics.score_separation.toFixed(4)
+            : '-',
+      icon: Finished,
+    },
   ]
 })
 
@@ -246,7 +283,12 @@ onMounted(() => {
         <el-button :icon="Refresh" @click="generateFeedbackJson()" :loading="feedbackLoading">
           生成反馈 JSON
         </el-button>
-        <el-button type="warning" @click="triggerRetrain()" :loading="training" :disabled="training || !feedbackStats?.exportPath">
+        <el-button
+          type="warning"
+          @click="triggerRetrain()"
+          :loading="training"
+          :disabled="training || !feedbackStats?.exportPath"
+        >
           {{ training ? '训练中...' : '重训模型' }}
         </el-button>
       </div>
@@ -255,12 +297,20 @@ onMounted(() => {
     <!-- 训练状态提示 -->
     <el-alert
       v-if="trainResult"
-      :type="trainResult.status === 'SUCCEEDED' ? 'success' : trainResult.status === 'FAILED' ? 'error' : 'warning'"
-      :title="trainResult.status === 'SUCCEEDED'
-        ? `训练完成 · ${trainResult.sampleCount || 0} 条样本已生成 · 模型已更新为 ${trainResult.modelPath || '最新版本'}`
-        : trainResult.status === 'FAILED'
-          ? `训练失败: ${trainResult.message}`
-          : `训练中: ${trainResult.message}`"
+      :type="
+        trainResult.status === 'SUCCEEDED'
+          ? 'success'
+          : trainResult.status === 'FAILED'
+            ? 'error'
+            : 'warning'
+      "
+      :title="
+        trainResult.status === 'SUCCEEDED'
+          ? `训练完成 · ${trainResult.sampleCount || 0} 条样本已生成 · 模型已更新为 ${trainResult.modelPath || '最新版本'}`
+          : trainResult.status === 'FAILED'
+            ? `训练失败: ${trainResult.message}`
+            : `训练中: ${trainResult.message}`
+      "
       show-icon
       :closable="false"
     />
@@ -281,7 +331,10 @@ onMounted(() => {
     </el-row>
 
     <!-- 空状态 -->
-    <el-empty v-if="!statsCards.length && !training" description="还没有训练记录，请先创建排课任务并生成方案，积累反馈数据后再开始重训" />
+    <el-empty
+      v-if="!statsCards.length && !training"
+      description="还没有训练记录，请先创建排课任务并生成方案，积累反馈数据后再开始重训"
+    />
 
     <!-- 反馈事件采集台账 -->
     <el-card shadow="never">
@@ -353,7 +406,15 @@ onMounted(() => {
               </el-tag>
             </div>
           </template>
-          <div v-if="feedbackStats" style="display: grid; grid-template-columns: repeat(6, 1fr); gap: 12px; text-align: center">
+          <div
+            v-if="feedbackStats"
+            style="
+              display: grid;
+              grid-template-columns: repeat(6, 1fr);
+              gap: 12px;
+              text-align: center;
+            "
+          >
             <div class="stat-card">
               <div class="stat-num">{{ feedbackStats.schemeCount }}</div>
               <div class="stat-label">候选方案</div>
@@ -406,20 +467,34 @@ onMounted(() => {
             </div>
             <div style="color: #909399; margin-bottom: 16px">最近训练样本总数</div>
             <div style="display: flex; gap: 12px; justify-content: center">
-              <el-tag type="success" size="large">正样本 {{ trainingLogs[0]?.positiveCount || 0 }}</el-tag>
-              <el-tag type="danger" size="large">负样本 {{ trainingLogs[0]?.negativeCount || 0 }}</el-tag>
+              <el-tag type="success" size="large"
+                >正样本 {{ trainingLogs[0]?.positiveCount || 0 }}</el-tag
+              >
+              <el-tag type="danger" size="large"
+                >负样本 {{ trainingLogs[0]?.negativeCount || 0 }}</el-tag
+              >
             </div>
             <div style="margin-top: 16px">
               <div style="height: 8px; border-radius: 4px; background: #f0f0f0; overflow: hidden">
-                <div :style="{
-                  height: '100%',
-                  width: positiveRate + '%',
-                  background: 'linear-gradient(90deg, #67c23a, #409eff)',
-                  borderRadius: '4px',
-                  transition: 'width 0.5s ease'
-                }" />
+                <div
+                  :style="{
+                    height: '100%',
+                    width: positiveRate + '%',
+                    background: 'linear-gradient(90deg, #67c23a, #409eff)',
+                    borderRadius: '4px',
+                    transition: 'width 0.5s ease',
+                  }"
+                />
               </div>
-              <div style="display: flex; justify-content: space-between; font-size: 11px; color: #909399; margin-top: 4px">
+              <div
+                style="
+                  display: flex;
+                  justify-content: space-between;
+                  font-size: 11px;
+                  color: #909399;
+                  margin-top: 4px;
+                "
+              >
                 <span>正 {{ positiveRate }}%</span>
                 <span>负 {{ 100 - positiveRate }}%</span>
               </div>
@@ -443,15 +518,51 @@ onMounted(() => {
           <div style="height: 180px; position: relative; padding: 10px 0">
             <svg :viewBox="`0 0 ${chartWidth} 160`" style="width: 100%; height: 160px">
               <!-- 网格线 -->
-              <line v-for="gy in [0, 0.25, 0.5, 0.75, 1.0]" :key="gy" :x1="20" :x2="chartWidth - 10" :y1="160 - gy * 150" :y2="160 - gy * 150" stroke="#f0f0f0" stroke-width="1" />
+              <line
+                v-for="gy in [0, 0.25, 0.5, 0.75, 1.0]"
+                :key="gy"
+                :x1="20"
+                :x2="chartWidth - 10"
+                :y1="160 - gy * 150"
+                :y2="160 - gy * 150"
+                stroke="#f0f0f0"
+                stroke-width="1"
+              />
               <!-- AUC 线 -->
-              <polyline v-if="aucPoints.length >= 2"
-                :points="aucPoints.map((p, i) => `${20 + i * (chartWidth - 30) / Math.max(aucPoints.length - 1, 1)},${160 - p * 150}`).join(' ')"
-                fill="none" stroke="#409eff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" />
+              <polyline
+                v-if="aucPoints.length >= 2"
+                :points="
+                  aucPoints
+                    .map(
+                      (p, i) =>
+                        `${20 + (i * (chartWidth - 30)) / Math.max(aucPoints.length - 1, 1)},${160 - p * 150}`,
+                    )
+                    .join(' ')
+                "
+                fill="none"
+                stroke="#409eff"
+                stroke-width="2"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              />
               <!-- 分离度线 -->
-              <polyline v-if="sepPoints.length >= 2"
-                :points="sepPoints.map((p, i) => `${20 + i * (chartWidth - 30) / Math.max(sepPoints.length - 1, 1)},${150 - Math.min(p * 150, 150)}`).join(' ')"
-                fill="none" stroke="#67c23a" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" stroke-dasharray="4,2" />
+              <polyline
+                v-if="sepPoints.length >= 2"
+                :points="
+                  sepPoints
+                    .map(
+                      (p, i) =>
+                        `${20 + (i * (chartWidth - 30)) / Math.max(sepPoints.length - 1, 1)},${150 - Math.min(p * 150, 150)}`,
+                    )
+                    .join(' ')
+                "
+                fill="none"
+                stroke="#67c23a"
+                stroke-width="2"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                stroke-dasharray="4,2"
+              />
               <!-- 图例 -->
               <text x="20" y="18" font-size="11" fill="#409eff">AUC</text>
               <text x="80" y="18" font-size="11" fill="#67c23a">分离度</text>
@@ -467,17 +578,37 @@ onMounted(() => {
               <span>最新评分分布</span>
             </div>
           </template>
-          <div v-if="latestScoreDist.length" style="display: flex; flex-direction: column; gap: 6px; padding: 8px 0">
-            <div v-for="bucket in latestScoreDist" :key="bucket.range" style="display: flex; align-items: center; gap: 8px; font-size: 12px">
+          <div
+            v-if="latestScoreDist.length"
+            style="display: flex; flex-direction: column; gap: 6px; padding: 8px 0"
+          >
+            <div
+              v-for="bucket in latestScoreDist"
+              :key="bucket.range"
+              style="display: flex; align-items: center; gap: 8px; font-size: 12px"
+            >
               <span style="width: 70px; color: #909399; text-align: right">{{ bucket.range }}</span>
-              <div style="flex: 1; height: 18px; background: #f0f0f0; border-radius: 3px; overflow: hidden">
-                <div :style="{
-                  height: '100%',
-                  width: bucket.pct + '%',
-                  background: bucket.range.includes('0.99') || bucket.range.includes('0.999') ? '#f56c6c' : '#409eff',
-                  borderRadius: '3px',
-                  transition: 'width 0.5s ease'
-                }" />
+              <div
+                style="
+                  flex: 1;
+                  height: 18px;
+                  background: #f0f0f0;
+                  border-radius: 3px;
+                  overflow: hidden;
+                "
+              >
+                <div
+                  :style="{
+                    height: '100%',
+                    width: bucket.pct + '%',
+                    background:
+                      bucket.range.includes('0.99') || bucket.range.includes('0.999')
+                        ? '#f56c6c'
+                        : '#409eff',
+                    borderRadius: '3px',
+                    transition: 'width 0.5s ease',
+                  }"
+                />
               </div>
               <span style="width: 40px; color: #606266">{{ bucket.count }}</span>
             </div>
@@ -495,7 +626,13 @@ onMounted(() => {
           <span>训练历史</span>
         </div>
       </template>
-      <el-table :data="trainingLogs" border size="small" v-loading="logsLoading" empty-text="暂无训练记录">
+      <el-table
+        :data="trainingLogs"
+        border
+        size="small"
+        v-loading="logsLoading"
+        empty-text="暂无训练记录"
+      >
         <el-table-column prop="modelVersion" label="版本" width="80" />
         <el-table-column prop="trainingType" label="类型" width="90">
           <template #default="{ row }">{{ typeLabel(row.trainingType) }}</template>
@@ -505,23 +642,48 @@ onMounted(() => {
         <el-table-column prop="negativeCount" label="负样本" width="70" />
         <el-table-column label="AUC" width="80">
           <template #default="{ row }">
-            <span v-if="row.evalAuc != null" :style="{ color: row.evalAuc >= 0.7 ? '#67c23a' : row.evalAuc >= 0.5 ? '#e6a23c' : '#f56c6c' }">
+            <span
+              v-if="row.evalAuc != null"
+              :style="{
+                color: row.evalAuc >= 0.7 ? '#67c23a' : row.evalAuc >= 0.5 ? '#e6a23c' : '#f56c6c',
+              }"
+            >
               {{ row.evalAuc.toFixed(4) }}
             </span>
-            <span v-else>{{ validationMetrics(row)?.auc != null ? validationMetrics(row).auc.toFixed(4) : '-' }}</span>
+            <span v-else>{{
+              validationMetrics(row)?.auc != null ? validationMetrics(row).auc.toFixed(4) : '-'
+            }}</span>
           </template>
         </el-table-column>
         <el-table-column label="分离度" width="80">
           <template #default="{ row }">
-            <span v-if="row.evalAccuracy != null" :style="{ color: row.evalAccuracy > 0.1 ? '#67c23a' : row.evalAccuracy > 0.02 ? '#e6a23c' : '#909399' }">
+            <span
+              v-if="row.evalAccuracy != null"
+              :style="{
+                color:
+                  row.evalAccuracy > 0.1
+                    ? '#67c23a'
+                    : row.evalAccuracy > 0.02
+                      ? '#e6a23c'
+                      : '#909399',
+              }"
+            >
               {{ row.evalAccuracy.toFixed(4) }}
             </span>
-            <span v-else>{{ validationMetrics(row)?.score_separation != null ? validationMetrics(row).score_separation.toFixed(4) : '-' }}</span>
+            <span v-else>{{
+              validationMetrics(row)?.score_separation != null
+                ? validationMetrics(row).score_separation.toFixed(4)
+                : '-'
+            }}</span>
           </template>
         </el-table-column>
         <el-table-column label="评分标准差" width="90">
           <template #default="{ row }">
-            {{ validationMetrics(row)?.score_std != null ? validationMetrics(row).score_std.toFixed(4) : '-' }}
+            {{
+              validationMetrics(row)?.score_std != null
+                ? validationMetrics(row).score_std.toFixed(4)
+                : '-'
+            }}
           </template>
         </el-table-column>
         <el-table-column label="对比基线" width="120" show-overflow-tooltip>
@@ -541,7 +703,9 @@ onMounted(() => {
         <el-table-column prop="conflictCount" label="冲突" width="60" />
         <el-table-column prop="status" label="状态" width="80">
           <template #default="{ row }">
-            <el-tag :type="statusTag(row.status)" size="small">{{ statusLabel(row.status) }}</el-tag>
+            <el-tag :type="statusTag(row.status)" size="small">{{
+              statusLabel(row.status)
+            }}</el-tag>
           </template>
         </el-table-column>
         <el-table-column prop="trainStartedAt" label="训练时间" width="160">
