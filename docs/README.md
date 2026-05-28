@@ -19,7 +19,8 @@ docs/
 	│   ├── 08-模型消融实验设计方案.md
 	│   ├── 09-GA编码与适应度函数设计.md
 	│   ├── 10-LightGBM选型与模型对比说明.md
-	│   └── 11-核心链路论文版总设计.md
+	│   ├── 11-核心链路论文版总设计.md
+│   └── 12-数据闭环与画像演进设计.md
 ├── implementation/
 │   ├── 01-GA排课生成链路实现说明.md
 │   ├── 02-教师画像JSONL快照接入说明.md
@@ -51,6 +52,7 @@ docs/
 | architecture/09-GA编码与适应度函数设计.md | GA染色体/基因编码、硬软约束、适应度函数、sigmoid评分接入、遗传操作和答辩口径 |
 | architecture/10-LightGBM选型与模型对比说明.md | LightGBM选型理由、与RandomForest/XGBoost/纯规则/深度学习对比、消融实验和答辩口径 |
 | architecture/11-核心链路论文版总设计.md | 项目论文版总纲，串联教师画像、训练样本、LightGBM评分、GA优化、反馈闭环和消融实验 |
+| architecture/12-数据闭环与画像演进设计.md | 数据获取、清洗、标签设计、GA自举、特征工程、数据集划分、数据漂移、教师/教室画像动态演进 |
 | implementation/01-GA排课生成链路实现说明.md | Java→Python→SSE→schemes.json→入库的具体代码路径 |
 | implementation/02-教师画像JSONL快照接入说明.md | 教师画像快照导出、请求传递、Python 归一化和排课消费实现 |
 | implementation/03-排课链路验证与排障说明.md | 本地验证命令、关键输出文件、常见问题定位 |
