@@ -53,7 +53,7 @@ docs/
 | architecture/10-LightGBM选型与模型对比说明.md | LightGBM选型理由、与RandomForest/XGBoost/纯规则/深度学习对比、消融实验和答辩口径 |
 | architecture/11-核心链路论文版总设计.md | 项目论文版总纲，串联教师画像、训练样本、LightGBM评分、GA优化、反馈闭环和消融实验 |
 | architecture/12-数据闭环与画像演进设计.md | 数据获取、清洗、标签设计、GA自举、特征工程、数据集划分、数据漂移、教师/教室画像动态演进 |
-| implementation/01-GA排课生成链路实现说明.md | Java→Python→SSE→schemes.json→入库的具体代码路径 |
+| implementation/01-GA排课生成链路实现说明.md | Java→Python→SSE→schemes.jsonl→入库的具体代码路径 |
 | implementation/02-教师画像JSONL快照接入说明.md | 教师画像快照导出、请求传递、Python 归一化和排课消费实现 |
 | implementation/03-排课链路验证与排障说明.md | 本地验证命令、关键输出文件、常见问题定位 |
 | thesis/01-论文目录与章节要点.md | 毕业论文题目、章节结构、每章要点、对应项目文档和待补实验材料 |
@@ -75,6 +75,6 @@ GA 修复：主优化器，delta min 候选选择
 适应度：硬冲突1M + 模板惩罚 + 同天重复 + 晚课
 ```
 
-正式生成链路已收敛为「模板枚举 → AllocationTask → GA 进化 → schemes.json → Java 入库」。历史实验链路已全部清理。
+正式生成链路已收敛为「模板枚举 → AllocationTask → GA 进化 → schemes.jsonl → Java 入库」。历史实验链路已全部清理。
 
 实现细节优先看 `docs/implementation/`，架构文档只描述边界和设计原则。

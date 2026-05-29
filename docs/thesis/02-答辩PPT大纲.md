@@ -127,7 +127,7 @@ GA 全局优化
 建议图：
 
 ```text
-前端 → Java后端 → Python排课服务 → schemes.json → Java入库 → 前端展示
+前端 → Java后端 → Python排课服务 → schemes.jsonl → Java入库 → 前端展示
 ```
 
 ## 第 6 页：教师画像设计

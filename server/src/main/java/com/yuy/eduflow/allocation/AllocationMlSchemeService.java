@@ -349,14 +349,18 @@ public class AllocationMlSchemeService {
 	}
 
 	private List<AllocationParsedScheme> parseGeneratedSchemes(Path outputDir, Long taskId) throws IOException {
-		Path schemesJson = outputDir.resolve("schemes.json");
-		if (!Files.exists(schemesJson)) {
-			throw new ValidationException("自训练模型未生成 schemes.json");
+		Path schemesJsonl = outputDir.resolve("schemes.jsonl");
+		if (!Files.exists(schemesJsonl)) {
+			throw new ValidationException("自训练模型未生成 schemes.jsonl");
 		}
-		String rawJson = Files.readString(schemesJson, StandardCharsets.UTF_8);
-		@SuppressWarnings("unchecked")
-		List<Map<String, Object>> schemesData = objectMapper.readValue(rawJson, List.class);
-		log.info("ML parsed schemes.json: schemeCount={}", schemesData.size());
+		List<Map<String, Object>> schemesData = new ArrayList<>();
+		for (String line : Files.readAllLines(schemesJsonl, StandardCharsets.UTF_8)) {
+			if (line.isBlank()) continue;
+			@SuppressWarnings("unchecked")
+			Map<String, Object> scheme = objectMapper.readValue(line, Map.class);
+			schemesData.add(scheme);
+		}
+		log.info("ML parsed schemes.jsonl: schemeCount={}", schemesData.size());
 		List<GaSummaryData> gaSummaries = loadGaSummaries(outputDir);
 		int existingMaxIndex = allocationSchemeMapper.selectMaxSchemeIndex(taskId);
 		log.info("Existing max scheme index for taskId={}: {}", taskId, existingMaxIndex);

@@ -1,4 +1,4 @@
-"""GA 排课入口 — 读取 DB → 生成方案 → 写 schemes.json"""
+"""GA 排课入口 — 读取 DB → 生成方案 → 写 schemes.jsonl"""
 
 from __future__ import annotations
 import json, logging, os, random, sys
@@ -104,12 +104,15 @@ def run(task_id: int, teacher_profiles_jsonl: str | None = None):
         schemes.append({"items": rows})
         summaries.append({"scheme_index": index + 1, "ga_profile": ga_params.get("profile"), **metrics})
 
-    # 写输出
+    # 写输出（JSONL：每行一个 JSON 对象，对应一个方案）
     ts = dt.now().strftime("%Y%m%d%H%M%S%f")[:-3]
     out = Path(__file__).resolve().parents[1] / "data" / "generated" / f"task_{task_id}_{ts}"
     out.mkdir(parents=True, exist_ok=True)
-    (out / "schemes.json").write_text(json.dumps(schemes, ensure_ascii=False, default=str))
+    (out / "schemes.jsonl").write_text(
+        "\n".join(json.dumps(s, ensure_ascii=False, default=str) for s in schemes)
+    )
     (out / "ga_summary.json").write_text(json.dumps(summaries, ensure_ascii=False, indent=2))
+    logger.info("Wrote %s schemes to %s/schemes.jsonl", len(schemes), out)
     return {"output_dir": str(out), "scheme_count": len(schemes), "timings_ms": {}}
 
 

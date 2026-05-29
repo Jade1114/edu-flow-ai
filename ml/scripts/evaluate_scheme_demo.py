@@ -474,30 +474,32 @@ def evaluate_single_csv_to_json(scheme_path: Path, teacher_penalties: dict[str, 
 
 
 def evaluate_directory_to_json(scheme_dir: Path, teacher_penalties: dict[str, dict[str, Any]] | None = None) -> list[Path]:
-    schemes_json = scheme_dir / "schemes.json"
-    if schemes_json.exists():
-        return _evaluate_schemes_json(schemes_json, teacher_penalties)
+    schemes_jsonl = scheme_dir / "schemes.jsonl"
+    if schemes_jsonl.exists():
+        return _evaluate_schemes_jsonl(schemes_jsonl, teacher_penalties)
     scheme_files = sorted(path for path in scheme_dir.glob("scheme_*.csv") if path.is_file())
     if not scheme_files:
-        raise FileNotFoundError(f"No scheme_*.csv or schemes.json found in {scheme_dir}")
+        raise FileNotFoundError(f"No scheme_*.csv or schemes.jsonl found in {scheme_dir}")
     json_paths: list[Path] = []
     for scheme_file in scheme_files:
         json_paths.append(evaluate_single_csv_to_json(scheme_file, teacher_penalties))
     return json_paths
 
 
-def _evaluate_schemes_json(schemes_json: Path, teacher_penalties: dict[str, dict[str, Any]] | None = None) -> list[Path]:
-    """Evaluate all schemes from a schemes.json file and write evaluation JSOns."""
-    data = json.loads(schemes_json.read_text(encoding="utf-8"))
+def _evaluate_schemes_jsonl(schemes_jsonl: Path, teacher_penalties: dict[str, dict[str, Any]] | None = None) -> list[Path]:
+    """Evaluate all schemes from a schemes.jsonl file and write evaluation JSONs."""
     json_paths: list[Path] = []
-    for i, scheme_entry in enumerate(data):
+    for i, line in enumerate(schemes_jsonl.read_text(encoding="utf-8").strip().split("\n")):
+        if not line.strip():
+            continue
+        scheme_entry = json.loads(line)
         rows = scheme_entry.get("items", [])
         if not rows:
             continue
         scheme_no = i + 1
-        scheme_path = schemes_json.parent / f"scheme_{scheme_no:03d}.csv"
+        scheme_path = schemes_jsonl.parent / f"scheme_{scheme_no:03d}.csv"
         evaluation = evaluate_scheme_to_dict(rows, scheme_path, teacher_penalties)
-        json_path = schemes_json.parent / f"scheme_{scheme_no:03d}.json"
+        json_path = schemes_jsonl.parent / f"scheme_{scheme_no:03d}.json"
         write_evaluation_json(evaluation, json_path)
         print(f"Evaluation JSON → {json_path}")
         json_paths.append(json_path)
