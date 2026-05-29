@@ -99,6 +99,7 @@ def generate_rows(
     time_slots: list[dict[str, Any]],
     teacher_profiles: dict[int, dict[str, object]],
     max_rows: int | None,
+    score_weights: dict[str, float] | None = None,
 ) -> list[dict[str, Any]]:
     pseudo_assignments = build_pseudo_assignments(tasks, classrooms, time_slots)
     indexes = build_occupied_indexes(pseudo_assignments)
@@ -184,6 +185,7 @@ def generate_rows(
                     class_day_load=class_day_load,
                     teacher_week_load=teacher_week_load,
                     teacher_max_weekly_hours=int(teacher_max_weekly_hours) if teacher_max_weekly_hours is not None else None,
+                    weights=score_weights,
                 )
 
                 rows.append(
@@ -267,6 +269,7 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Generate LightGBM training samples for Edu-Flow-AI scheduling.")
     parser.add_argument("--output", type=Path, default=OUTPUT_PATH, help="CSV output path.")
     parser.add_argument("--max-rows", type=int, default=None, help="Optional maximum number of rows to generate.")
+    parser.add_argument("--weights", type=str, default=None, help="JSON string of custom score_sample weights.")
     return parser.parse_args()
 
 
@@ -286,7 +289,8 @@ def main() -> None:
     if not time_slots:
         raise RuntimeError("No time slots found. Seed or create time slots before generating samples.")
 
-    rows = generate_rows(tasks, classrooms, time_slots, teacher_profiles, args.max_rows)
+    score_weights = json.loads(args.weights) if args.weights else None
+    rows = generate_rows(tasks, classrooms, time_slots, teacher_profiles, args.max_rows, score_weights)
     write_csv(rows, args.output)
     print(f"Generated {len(rows)} samples -> {args.output}")
 

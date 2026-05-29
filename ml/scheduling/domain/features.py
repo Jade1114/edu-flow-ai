@@ -200,6 +200,19 @@ def reject_reason(
 
 # ── 规则打分引擎（核心） ──────────────────────────────────
 
+# Default weights for cold-start scoring (mirrors scoring.py DEFAULT_CONFIG)
+SCORE_DEFAULT_WEIGHTS: dict[str, float] = {
+    "type_mismatch_penalty": 0.20,
+    "capacity_waste_low_penalty": 0.15,
+    "capacity_waste_high_penalty": 0.15,
+    "capacity_slight_waste_penalty": 0.08,
+    "early_period_penalty": 0.10,
+    "late_period_penalty": 0.05,
+    "teacher_day_load_penalty": 0.05,
+    "teacher_overload_penalty": 0.10,
+    "class_day_load_penalty": 0.03,
+}
+
 
 def score_sample(
     has_hard_conflict: bool,
@@ -211,6 +224,7 @@ def score_sample(
     class_day_load: int = 0,
     teacher_week_load: int = 0,
     teacher_max_weekly_hours: int | None = None,
+    weights: dict[str, float] | None = None,
 ) -> float:
     """基于规则为 (task × slot × classroom) 组合打分。
 
@@ -219,15 +233,10 @@ def score_sample(
 
     评分逻辑：
       1. 硬冲突 → 直接 0.0
-      2. 无冲突 → 从 1.0 开始扣分：
-         - 教室类型不匹配 → -0.20
-         - 容量偏离过大（< 60% 或 > 100%）→ -0.15
-         - 早八 → -0.10
-         - 晚课 → -0.05
-         - 教师当天已有课时 → -0.05 × 每课时
-         - 教师周课时超标 → -0.10
-         - 班级当天已有课时 → -0.03 × 每课时
+      2. 无冲突 → 从 1.0 开始扣分（权重可配）
     """
+    w = {**SCORE_DEFAULT_WEIGHTS, **(weights or {})}
+
     if has_hard_conflict:
         return 0.0
 
@@ -235,34 +244,34 @@ def score_sample(
 
     # 教室类型不匹配
     if not is_type_match:
-        score -= 0.20
+        score -= w["type_mismatch_penalty"]
 
     # 容量偏离惩罚
     if capacity_ratio < 0.6:
-        score -= 0.15  # 教室太大，浪费
+        score -= w["capacity_waste_low_penalty"]  # 教室太大，浪费
     elif capacity_ratio > 1.0:
-        score -= 0.15  # 教室不够坐（应被硬冲突捕获，但以防万一）
+        score -= w["capacity_waste_high_penalty"]  # 教室不够坐（应被硬冲突捕获，但以防万一）
     elif capacity_ratio > 0.85:
         pass  # 高利用率，完美
     elif capacity_ratio < 0.75:
-        score -= 0.08  # 稍大
+        score -= w["capacity_slight_waste_penalty"]  # 稍大
 
     # 时间段偏好
     if is_early_period:
-        score -= 0.10  # 早八
+        score -= w["early_period_penalty"]  # 早八
     if is_late_period:
-        score -= 0.05  # 晚课
+        score -= w["late_period_penalty"]  # 晚课
 
     # 教师日负载
     if teacher_day_load > 0:
-        score -= 0.05 * teacher_day_load
+        score -= w["teacher_day_load_penalty"] * teacher_day_load
 
     # 教师周课时超标
     if teacher_max_weekly_hours and teacher_week_load > teacher_max_weekly_hours:
-        score -= 0.10 * (teacher_week_load - teacher_max_weekly_hours)
+        score -= w["teacher_overload_penalty"] * (teacher_week_load - teacher_max_weekly_hours)
 
     # 班级日负载
     if class_day_load > 0:
-        score -= 0.03 * class_day_load
+        score -= w["class_day_load_penalty"] * class_day_load
 
     return max(0.0, min(1.0, score))
