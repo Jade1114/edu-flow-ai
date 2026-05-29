@@ -1,6 +1,6 @@
 <script setup>
 import { ref, computed, onMounted } from 'vue'
-import request from '@/api/request.js'
+import request from '@/api/request'
 
 const assignments = ref([])
 const loading = ref(false)

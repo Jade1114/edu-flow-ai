@@ -1,6 +1,6 @@
 <script setup>
 import { ref, computed, onMounted, onUnmounted } from "vue";
-import request from "@/api/request.js";
+import request from "@/api/request";
 import { ElMessage, ElMessageBox } from "element-plus";
 import { ActiveStatus, SchemeStatus } from "@/constants/status.js";
 

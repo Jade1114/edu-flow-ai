@@ -1,6 +1,6 @@
 <script setup>
 import { ref, computed, onMounted } from 'vue'
-import request from '@/api/request.js'
+import request from '@/api/request'
 import { ElMessage } from 'element-plus'
 import {
   Cpu,

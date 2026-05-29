@@ -1,6 +1,6 @@
 <script setup>
 import { ref, onMounted, watch } from 'vue'
-import request from '@/api/request.js'
+import request from '@/api/request'
 import { useAuthStore } from '@/stores/auth.js'
 import { ElMessage } from 'element-plus'
 

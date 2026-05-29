@@ -1,6 +1,6 @@
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
-import request from '@/api/request.js'
+import request from '@/api/request'
 
 export const useAuthStore = defineStore('auth', () => {
     const user = ref(JSON.parse(localStorage.getItem('edu-flow-user') || 'null'))
