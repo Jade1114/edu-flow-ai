@@ -60,6 +60,11 @@ const router = createRouter({
                     name: 'AdminAdjustment',
                     component: () => import('@/views/admin/AdjustmentView.vue'),
                 },
+                {
+                    path: 'constraint-editor',
+                    name: 'AdminConstraintEditor',
+                    component: () => import('@/views/admin/ConstraintEditorView.vue'),
+                },
             ],
         },
         {

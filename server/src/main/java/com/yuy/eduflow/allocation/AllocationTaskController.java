@@ -1,7 +1,9 @@
 package com.yuy.eduflow.allocation;
 
 import com.yuy.eduflow.common.ApiResponse;
+import com.yuy.eduflow.ml.MlApiClient;
 import java.util.List;
+import java.util.Map;
 import org.springframework.http.MediaType;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -21,17 +23,20 @@ public class AllocationTaskController {
 	private final AllocationSchemeService allocationSchemeService;
 	private final AllocationSchemeGenerationService allocationSchemeGenerationService;
 	private final GenerationTracker generationTracker;
+	private final MlApiClient mlApiClient;
 
 	public AllocationTaskController(
 		AllocationTaskService allocationTaskService,
 		AllocationSchemeService allocationSchemeService,
 		AllocationSchemeGenerationService allocationSchemeGenerationService,
-		GenerationTracker generationTracker
+		GenerationTracker generationTracker,
+		MlApiClient mlApiClient
 	) {
 		this.allocationTaskService = allocationTaskService;
 		this.allocationSchemeService = allocationSchemeService;
 		this.allocationSchemeGenerationService = allocationSchemeGenerationService;
 		this.generationTracker = generationTracker;
+		this.mlApiClient = mlApiClient;
 	}
 
 	@GetMapping
@@ -116,6 +121,48 @@ public class AllocationTaskController {
 	public ApiResponse<Void> delete(@PathVariable Long id) {
 		allocationTaskService.delete(id);
 		generationTracker.clear(id);
+		return ApiResponse.success();
+	}
+
+	// ── LLM Constraint Endpoints ─────────────────────────────────────
+
+	@PostMapping("/{id}/translate-constraint")
+	public ApiResponse<Map<String, Object>> translateConstraint(
+		@PathVariable Long id,
+		@RequestBody Map<String, String> body
+	) {
+		String text = body.get("text");
+		if (text == null || text.isBlank()) {
+			return ApiResponse.error(400, "text is required");
+		}
+		Map<String, Object> result = mlApiClient.translateConstraint(text);
+		return ApiResponse.success(result);
+	}
+
+	@PutMapping("/{id}/constraints/toggle")
+	public ApiResponse<Void> toggleConstraint(
+		@PathVariable Long id,
+		@RequestBody Map<String, String> body
+	) {
+		String constraintId = body.get("constraintId");
+		AllocationTaskGenerationConfig config = allocationTaskService.getGenerationConfig(id);
+		if (config == null) {
+			return ApiResponse.error(404, "config not found for task " + id);
+		}
+		String overridesJson = config.getLlmOverrides();
+		if (overridesJson == null || overridesJson.isBlank()) {
+			return ApiResponse.error(404, "no llm overrides found");
+		}
+		allocationTaskService.toggleConstraint(id, constraintId);
+		return ApiResponse.success();
+	}
+
+	@DeleteMapping("/{id}/constraints/{constraintId}")
+	public ApiResponse<Void> deleteConstraint(
+		@PathVariable Long id,
+		@PathVariable String constraintId
+	) {
+		allocationTaskService.deleteConstraint(id, constraintId);
 		return ApiResponse.success();
 	}
 }

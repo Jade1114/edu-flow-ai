@@ -7,6 +7,8 @@ from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
+from ml.api.constraint_parser import parse_constraint_text
+
 router = APIRouter(tags=["ga"])
 
 _tasks: dict[str, dict[str, Any]] = {}
@@ -17,6 +19,10 @@ _event_queues: dict[str, list[asyncio.Queue]] = {}
 class GenerateRequest(BaseModel):
     task_id: int
     teacher_profiles_jsonl: str | None = None
+
+
+class TranslateRequest(BaseModel):
+    text: str
 
 
 @router.post("/generate-scheme", status_code=202)
@@ -92,3 +98,16 @@ async def stream(task_uid: str, request: Request):
             "X-Accel-Buffering": "no",
         },
     )
+
+
+@router.post("/translate-constraint")
+async def translate_constraint(request: TranslateRequest):
+    """Translate natural language constraint to structured overrides."""
+    if not request.text.strip():
+        raise HTTPException(status_code=400, detail="text is required")
+    constraints = parse_constraint_text(request.text)
+    return {
+        "success": True,
+        "constraints": constraints,
+        "count": len(constraints),
+    }

@@ -27,6 +27,7 @@ public class AllocationTaskGenerationConfig {
 	private BigDecimal weekendPenalty;
 	private String llmPrompt;
 	private String llmResultJson;
+	private String llmOverrides;  // JSON array of LLM constraint overrides
 	private LocalDateTime createdAt;
 	private LocalDateTime updatedAt;
 }

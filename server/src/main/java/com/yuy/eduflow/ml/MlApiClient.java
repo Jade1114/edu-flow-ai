@@ -42,6 +42,20 @@ public class MlApiClient {
 		log.info("MlApiClient initialized: baseUrl={}", properties.getUrl());
 	}
 
+	// ── LLM Constraint Translation ───────────────────────────────────
+
+	@SuppressWarnings("unchecked")
+	public Map<String, Object> translateConstraint(String text) {
+		Map<String, String> body = Map.of("text", text);
+		Map<String, Object> response = restClient.post()
+			.uri("/api/ml/translate-constraint")
+			.contentType(MediaType.APPLICATION_JSON)
+			.body(body)
+			.retrieve()
+			.body(Map.class);
+		return response;
+	}
+
 	// ── Health ────────────────────────────────────────────────────────
 
 	public boolean health() {

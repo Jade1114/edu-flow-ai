@@ -9,6 +9,7 @@
 -- See: docs/architecture/13-评分体系与约束分层设计.md
 
 ALTER TABLE allocation_task_generation_config
+    ADD COLUMN llm_overrides TEXT DEFAULT NULL COMMENT 'JSON: LLM constraint overrides from constraint editor',
     ADD COLUMN model_weight DECIMAL(5,2) DEFAULT 0.60 COMMENT 'L3 LightGBM score weight (alpha) in quality_score',
     ADD COLUMN llm_weight   DECIMAL(5,2) DEFAULT 0.40 COMMENT 'L5 LLM override weight (beta) in quality_score',
     ADD COLUMN same_day_weight         DECIMAL(7,2) DEFAULT 0.05 COMMENT 'L2 S1: penalty per same-day duplicate assignment',

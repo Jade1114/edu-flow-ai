@@ -21,6 +21,7 @@ public record AllocationTaskGenerationConfigRequest(
 	BigDecimal classroomStickinessBonus,
 	BigDecimal weekendPenalty,
 	String llmPrompt,
-	String llmResultJson
+	String llmResultJson,
+	String llmOverrides
 ) {
 }

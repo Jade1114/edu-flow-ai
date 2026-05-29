@@ -23,13 +23,13 @@ public interface AllocationTaskGenerationConfigMapper {
 			teacher_profile_penalty_scale, distribution_penalty_scale, classroom_stickiness_weight, compact_bonus_weight,
 			weekday_load_penalty, room_day_load_penalty, room_week_load_penalty, task_day_load_penalty,
 			early_period_penalty, late_period_penalty, random_jitter, classroom_stickiness_bonus, weekend_penalty,
-			llm_prompt, llm_result_json
+			llm_prompt, llm_result_json, llm_overrides
 		) VALUES (
 			#{taskId}, #{allowedWeeks}, #{allowedWeekdays}, #{allowedPeriods}, #{schemeCount},
 			#{teacherProfilePenaltyScale}, #{distributionPenaltyScale}, #{classroomStickinessWeight}, #{compactBonusWeight},
 			#{weekdayLoadPenalty}, #{roomDayLoadPenalty}, #{roomWeekLoadPenalty}, #{taskDayLoadPenalty},
 			#{earlyPeriodPenalty}, #{latePeriodPenalty}, #{randomJitter}, #{classroomStickinessBonus}, #{weekendPenalty},
-			#{llmPrompt}, #{llmResultJson}
+			#{llmPrompt}, #{llmResultJson}, #{llmOverrides}
 		)
 		""")
 	@Options(useGeneratedKeys = true, keyProperty = "id")
@@ -55,7 +55,8 @@ public interface AllocationTaskGenerationConfigMapper {
 		    classroom_stickiness_bonus = #{classroomStickinessBonus},
 		    weekend_penalty = #{weekendPenalty},
 		    llm_prompt = #{llmPrompt},
-		    llm_result_json = #{llmResultJson}
+		    llm_result_json = #{llmResultJson},
+		    llm_overrides = #{llmOverrides}
 		WHERE task_id = #{taskId}
 		""")
 	int updateByTaskId(AllocationTaskGenerationConfig config);

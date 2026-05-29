@@ -6,6 +6,11 @@ import com.yuy.eduflow.course.Course;
 import com.yuy.eduflow.enums.TaskStatus;
 import com.yuy.eduflow.teacher.Teacher;
 import com.yuy.eduflow.teachingtask.TeachingTask;
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ArrayNode;
+import com.fasterxml.jackson.databind.node.ObjectNode;
 import java.math.BigDecimal;
 import java.util.List;
 import java.util.stream.Collectors;
@@ -22,6 +27,7 @@ public class AllocationTaskService {
 
 	private final AllocationTaskMapper allocationTaskMapper;
 	private final AllocationTaskGenerationConfigMapper generationConfigMapper;
+	private final ObjectMapper objectMapper = new ObjectMapper();
 
 	public AllocationTaskService(
 		AllocationTaskMapper allocationTaskMapper,
@@ -180,6 +186,7 @@ public class AllocationTaskService {
 		config.setWeekendPenalty(defaultDecimal(request.weekendPenalty(), "0.010000"));
 		config.setLlmPrompt(request.llmPrompt());
 		config.setLlmResultJson(request.llmResultJson());
+		config.setLlmOverrides(request.llmOverrides());
 		return config;
 	}
 
@@ -275,6 +282,59 @@ public class AllocationTaskService {
 			} catch (NumberFormatException exception) {
 				throw new ValidationException(fieldName + "必须为逗号分隔的数字");
 			}
+		}
+	}
+
+	// ── LLM Constraint Management ────────────────────────────────────
+
+	public AllocationTaskGenerationConfig getGenerationConfig(Long taskId) {
+		AllocationTaskGenerationConfig config = generationConfigMapper.findByTaskId(taskId);
+		return config;
+	}
+
+	public void toggleConstraint(Long taskId, String constraintId) {
+		AllocationTaskGenerationConfig config = generationConfigMapper.findByTaskId(taskId);
+		if (config == null || config.getLlmOverrides() == null) return;
+		try {
+			JsonNode root = objectMapper.readTree(config.getLlmOverrides());
+			JsonNode overrides = root.get("overrides");
+			if (overrides != null && overrides.isArray()) {
+				for (JsonNode node : overrides) {
+					JsonNode idNode = node.get("id");
+					if (idNode != null && constraintId.equals(idNode.asText())) {
+						boolean current = node.has("active") && node.get("active").asBoolean();
+						((ObjectNode) node).put("active", !current);
+						break;
+					}
+				}
+			}
+			config.setLlmOverrides(objectMapper.writeValueAsString(root));
+			generationConfigMapper.updateByTaskId(config);
+		} catch (JsonProcessingException e) {
+			throw new RuntimeException("Failed to parse llmOverrides JSON", e);
+		}
+	}
+
+	public void deleteConstraint(Long taskId, String constraintId) {
+		AllocationTaskGenerationConfig config = generationConfigMapper.findByTaskId(taskId);
+		if (config == null || config.getLlmOverrides() == null) return;
+		try {
+			JsonNode root = objectMapper.readTree(config.getLlmOverrides());
+			JsonNode overrides = root.get("overrides");
+			if (overrides != null && overrides.isArray()) {
+				ArrayNode newOverrides = objectMapper.createArrayNode();
+				for (JsonNode node : overrides) {
+					JsonNode idNode = node.get("id");
+					if (idNode == null || !constraintId.equals(idNode.asText())) {
+						newOverrides.add(node);
+					}
+				}
+				((ObjectNode) root).set("overrides", newOverrides);
+			}
+			config.setLlmOverrides(objectMapper.writeValueAsString(root));
+			generationConfigMapper.updateByTaskId(config);
+		} catch (JsonProcessingException e) {
+			throw new RuntimeException("Failed to parse llmOverrides JSON", e);
 		}
 	}
 }
