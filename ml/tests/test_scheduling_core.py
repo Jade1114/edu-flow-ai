@@ -6,7 +6,7 @@ from unittest.mock import patch
 
 from ml.ga_config import resolve_ga_params
 from ml.scheduling.enumerator import enumerate_template_sets
-from ml.scheduling.ga import fitness, init_population
+from ml.scheduling.ga import penalty_count, init_population
 from ml.scheduling.pipeline import _to_rows, generate_scheme
 from ml.scheduling.assignment_scorer import AssignmentScorer
 from ml.scheduling.teacher_profiles import load_teacher_profiles_jsonl
@@ -102,9 +102,9 @@ class SchedulingCoreTest(unittest.TestCase):
         population = init_population(tasks, pop_size=1, rng=random.Random(7), init_candidate_top_n=5)
 
         self.assertEqual({gene.task_id for gene in population[0]}, {1, 2})
-        metrics = fitness(population[0], tasks)
-        self.assertEqual(metrics["missing_task_count"], 0)
-        self.assertEqual(metrics["hard_conflicts"], 0)
+        pc = penalty_count(population[0], tasks)
+        self.assertEqual(pc["missing_task_count"], 0)
+        self.assertEqual(pc["hard_conflicts"], 0)
 
     def test_fitness_penalizes_missing_task(self) -> None:
         tasks = [
@@ -119,10 +119,10 @@ class SchedulingCoreTest(unittest.TestCase):
             )
         ]
 
-        metrics = fitness(chromosome, tasks)
+        pc = penalty_count(chromosome, tasks)
 
-        self.assertEqual(metrics["missing_task_count"], 1)
-        self.assertGreaterEqual(metrics["hard_conflicts"], 1)
+        self.assertEqual(pc["missing_task_count"], 1)
+        self.assertGreaterEqual(pc["hard_conflicts"], 1)
 
     def test_fitness_detects_any_overlapping_class_group_in_joint_class(self) -> None:
         tasks = [
@@ -134,9 +134,9 @@ class SchedulingCoreTest(unittest.TestCase):
             TaskGene(2, 0, [TemplateAssignment(0, 0, 2)]),
         ]
 
-        metrics = fitness(chromosome, tasks)
+        pc = penalty_count(chromosome, tasks)
 
-        self.assertGreaterEqual(metrics["hard_conflicts"], 1)
+        self.assertGreaterEqual(pc["hard_conflicts"], 1)
 
     def test_to_rows_uses_db_time_slot_id_mapping(self) -> None:
         task = _task(1, teacher_id=1, class_group_ids=(101,), room_ids=[1])
