@@ -29,7 +29,7 @@ def ga_iteration(
 ) -> None:
     """Log one GA generation summary to file only."""
     ga.info(
-        "gen=%4d fitness=%8.2f hard=%d cand_hard=%d teacher_slot=%d room_slot=%d class_slot=%d",
+        "gen=%4d quality=%.4f penalty=%d hard=%d cand_hard=%d teacher_slot=%d room_slot=%d class_slot=%d",
         generation,
         best_fitness,
         hard_conflicts,
