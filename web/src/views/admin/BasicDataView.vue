@@ -1,11 +1,53 @@
-<script setup>
+<script setup lang="ts">
 import { ref, onMounted, computed, watch } from 'vue'
-import request from '@/api/request.js'
+import request from '@/api/request'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { ActiveStatus } from '@/constants/status.js'
 import ActiveStatusTag from '@/components/ActiveStatusTag.vue'
 import ConfirmDeleteButton from '@/components/ConfirmDeleteButton.vue'
+import TeacherPanel from '@/components/TeacherPanel.vue'
 import { useRoute, useRouter } from 'vue-router'
+import type { Teacher } from '@/types/teacher'
+
+interface Course {
+    id: number | null
+    name: string
+    courseType: string
+    requiredHours: number
+    description?: string
+    status: string
+}
+
+interface ClassGroup {
+    id: number | null
+    name: string
+    major: string
+    grade: string
+    studentCount: number
+    description?: string
+}
+
+interface Classroom {
+    id: number | null
+    name: string
+    building: string
+    capacity: number
+    classroomType: string
+    status: string
+}
+
+interface TeachingTask {
+    id: number | null
+    courseId: string
+    primaryTeacherId: string
+    assistantTeacherId?: string
+    classroomId?: string
+    totalHours: number
+    notes?: string
+    status: string
+    classGroupIds: number[]
+    classGroups?: { id: number; name: string }[]
+}
 
 const route = useRoute()
 const router = useRouter()
@@ -13,7 +55,9 @@ const router = useRouter()
 const loadedTabs = ref(new Set())
 
 const validTabs = ['teachingTask', 'teacher', 'course', 'classGroup', 'classroom']
-const initialTab = validTabs.includes(route.query.tab) ? route.query.tab : 'teachingTask'
+const initialTab = validTabs.includes(route.query.tab as string)
+    ? (route.query.tab as string)
+    : 'teachingTask'
 const activeTab = ref(initialTab)
 
 watch(activeTab, (newTab) => {
@@ -26,7 +70,7 @@ watch(activeTab, (newTab) => {
     })
 })
 
-async function loadTabData(tab) {
+async function loadTabData(tab: string) {
     if (loadedTabs.value.has(tab)) return
     if (tab === 'teacher') await loadTeachers()
     if (tab === 'teachingTask') await loadTeachingTasks()
@@ -37,7 +81,7 @@ async function loadTabData(tab) {
 }
 
 // TeachingTask
-const teachingTasks = ref([])
+const teachingTasks = ref<TeachingTask[]>([])
 const teachingTaskDialog = ref(false)
 const teachingTaskFormRef = ref()
 const teachingTaskForm = ref({
@@ -59,9 +103,9 @@ const teachingTaskRules = {
 }
 
 async function loadTeachingTasks() {
-    teachingTasks.value = await request.get('/api/teaching-tasks')
+    teachingTasks.value = await request.get<TeachingTask[]>('/api/teaching-tasks')
 }
-function openTeachingTaskDialog(row) {
+function openTeachingTaskDialog(row: any) {
     if (row) {
         teachingTaskForm.value = {
             id: row.id,
@@ -72,7 +116,7 @@ function openTeachingTaskDialog(row) {
             totalHours: row.totalHours || 32,
             notes: row.notes || '',
             status: row.status || 'ACTIVE',
-            classGroupIds: row.classGroups ? row.classGroups.map((cg) => cg.id) : [],
+            classGroupIds: row.classGroups ? row.classGroups.map((cg: any) => cg.id) : [],
         }
     } else {
         teachingTaskForm.value = {
@@ -89,7 +133,7 @@ function openTeachingTaskDialog(row) {
     }
     teachingTaskDialog.value = true
 }
-function optionalId(value) {
+function optionalId(value: any) {
     return value === '' || value === undefined ? null : value
 }
 
@@ -108,7 +152,7 @@ async function saveTeachingTask() {
     teachingTaskDialog.value = false
     loadTeachingTasks()
 }
-async function deleteTeachingTask(id) {
+async function deleteTeachingTask(id: any) {
     await ElMessageBox.confirm('确认删除该教学任务？', '提示', {
         type: 'warning',
     })
@@ -118,10 +162,10 @@ async function deleteTeachingTask(id) {
 }
 
 // Teacher
-const teachers = ref([])
+const teachers = ref<Teacher[]>([])
 const teacherDialog = ref(false)
 const teacherFormRef = ref()
-const teacherSearch = ref(route.query.teacherSearch || '')
+const teacherSearch = ref((route.query.teacherSearch as string) || '')
 const teacherPage = ref(Number(route.query.teacherPage) || 1)
 const teacherPageSize = ref(Number(route.query.teacherPageSize) || 10)
 const loadingTeachers = ref(false)
@@ -161,7 +205,7 @@ const filteredTeachers = computed(() => {
         (teacher) =>
             teacher.employeeNo.toLowerCase().includes(keyword) ||
             teacher.name.toLowerCase().includes(keyword) ||
-            teacher.department.toLowerCase().includes(keyword),
+            (teacher.department?.toLowerCase().includes(keyword) ?? false),
     )
 })
 
@@ -198,12 +242,12 @@ function syncTeacherQuery() {
 async function loadTeachers() {
     loadingTeachers.value = true
     try {
-        teachers.value = await request.get('/api/teachers')
+        teachers.value = await request.get<Teacher[]>('/api/teachers')
     } finally {
         loadingTeachers.value = false
     }
 }
-function openTeacherDialog(row) {
+function openTeacherDialog(row: any) {
     if (row) {
         teacherForm.value = { ...row, password: '' }
     } else {
@@ -239,7 +283,7 @@ async function saveTeacher() {
         savingTeacher.value = false
     }
 }
-async function deleteTeacher(id) {
+async function deleteTeacher(id: any) {
     await ElMessageBox.confirm('确认删除该教师？', '提示', { type: 'warning' })
     deletingTeacherId.value = id
     try {
@@ -252,7 +296,7 @@ async function deleteTeacher(id) {
 }
 
 // Course
-const courses = ref([])
+const courses = ref<Course[]>([])
 const courseDialog = ref(false)
 const courseFormRef = ref()
 const courseForm = ref({
@@ -268,9 +312,9 @@ const courseRules = {
 }
 
 async function loadCourses() {
-    courses.value = await request.get('/api/courses')
+    courses.value = await request.get<Course[]>('/api/courses')
 }
-function openCourseDialog(row) {
+function openCourseDialog(row: any) {
     courseForm.value = row
         ? { ...row }
         : {
@@ -295,7 +339,7 @@ async function saveCourse() {
     courseDialog.value = false
     loadCourses()
 }
-async function deleteCourse(id) {
+async function deleteCourse(id: any) {
     await ElMessageBox.confirm('确认删除该课程？', '提示', { type: 'warning' })
     await request.delete(`/api/courses/${id}`)
     ElMessage.success('删除成功')
@@ -303,7 +347,7 @@ async function deleteCourse(id) {
 }
 
 // ClassGroup
-const classGroups = ref([])
+const classGroups = ref<ClassGroup[]>([])
 const classGroupDialog = ref(false)
 const classGroupFormRef = ref()
 const classGroupForm = ref({
@@ -319,9 +363,9 @@ const classGroupRules = {
 }
 
 async function loadClassGroups() {
-    classGroups.value = await request.get('/api/class-groups')
+    classGroups.value = await request.get<ClassGroup[]>('/api/class-groups')
 }
-function openClassGroupDialog(row) {
+function openClassGroupDialog(row: any) {
     classGroupForm.value = row
         ? { ...row }
         : {
@@ -346,7 +390,7 @@ async function saveClassGroup() {
     classGroupDialog.value = false
     loadClassGroups()
 }
-async function deleteClassGroup(id) {
+async function deleteClassGroup(id: any) {
     await ElMessageBox.confirm('确认删除该班级？', '提示', { type: 'warning' })
     await request.delete(`/api/class-groups/${id}`)
     ElMessage.success('删除成功')
@@ -376,7 +420,7 @@ const pagedClassrooms = computed(() => {
     const end = start + classroomPageSize.value
     return filteredClassrooms.value.slice(start, end)
 })
-const classrooms = ref([])
+const classrooms = ref<Classroom[]>([])
 const classroomDialog = ref(false)
 const classroomFormRef = ref()
 const classroomForm = ref({
@@ -411,12 +455,12 @@ watch(classroomPageSize, () => {
 async function loadClassrooms() {
     loadingClassrooms.value = true
     try {
-        classrooms.value = await request.get('/api/classrooms')
+        classrooms.value = await request.get<Classroom[]>('/api/classrooms')
     } finally {
         loadingClassrooms.value = false
     }
 }
-function openClassroomDialog(row) {
+function openClassroomDialog(row: any) {
     classroomForm.value = row
         ? { ...row }
         : {
@@ -447,7 +491,7 @@ async function saveClassroom() {
         savingClassroom.value = false
     }
 }
-async function deleteClassroom(id) {
+async function deleteClassroom(id: any) {
     await ElMessageBox.confirm('确认删除该教室？', '提示', { type: 'warning' })
     deletingClassroomId.value = id
 
@@ -463,7 +507,7 @@ async function deleteClassroom(id) {
 watch(
     () => route.query,
     () => {
-        const nextSearch = route.query.teacherSearch || ''
+        const nextSearch = (route.query.teacherSearch as string) || ''
         const nextPage = Number(route.query.teacherPage) || 1
         const nextPageSize = Number(route.query.teacherPageSize) || 10
 
@@ -493,7 +537,7 @@ onMounted(() => {
             <!-- TeachingTask -->
             <el-tab-pane label="教学任务" name="teachingTask">
                 <div style="margin-bottom: 12px">
-                    <el-button type="primary" @click="openTeachingTaskDialog()"
+                    <el-button type="primary" @click="openTeachingTaskDialog(undefined)"
                         >新增教学任务
                     </el-button>
                 </div>
@@ -514,7 +558,7 @@ onMounted(() => {
                     </el-table-column>
                     <el-table-column label="班级" show-overflow-tooltip>
                         <template #default="{ row }">
-                            {{ row.classGroups?.map((cg) => cg.name).join(', ') || '-' }}
+                            {{ row.classGroups?.map((cg: any) => cg.name).join(', ') || '-' }}
                         </template>
                     </el-table-column>
                     <el-table-column label="状态" width="80">
@@ -541,79 +585,16 @@ onMounted(() => {
                 </el-table>
             </el-tab-pane>
 
-            <!-- Teacher -->
-            <el-tab-pane label="教师管理" name="teacher">
-                <div style="margin-bottom: 12px; display: flex; gap: 8px; align-items: center">
-                    <el-button type="primary" @click="openTeacherDialog()">新增教师</el-button>
-                    <el-input
-                        v-model="teacherSearch"
-                        placeholder="搜索工号、姓名和部门"
-                        clearable
-                        style="width: 240px"
-                    />
-                </div>
-                <el-table :data="pagedTeachers" v-loading="loadingTeachers" border size="small">
-                    <template #empty>
-                        <el-empty description="暂无教师数据" />
-                    </template>
-                    <el-table-column prop="employeeNo" label="工号" width="100" />
-                    <el-table-column prop="name" label="姓名" width="100" />
-                    <el-table-column prop="department" label="部门" />
-                    <el-table-column prop="title" label="职称" width="100" />
-                    <el-table-column prop="maxWeeklyHours" label="最大周课时" width="100" />
-                    <el-table-column prop="role" label="角色" width="100" />
-                    <el-table-column label="状态" width="80">
-                        <template #default="{ row }">
-                            <ActiveStatusTag :status="row.status" />
-                        </template>
-                    </el-table-column>
-                    <el-table-column label="操作" width="220">
-                        <template #default="{ row }">
-                            <el-button
-                                size="small"
-                                @click="
-                                    router.push({
-                                        name: 'AdminTeacherDetail',
-                                        params: {
-                                            id: row.id,
-                                        },
-                                        query: {
-                                            from: route.fullPath,
-                                        },
-                                    })
-                                "
-                                >详情</el-button
-                            >
-                            <el-button
-                                type="primary"
-                                size="small"
-                                :disabled="deletingTeacherId === row.id"
-                                @click="openTeacherDialog(row)"
-                                >编辑</el-button
-                            >
-                            <ConfirmDeleteButton
-                                :loading="deletingTeacherId === row.id"
-                                :disabled="deletingTeacherId === row.id"
-                                @confirm="deleteTeacher(row.id)"
-                                >删除教师</ConfirmDeleteButton
-                            >
-                        </template>
-                    </el-table-column>
-                </el-table>
-                <el-pagination
-                    v-model:current-page="teacherPage"
-                    v-model:page-size="teacherPageSize"
-                    :total="filteredTeachers.length"
-                    :page-sizes="[5, 10, 20, 50]"
-                    layout="total, sizes, prev, pager, next"
-                    style="margin-top: 12px; justify-content: flex-end"
-                />
-            </el-tab-pane>
+            <KeepAlive>
+                <TeacherPanel v-if="activeTab === 'teacher'" />
+            </KeepAlive>
 
             <!-- Course -->
             <el-tab-pane label="课程管理" name="course">
                 <div style="margin-bottom: 12px">
-                    <el-button type="primary" @click="openCourseDialog()">新增课程</el-button>
+                    <el-button type="primary" @click="openCourseDialog(undefined)"
+                        >新增课程</el-button
+                    >
                 </div>
                 <el-table :data="courses" border size="small">
                     <el-table-column prop="name" label="课程名称" />
@@ -641,7 +622,9 @@ onMounted(() => {
             <!-- ClassGroup -->
             <el-tab-pane label="班级管理" name="classGroup">
                 <div style="margin-bottom: 12px">
-                    <el-button type="primary" @click="openClassGroupDialog()">新增班级</el-button>
+                    <el-button type="primary" @click="openClassGroupDialog(undefined)"
+                        >新增班级</el-button
+                    >
                 </div>
                 <el-table :data="classGroups" border size="small">
                     <el-table-column prop="name" label="班级名称" />
@@ -667,7 +650,9 @@ onMounted(() => {
             <!-- Classroom -->
             <el-tab-pane label="教室管理" name="classroom">
                 <div style="margin-bottom: 12px">
-                    <el-button type="primary" @click="openClassroomDialog()">新增教室</el-button>
+                    <el-button type="primary" @click="openClassroomDialog(undefined)"
+                        >新增教室</el-button
+                    >
                     <el-input
                         v-model="classroomSearch"
                         placeholder="搜索教室名称,类型或者教学楼"
@@ -700,7 +685,7 @@ onMounted(() => {
                             <ConfirmDeleteButton
                                 :loading="deletingClassroomId === row.id"
                                 :disabled="deletingClassroomId === row.id"
-                                @confirm="deleteClassroomId(row.id)"
+                                @confirm="deleteClassroom(row.id)"
                                 >删除教室</ConfirmDeleteButton
                             >
                         </template>
