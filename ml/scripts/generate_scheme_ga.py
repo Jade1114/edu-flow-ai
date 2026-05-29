@@ -15,6 +15,7 @@ from ml.db.repositories import (
 )
 from ml.ga_config import resolve_ga_params
 from ml.scheduling.pipeline import generate_scheme
+from ml.scheduling.scoring import build_scoring_config
 from ml.scheduling.infra.constants import PROJECT_LOG_DIR
 from ml.scheduling.teacher_profiles import load_teacher_profiles_jsonl
 
@@ -66,6 +67,13 @@ def run(task_id: int, teacher_profiles_jsonl: str | None = None):
         if ap:
             time_slots = [s for s in time_slots if int(s["period_index"]) in ap]
 
+    # 按 config 构建 scoring 参数
+    scoring_config = build_scoring_config(raw_config)
+    logger.info("Scoring config: early=%s late=%s profile_scale=%s",
+                scoring_config.get("early_period_penalty"),
+                scoring_config.get("late_period_penalty"),
+                scoring_config.get("profile_penalty_scale"))
+
     # 筛选跟 task 绑定的教学任务
     tid_set = set(teaching_task_ids)
     tasks = [t for t in tasks if int(t.get("teaching_task_id") or 0) in tid_set]
@@ -100,6 +108,7 @@ def run(task_id: int, teacher_profiles_jsonl: str | None = None):
             tournament_size=int(ga_params["tournament_size"]),
             mutation_rate=float(ga_params["mutation_rate"]),
             init_candidate_top_n=int(ga_params["candidate_top_n"]),
+            scoring_config=scoring_config,
         )
         schemes.append({"items": rows})
         summaries.append({"scheme_index": index + 1, "ga_profile": ga_params.get("profile"), **metrics})

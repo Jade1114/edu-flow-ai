@@ -238,3 +238,38 @@ def _profile_penalty(profile: dict | None, slot_id: int) -> tuple[float, dict]:
         return 0.0, {}
     penalty = max(0, min(raw, 100))
     return penalty / 100.0, {"matrix_value": penalty}
+
+
+# ── Config builder: generation_config → scoring config ─────────
+
+
+def build_scoring_config(raw_config: dict[str, Any] | None) -> dict[str, Any]:
+    """Convert DB raw_config dict to scoring pipeline config.
+
+    Maps generation_config DB fields to quality_score() config keys.
+    Unset or zero fields fall back to DEFAULT_CONFIG values.
+    """
+    if not raw_config:
+        return dict(DEFAULT_CONFIG)
+
+    def _f(name: str) -> float:
+        val = raw_config.get(name)
+        if val is None:
+            return DEFAULT_CONFIG.get(name, 0.0)
+        try:
+            return float(val)
+        except (TypeError, ValueError):
+            return DEFAULT_CONFIG.get(name, 0.0)
+
+    # Build config by mapping DB fields → scoring config keys
+    # Only fields that have explicit DB columns are mapped;
+    # fields without DB columns use DEFAULT_CONFIG.
+    config = dict(DEFAULT_CONFIG)
+    config["profile_penalty_scale"] = _f("teacher_profile_penalty_scale") or config["profile_penalty_scale"]
+    config["early_period_penalty"] = _f("early_period_penalty") or config["early_period_penalty"]
+    config["late_period_penalty"] = _f("late_period_penalty") or config["late_period_penalty"]
+
+    # Distribution penalty goes to L4 (template enum), not scoring
+    # Classroom stickiness / compact bonus / weekday/room/task load → future
+
+    return config
