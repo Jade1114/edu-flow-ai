@@ -36,6 +36,8 @@ def generate_scheme(
     tournament_size: int = 4,
     mutation_rate: float = 0.15,
     init_candidate_top_n: int = 40,
+    scoring_config: dict[str, Any] | None = None,
+    llm_overrides: list[dict] | None = None,
 ) -> tuple[list[dict[str, Any]], dict[str, Any]]:
     """生成排课方案。
 
@@ -170,7 +172,7 @@ def generate_scheme(
     classroom_by_id = {int(room.get("id") or 0): room for room in classrooms}
     scorer = AssignmentScorer(task_data_by_id=task_data_by_id, classroom_by_id=classroom_by_id)
 
-    # ── 3. GA 进化 ──────────────────────────────────────
+    # ── 3. GA 进化（Deb 2000 可行性优先） ──────────────
     best_ind, metrics = evolve(
         alloc_tasks, rng,
         pop_size=population_size,
@@ -180,6 +182,8 @@ def generate_scheme(
         mutation_rate=mutation_rate,
         init_candidate_top_n=init_candidate_top_n,
         scorer=scorer,
+        config=scoring_config,
+        llm_overrides=llm_overrides,
     )
     if int(metrics.get("missing_task_count") or 0) > 0:
         raise ValueError(f"排课失败：有 {metrics['missing_task_count']} 个教学任务未被排入方案")

@@ -13,6 +13,8 @@ from typing import Any
 _log = logging.getLogger("ga")
 
 from ml.scheduling.assignment_scorer import AssignmentScorer
+from ml.scheduling.scoring import quality_score
+from ml.scheduling.selection import deb_tournament_select, elite_select, best_individual
 from ml.scheduling.teacher_profiles import profile_penalty
 from ml.scheduling.types import (
     AllocationTask, TaskGene, TemplateAssignment,
@@ -268,6 +270,103 @@ def fitness(
     }
 
 
+# ── penalty_count：只数硬约束（H1-H6）────────────────────
+
+
+def penalty_count(
+    chromosome: list[TaskGene],
+    tasks: list[AllocationTask],
+) -> dict[str, int]:
+    """Count hard constraint violations (H1-H6).
+
+    Returns dict with:
+      count — total violations (0 = feasible, >0 = infeasible)
+      hard_conflicts — sum of all hard violations
+      missing_task_count — tasks in tasks list not in chromosome
+      duplicate_task_count — task_ids appearing more than once
+    """
+    task_map = {t.task_id: t for t in tasks}
+    ts_map = {t.task_id: t.template_sets for t in tasks}
+    hard = 0
+    scheduled_task_ids: set[int] = set()
+    duplicate_task_ids: set[int] = set()
+    slot_week_usage: dict[tuple[int, int], list[tuple[int, int, tuple[int, ...], int]]] = defaultdict(list)
+
+    for gene in chromosome:
+        task = task_map.get(gene.task_id)
+        if not task:
+            continue
+
+        # H5: duplicate task
+        if gene.task_id in scheduled_task_ids:
+            duplicate_task_ids.add(gene.task_id)
+            hard += 1
+            continue
+        scheduled_task_ids.add(gene.task_id)
+
+        # H6: invalid template set
+        tss = ts_map.get(gene.task_id, [])
+        ts = tss[gene.template_set_id] if gene.template_set_id < len(tss) else None
+        if not ts:
+            hard += 1
+            continue
+
+        # H6: assignment count mismatch
+        if len(gene.assignments) != len(ts.templates):
+            hard += max(1, abs(len(ts.templates) - len(gene.assignments)))
+
+        for a in gene.assignments:
+            tmpl = ts.templates[a.template_id] if a.template_id < len(ts.templates) else None
+            if not tmpl:
+                hard += 1
+                continue
+            for wn in tmpl.weeks_list:
+                key = (a.slot_id, wn)
+                slot_week_usage[key].append((
+                    task.task_id, task.teacher_id,
+                    _task_class_group_ids(task), a.classroom_id,
+                ))
+
+    # H4: missing tasks
+    missing_task_ids = set(task_map) - scheduled_task_ids
+    if missing_task_ids:
+        hard += len(missing_task_ids)
+
+    # H1: teacher conflict
+    for key, users in slot_week_usage.items():
+        teachers = set()
+        for _tid, tch, _cgs, _rid in users:
+            if tch in teachers:
+                hard += 1
+            teachers.add(tch)
+
+    # H2: class conflict
+    for key, users in slot_week_usage.items():
+        cg_set = set()
+        for _tid, _tch, cgs, _rid in users:
+            for cg in cgs:
+                if cg in cg_set:
+                    hard += 1
+                cg_set.add(cg)
+
+    # H3: room conflict
+    room_slot_week: dict[tuple[int, int, int], list] = defaultdict(list)
+    for key, users in slot_week_usage.items():
+        sid, wn = key
+        for _tid, _tch, _cgs, rid in users:
+            room_slot_week[(rid, wn, sid)].append(_tid)
+    for key, users in room_slot_week.items():
+        if len(users) > 1:
+            hard += len(users) - 1
+
+    return {
+        "count": hard,
+        "hard_conflicts": hard,
+        "missing_task_count": len(missing_task_ids),
+        "duplicate_task_count": len(duplicate_task_ids),
+    }
+
+
 # ── 交叉（task-level uniform） ──────────────────────────
 
 
@@ -477,7 +576,7 @@ def _candidate_conflicts(
     return teacher_class_conflicts, room_conflicts, teacher_class_conflicts + room_conflicts
 
 
-# ── 进化主循环 ───────────────────────────────────────────
+# ── 进化主循环（Deb 2000 可行性优先版）────────────────────
 
 
 def evolve(
@@ -491,24 +590,36 @@ def evolve(
     mutation_rate: float = 0.15,
     scorer: AssignmentScorer | None = None,
     init_candidate_top_n: int = INIT_ML_CANDIDATE_LIMIT,
+    config: dict[str, Any] | None = None,
+    llm_overrides: list[dict] | None = None,
 ) -> tuple[list[TaskGene], dict[str, Any]]:
     pop = init_population(tasks, pop_size, rng, scorer, init_candidate_top_n)
 
+    # Scoring helpers for this run — cache task list for closure
+    def _pcount(c: list[TaskGene]) -> int:
+        return penalty_count(c, tasks)["count"]
+    def _qscore(c: list[TaskGene]) -> float:
+        return quality_score(c, tasks, scorer, llm_overrides, config)
+
     for gen in range(1, generations + 1):
-        scored = [{"ind": ind, "metrics": fitness(ind, tasks, scorer)} for ind in pop]
-        scored.sort(key=lambda x: x["metrics"]["fitness"], reverse=True)
+        scored = [{"ind": ind, "penalty": _pcount(ind), "quality": _qscore(ind)} for ind in pop]
+        feasible_count = sum(1 for s in scored if s["penalty"] == 0)
 
-        best = scored[0]
+        best_penalty = min(s["penalty"] for s in scored)
+        best_quality = max(s["quality"] for s in scored if s["penalty"] == 0) if feasible_count else max(s["quality"] for s in scored)
+
         if gen == 1 or gen == generations or gen % 10 == 0:
-            m = best["metrics"]
-            _log.info("Gen %3d: fitness=%s penalty=%s hard=%s", gen, m["fitness"], m["penalty"], m["hard_conflicts"])
+            _log.info(
+                "Gen %3d: penalty=%s quality=%.4f feasible=%s/%s pop=%s",
+                gen, best_penalty, best_quality, feasible_count, pop_size, len(pop),
+            )
 
-        elite = max(1, min(elite_size, len(scored)))
-        nxt = [item["ind"][:] for item in scored[:elite]]
+        elite = elite_select(pop, _pcount, _qscore, elite_size)
+        nxt = list(elite)
 
         while len(nxt) < pop_size:
-            a = _tournament(scored, tournament_size, rng)
-            b = _tournament(scored, tournament_size, rng)
+            a = deb_tournament_select(pop, _pcount, _qscore, tournament_size, rng)
+            b = deb_tournament_select(pop, _pcount, _qscore, tournament_size, rng)
             child = crossover(a, b, rng)
             child = mutate(child, tasks, mutation_rate, rng)
             child = repair(child, tasks, rng, scorer)
@@ -516,12 +627,18 @@ def evolve(
 
         pop = nxt
 
-    scored = [{"ind": ind, "metrics": fitness(ind, tasks, scorer)} for ind in pop]
-    scored.sort(key=lambda x: x["metrics"]["fitness"], reverse=True)
-    return scored[0]["ind"], scored[0]["metrics"]
-
-
-def _tournament(scored: list, size: int, rng: random.Random) -> list[TaskGene]:
-    selected = [scored[rng.randrange(len(scored))] for _ in range(size)]
-    selected.sort(key=lambda x: x["metrics"]["fitness"], reverse=True)
-    return selected[0]["ind"]
+    # Final best
+    best_ind, best_p, best_q = best_individual(pop, _pcount, _qscore)
+    final_counts = penalty_count(best_ind, tasks)
+    metrics = {
+        "hard_conflicts": final_counts["hard_conflicts"],
+        "missing_task_count": final_counts["missing_task_count"],
+        "duplicate_task_count": final_counts["duplicate_task_count"],
+        "quality_score": round(best_q, 4),
+        "penalty_count": best_p,
+    }
+    _log.info(
+        "Evolved final: hard_conflicts=%s missing=%s quality=%.4f",
+        metrics["hard_conflicts"], metrics["missing_task_count"], best_q,
+    )
+    return best_ind, metrics
