@@ -1,9 +1,12 @@
 """排课 pipeline：创建 AllocationTask → 枚举模板集 → GA 进化 → 输出"""
 
 from __future__ import annotations
+import logging
 import random, json
 from collections import Counter
 from typing import Any
+
+logger = logging.getLogger("ga")
 
 from ml.scheduling.assignment_scorer import AssignmentScorer
 from ml.scheduling.enumerator import enumerate_template_sets
@@ -136,6 +139,11 @@ def generate_scheme(
 
         # 枚举模板集
         template_sets = enumerate_template_sets(total_lessons, available_weeks)
+        logger.info(
+            "Task %s (teacher=%s, lessons=%s): template_sets=%s candidate_slots=%s candidate_rooms=%s",
+            tid, td.get("teacher_name"), total_lessons,
+            len(template_sets), len(task_candidate_slot_ids), len(candidate_room_ids),
+        )
         if not template_sets:
             infeasible_task_ids.append(tid)
             continue

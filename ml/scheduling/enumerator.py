@@ -7,9 +7,12 @@
 """
 
 from __future__ import annotations
+import logging
 from itertools import product
 from functools import lru_cache
 from ml.scheduling.types import Template, TemplateSet, weeks_to_mask
+
+logger = logging.getLogger("ga")
 
 MIN_TEMPLATE_WEEKS = 2
 MAX_TEMPLATES = 4
@@ -26,7 +29,12 @@ def enumerate_template_sets(
     所有模板的 len(weeks_list) 之和 = total_lessons。
     """
     pool = tuple(sorted(set(available_weeks))) if available_weeks is not None else tuple(range(1, 19))
-    return list(_enumerate_template_sets_cached(total_lessons, pool))
+    results = list(_enumerate_template_sets_cached(total_lessons, pool))
+    logger.info(
+        "Enumerated template sets: total_lessons=%s available_weeks=%s..%s count=%s",
+        total_lessons, pool[0] if pool else "?", pool[-1] if pool else "?", len(results),
+    )
+    return results
 
 
 @lru_cache(maxsize=128)
@@ -52,6 +60,10 @@ def _enumerate_template_sets_cached(
         _enum_for_count(t_count, total_lessons, pool_list, min_template_weeks, seen, results)
 
     results.sort(key=lambda ts: ts.penalty)
+    logger.info(
+        "Template enumeration summary: total_lessons=%s t_range=%s..%s combos_before_cap=%s",
+        total_lessons, min_t, max_t, len(results),
+    )
     return tuple(results[:MAX_COMBOS])
 
 
