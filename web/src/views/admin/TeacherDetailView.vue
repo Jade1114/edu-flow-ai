@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import request from '@/api/request.js'
+import request from '@/api/request'
 import ActiveStatusTag from '@/components/ActiveStatusTag.vue'
 import type { Teacher } from '@/types/teacher'
 
@@ -14,7 +14,7 @@ const teacher = ref<Teacher | null>(null)
 async function loadTeacher() {
     loading.value = true
     try {
-        teacher.value = await request.get(`/api/teachers/${teacherId.value}`)
+        teacher.value = await request.get<Teacher>(`/api/teachers/${teacherId.value}`)
     } finally {
         loading.value = false
     }
