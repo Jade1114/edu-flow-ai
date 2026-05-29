@@ -9,6 +9,7 @@ import {
     Edit,
     SwitchButton,
     Cpu,
+    Operation,
 } from '@element-plus/icons-vue'
 
 const route = useRoute()
@@ -22,6 +23,7 @@ const menus = [
     { path: '/admin/model-training', label: '模型训练', icon: Cpu },
     { path: '/admin/timetable', label: '课表查询', icon: Calendar },
     { path: '/admin/adjustment', label: '调课处理', icon: Edit },
+    { path: '/admin/constraint-editor', label: '约束干预', icon: Operation },
 ]
 
 function handleLogout() {
