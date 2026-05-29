@@ -261,15 +261,21 @@ def build_scoring_config(raw_config: dict[str, Any] | None) -> dict[str, Any]:
         except (TypeError, ValueError):
             return DEFAULT_CONFIG.get(name, 0.0)
 
-    # Build config by mapping DB fields → scoring config keys
-    # Only fields that have explicit DB columns are mapped;
-    # fields without DB columns use DEFAULT_CONFIG.
+    # Map all DB fields → scoring config keys
+    # Fields without DB columns fall back to DEFAULT_CONFIG.
     config = dict(DEFAULT_CONFIG)
+
+    # Direct DB → config mappings (existing columns)
     config["profile_penalty_scale"] = _f("teacher_profile_penalty_scale") or config["profile_penalty_scale"]
     config["early_period_penalty"] = _f("early_period_penalty") or config["early_period_penalty"]
     config["late_period_penalty"] = _f("late_period_penalty") or config["late_period_penalty"]
+    config["weekend_penalty"] = _f("weekend_penalty") or config.get("weekend_penalty", 0.0)
 
     # Distribution penalty goes to L4 (template enum), not scoring
-    # Classroom stickiness / compact bonus / weekday/room/task load → future
+    # Classroom stickiness → not yet implemented
+
+    # New fields not yet in DB → use defaults (will be added via migration)
+    # model_weight, llm_weight, same_day_weight, capacity_waste_penalty,
+    # teacher_day_load_penalty, class_day_load_penalty, teacher_overload_penalty
 
     return config

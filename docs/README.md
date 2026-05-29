@@ -25,7 +25,8 @@ docs/
 ├── implementation/
 │   ├── 01-GA排课生成链路实现说明.md
 │   ├── 02-教师画像JSONL快照接入说明.md
-│   └── 03-排课链路验证与排障说明.md
+│   ├── 03-排课链路验证与排障说明.md
+│   └── 04-scoring-config-fields-migration.sql
 	├── thesis/
 	│   ├── 01-论文目录与章节要点.md
 	│   ├── 02-答辩PPT大纲.md
