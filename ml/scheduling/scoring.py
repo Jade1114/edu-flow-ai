@@ -271,11 +271,16 @@ def build_scoring_config(raw_config: dict[str, Any] | None) -> dict[str, Any]:
     config["late_period_penalty"] = _f("late_period_penalty") or config["late_period_penalty"]
     config["weekend_penalty"] = _f("weekend_penalty") or config.get("weekend_penalty", 0.0)
 
+    # New DB columns from 04-scoring-config-fields-migration
+    config["model_weight"] = _f("model_weight") or config["model_weight"]
+    config["llm_weight"] = _f("llm_weight") or config["llm_weight"]
+    config["same_day_weight"] = _f("same_day_weight") or config["same_day_weight"]
+    config["capacity_waste_penalty"] = _f("capacity_waste_penalty") or config["capacity_waste_penalty"]
+    config["teacher_day_load_penalty"] = _f("teacher_day_load_penalty") or config["teacher_day_load_penalty"]
+    config["class_day_load_penalty"] = _f("class_day_load_penalty") or config["class_day_load_penalty"]
+    config["teacher_overload_penalty"] = _f("teacher_overload_penalty") or config["teacher_overload_penalty"]
+
     # Distribution penalty goes to L4 (template enum), not scoring
     # Classroom stickiness → not yet implemented
-
-    # New fields not yet in DB → use defaults (will be added via migration)
-    # model_weight, llm_weight, same_day_weight, capacity_waste_penalty,
-    # teacher_day_load_penalty, class_day_load_penalty, teacher_overload_penalty
 
     return config
