@@ -12,8 +12,6 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
-import java.util.Comparator;
-import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -194,7 +192,7 @@ public class AllocationMlSchemeService {
 		}
 	}
 
-	private record GaSummaryData(String rawJson, String teacherProfileAuditJson, String lightgbmJson) {}
+	private record GaSummaryData(String rawJson, String teacherProfileAuditJson, String lightgbmJson, Double qualityScore) {}
 
 	private List<GaSummaryData> loadGaSummaries(Path outputDir) {
 		Path jsonPath = outputDir.resolve("ga_summary.json");
@@ -206,10 +204,14 @@ public class AllocationMlSchemeService {
 			List<String> rawSummaries = splitTopLevelJsonObjects(rawJson);
 			List<GaSummaryData> summaries = new ArrayList<>();
 			for (String rawSummary : rawSummaries) {
+				@SuppressWarnings("unchecked")
+				Map<String, Object> summaryMap = objectMapper.readValue(rawSummary, Map.class);
+				Double qualityScore = summaryMap.get("quality_score") instanceof Number n ? n.doubleValue() : null;
 				summaries.add(new GaSummaryData(
 					rawSummary,
 					extractJsonField(rawSummary, "teacher_profile_audit"),
-					extractJsonField(rawSummary, "lightgbm")
+					extractJsonField(rawSummary, "lightgbm"),
+					qualityScore
 				));
 			}
 			return summaries;
@@ -387,14 +389,18 @@ public class AllocationMlSchemeService {
 			GaSummaryData gaSummary = i < gaSummaries.size() ? gaSummaries.get(i) : null;
 			String evaluationSummary = mergeEvaluationSummary(evaluation, gaSummary);
 			String profileAudit = gaSummary != null ? gaSummary.teacherProfileAuditJson() : null;
+			Double schemeScore = evaluation != null ? evaluation.schemeScore() : null;
+			if (schemeScore == null && gaSummary != null) {
+				schemeScore = gaSummary.qualityScore();
+			}
 			log.info("ML parsed scheme: index={}, itemCount={}, summary={}, evaluationScore={}, teacherProfileAudit={}",
-				i + 1, items.size(), summary, evaluation != null ? evaluation.schemeScore() : null, profileAudit);
+				i + 1, items.size(), summary, schemeScore, profileAudit);
 			int schemeIndex = existingMaxIndex + i + 1;
 			schemes.add(new AllocationParsedScheme(
 				"自训练模型方案 " + String.format("%03d", schemeIndex),
 				summary,
 				items,
-				evaluation != null ? evaluation.schemeScore() : null,
+				schemeScore,
 				evaluationSummary,
 				"v1"
 			));
