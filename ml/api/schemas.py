@@ -18,6 +18,11 @@ class TrainRequest(BaseModel):
     output_model_path: str = ""
     output_schema_path: str = ""
     training_params: dict[str, Any] = Field(default_factory=dict)
+    feedback_export_path: str = ""
+    """If set, run full pipeline: build_samples from feedback export → train."""
+
+    output_sample_path: str = ""
+    """Where to write the training samples CSV (only used with feedback_export_path)."""
 
 
 # ── Async Task Models ──────────────────────────────────────────────
@@ -47,5 +52,9 @@ class TrainResponse(BaseModel):
     success: bool
     model_path: Optional[str] = None
     schema_path: Optional[str] = None
+    sample_path: Optional[str] = None
+    sample_count: Optional[int] = None
+    positive_count: Optional[int] = None
+    negative_count: Optional[int] = None
     metrics: Optional[dict[str, Any]] = None
     error: Optional[str] = None

@@ -25,13 +25,15 @@ public class MlFeedbackTrainingService {
 
 	private final MlFeedbackTrainingMapper mapper;
 	private final tools.jackson.databind.ObjectMapper objectMapper;
+	private final MlApiClient mlApiClient;
 	private final AtomicReference<MlTrainingStatusResult> latestStatus = new AtomicReference<>(
 		new MlTrainingStatusResult("IDLE", null, null, null, null, null, null, null, "No training started", null, null)
 	);
 
-	public MlFeedbackTrainingService(MlFeedbackTrainingMapper mapper, tools.jackson.databind.ObjectMapper objectMapper) {
+	public MlFeedbackTrainingService(MlFeedbackTrainingMapper mapper, tools.jackson.databind.ObjectMapper objectMapper, MlApiClient mlApiClient) {
 		this.mapper = mapper;
 		this.objectMapper = objectMapper;
+		this.mlApiClient = mlApiClient;
 	}
 
 	public MlFeedbackExportResult exportFeedback(Long taskId) {
@@ -100,49 +102,24 @@ public class MlFeedbackTrainingService {
 		));
 
 		try {
-			Path scriptsDir = serverDir.resolve("ml/scripts");
-			Path pythonExe = resolvePythonExecutable(serverDir);
+			Map<String, Object> params = new LinkedHashMap<>();
+			params.put("feedback_export_path", exportPath.toString());
+			params.put("output_sample_path", samplePath.toString());
+			params.put("output_model_path", modelPath.toString());
+			params.put("output_schema_path", schemaPath.toString());
 
-			CommandResult buildResult = runCommand(scriptsDir, pythonExe.toString(),
-				"build_feedback_training_samples.py",
-				"--input", exportPath.toString(),
-				"--output", samplePath.toString()
-			);
+			Map<String, Object> result = mlApiClient.train(params);
 
-			int sampleCount = countCsvSamples(samplePath);
-			int[] labelCounts = countCsvLabels(samplePath);
+			Integer sampleCount = result.get("sample_count") instanceof Number n ? n.intValue() : 0;
+			Integer positiveCount = result.get("positive_count") instanceof Number n ? n.intValue() : 0;
+			Integer negativeCount = result.get("negative_count") instanceof Number n ? n.intValue() : 0;
 			trainingLog.setSampleCount(sampleCount);
-			trainingLog.setPositiveCount(labelCounts[0]);
-			trainingLog.setNegativeCount(labelCounts[1]);
-
-			if (buildResult.exitCode() != 0) {
-				return finish(trainingLog, "FAILED", exportPath, samplePath, modelPath, schemaPath,
-					sampleCount, buildResult.exitCode(), null,
-					"Sample build failed: " + buildResult.output(), startedAt);
-			}
-
-			latestStatus.set(new MlTrainingStatusResult(
-				"RUNNING", exportPath.toString(), samplePath.toString(), modelPath.toString(), schemaPath.toString(),
-				exportStats.schemeCount(), exportStats.feedbackCount(), sampleCount, "Training LightGBM model",
-				startedAt, null
-			));
-
-			CommandResult trainResult = runCommand(scriptsDir, pythonExe.toString(),
-				"train_lightgbm.py",
-				"--data", samplePath.toString(),
-				"--model", modelPath.toString(),
-				"--schema", schemaPath.toString()
-			);
+			trainingLog.setPositiveCount(positiveCount);
+			trainingLog.setNegativeCount(negativeCount);
 
 			String metricsJson = readMetricsJson(schemaPath);
 			trainingLog.setMetricsJson(metricsJson);
 			extractValidationMetrics(trainingLog, metricsJson);
-
-			if (trainResult.exitCode() != 0) {
-				return finish(trainingLog, "FAILED", exportPath, samplePath, modelPath, schemaPath,
-					sampleCount, buildResult.exitCode(), trainResult.exitCode(),
-					"Train failed: " + trainResult.output(), startedAt);
-			}
 
 			appendTrainingComparison(schemaPath, previousModelPath, activeModelPath, modelPath);
 			metricsJson = readMetricsJson(schemaPath);
@@ -151,8 +128,7 @@ public class MlFeedbackTrainingService {
 			publishActiveModel(modelPath, activeModelPath, schemaPath, activeSchemaPath);
 
 			return finish(trainingLog, "SUCCEEDED", exportPath, samplePath, modelPath, schemaPath,
-				sampleCount, buildResult.exitCode(), trainResult.exitCode(),
-				"Training completed successfully", startedAt);
+				sampleCount, 0, 0, "Training completed successfully", startedAt);
 
 		} catch (Exception ex) {
 			return finish(trainingLog, "FAILED", exportPath, samplePath, modelPath, schemaPath,
@@ -416,72 +392,6 @@ public class MlFeedbackTrainingService {
 		return result;
 	}
 
-	private CommandResult runCommand(Path workingDir, String... command) throws IOException, InterruptedException {
-		Process process = new ProcessBuilder(command)
-			.directory(workingDir.toFile())
-			.redirectErrorStream(true)
-			.start();
-		StringBuilder output = new StringBuilder();
-		try (BufferedReader reader = new BufferedReader(new InputStreamReader(process.getInputStream(), StandardCharsets.UTF_8))) {
-			String line;
-			while ((line = reader.readLine()) != null) {
-				output.append(line).append(System.lineSeparator());
-			}
-		}
-		return new CommandResult(process.waitFor(), output.toString().trim());
-	}
-
-	private int countCsvSamples(Path samplePath) throws IOException {
-		if (!Files.exists(samplePath)) {
-			return 0;
-		}
-		try (var lines = Files.lines(samplePath)) {
-			return (int) Math.max(0, lines.count() - 1);
-		}
-	}
-
-	private int[] countCsvLabels(Path samplePath) throws IOException {
-		if (!Files.exists(samplePath)) {
-			return new int[] {0, 0};
-		}
-		try (var lines = Files.lines(samplePath)) {
-			List<String> rows = lines.toList();
-			if (rows.size() <= 1) {
-				return new int[] {0, 0};
-			}
-			String[] headers = rows.get(0).split(",", -1);
-			int scoreIndex = -1;
-			for (int i = 0; i < headers.length; i++) {
-				if ("score".equals(headers[i])) {
-					scoreIndex = i;
-					break;
-				}
-			}
-			if (scoreIndex < 0) {
-				return new int[] {0, 0};
-			}
-			int positiveCount = 0;
-			int negativeCount = 0;
-			for (int i = 1; i < rows.size(); i++) {
-				String[] columns = rows.get(i).split(",", -1);
-				if (columns.length <= scoreIndex) {
-					continue;
-				}
-				try {
-					double score = Double.parseDouble(columns[scoreIndex]);
-					if (score > 0) {
-						positiveCount++;
-					} else {
-						negativeCount++;
-					}
-				} catch (NumberFormatException ex) {
-					log.warn("Skip invalid training sample score: {}", columns[scoreIndex]);
-				}
-			}
-			return new int[] {positiveCount, negativeCount};
-		}
-	}
-
 	private Path resolveServerDir() {
 		Path cwd = Paths.get("").toAbsolutePath().normalize();
 		if (Files.exists(cwd.resolve("pom.xml")) && Files.exists(cwd.resolve("ml"))) {
@@ -491,14 +401,6 @@ public class MlFeedbackTrainingService {
 			return cwd;
 		}
 		return cwd;
-	}
-
-	private Path resolvePythonExecutable(Path serverDir) {
-		Path venvPython = serverDir.resolve("ml/.venv/bin/python");
-		if (Files.exists(venvPython)) {
-			return venvPython;
-		}
-		return Paths.get("python3");
 	}
 
 	private void writeJson(Path path, Object obj) throws IOException {

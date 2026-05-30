@@ -56,6 +56,30 @@ public class MlApiClient {
 		return response;
 	}
 
+	// ── Training ──────────────────────────────────────────────────────
+
+	@SuppressWarnings("unchecked")
+	public Map<String, Object> train(Map<String, Object> requestParams) {
+		log.info("ML API train starting...");
+		Map<String, Object> response = restClient.post()
+			.uri("/api/ml/train")
+			.contentType(MediaType.APPLICATION_JSON)
+			.body(requestParams)
+			.retrieve()
+			.body(Map.class);
+		if (response == null) {
+			throw new BusinessException(500, "ML API train returned null");
+		}
+		Boolean success = (Boolean) response.get("success");
+		if (success == null || !success) {
+			String error = (String) response.getOrDefault("error", "unknown error");
+			throw new BusinessException(500, "ML API train failed: " + error);
+		}
+		log.info("ML API train done: model={}, samples={}",
+			response.get("model_path"), response.get("sample_count"));
+		return response;
+	}
+
 	// ── Health ────────────────────────────────────────────────────────
 
 	public boolean health() {
