@@ -58,9 +58,7 @@ public class AllocationMlSchemeService {
 		progressReporter.accept(running("ml", "调用自训练排课模型生成候选方案...", 15));
 		// Python reads everything from DB and generates output_dir internally
 		Path outputDir = runModelScript(task, progressReporter);
-		progressReporter.accept(running("eval", "自训练模型评估方案质量...", 62));
-		runEvaluator(outputDir);
-		progressReporter.accept(running("parse", "解析评估后的 CSV 方案...", 68));
+		progressReporter.accept(running("parse", "解析方案数据...", 68));
 		List<AllocationParsedScheme> schemes;
 		try {
 			schemes = parseGeneratedSchemes(outputDir, taskId);
@@ -105,71 +103,6 @@ public class AllocationMlSchemeService {
 		} catch (Exception e) {
 			throw new BusinessException(500, "自训练模型 HTTP 调用失败：" + e.getMessage(), e);
 		}
-	}
-
-	private void runEvaluator(Path outputDir) {
-		Path mlDir = resolveMlDir();
-		List<String> command = new ArrayList<>();
-		command.add(resolvePythonExecutable(mlDir));
-		command.add("scripts/evaluate_scheme_demo.py");
-		command.add("--scheme-dir");
-		command.add(outputDir.toString());
-		Path teacherPenalties = outputDir.resolve("teacher_penalties.json");
-		if (Files.exists(teacherPenalties)) {
-			command.add("--teacher-penalties");
-			command.add(teacherPenalties.toString());
-		}
-		command.add("--json");
-
-		ProcessBuilder builder = new ProcessBuilder(command);
-		builder.directory(mlDir.toFile());
-		builder.redirectErrorStream(true);
-		log.info("ML scheme evaluator starting: dir={}, teacherPenalties={}", outputDir, Files.exists(teacherPenalties) ? teacherPenalties : "none");
-		log.info("ML scheme evaluator command: {}", String.join(" ", command));
-
-		try {
-			Process process = builder.start();
-			String output;
-			try (BufferedReader reader = process.inputReader(StandardCharsets.UTF_8)) {
-				output = reader.lines().collect(Collectors.joining("\n"));
-			}
-			int exitCode = process.waitFor();
-			log.info("ML scheme evaluator done: exitCode={}", exitCode);
-			if (!output.isBlank()) {
-				log.info("ML scheme evaluator output:\n{}", output);
-			}
-			if (exitCode != 0) {
-				log.warn("Scheme evaluator exited non-zero but continuing: {}", output);
-			}
-		} catch (IOException exception) {
-			log.warn("Scheme evaluator failed: {}", exception.getMessage());
-		} catch (InterruptedException exception) {
-			Thread.currentThread().interrupt();
-			log.warn("Scheme evaluator interrupted");
-		}
-	}
-
-	private Path resolveMlDir() {
-		Path cwd = Path.of("").toAbsolutePath();
-		// 从项目根目录启动：cwd/ml/
-		Path direct = cwd.resolve("ml");
-		if (Files.isDirectory(direct.resolve("scripts"))) {
-			return direct;
-		}
-		// 从 server/ 目录启动：cwd/../ml/
-		Path parent = cwd.resolve("../ml").normalize();
-		if (Files.isDirectory(parent.resolve("scripts"))) {
-			return parent;
-		}
-		throw new BusinessException(500, "未找到 ml/ 目录（已从 server/ml/ 迁移），无法调用自训练模型");
-	}
-
-	private String resolvePythonExecutable(Path mlDir) {
-		Path venvPython = mlDir.resolve(".venv/bin/python");
-		if (Files.isExecutable(venvPython)) {
-			return venvPython.toString();
-		}
-		return "python3";
 	}
 
 	private record EvaluationData(Double schemeScore, String evaluationSummary) {}
