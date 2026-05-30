@@ -28,6 +28,13 @@ public class AllocationTaskGenerationConfig {
 	private String llmPrompt;
 	private String llmResultJson;
 	private String llmOverrides;  // JSON array of LLM constraint overrides
+	private BigDecimal modelWeight;           // L3 LightGBM score weight (alpha) in quality_score
+	private BigDecimal llmWeight;             // L5 LLM override weight (beta) in quality_score
+	private BigDecimal sameDayWeight;         // L2 S1: penalty per same-day duplicate assignment
+	private BigDecimal capacityWastePenalty;  // L2 S8: penalty if capacity_ratio < 0.6 (0=disabled)
+	private BigDecimal teacherDayLoadPenalty; // L2 S5: penalty per extra teacher session on same day
+	private BigDecimal classDayLoadPenalty;   // L2 S6: penalty per extra class session on same day
+	private BigDecimal teacherOverloadPenalty;// L2 S7: penalty if teacher weekly hours > max
 	private LocalDateTime createdAt;
 	private LocalDateTime updatedAt;
 }

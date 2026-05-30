@@ -23,13 +23,17 @@ public interface AllocationTaskGenerationConfigMapper {
 			teacher_profile_penalty_scale, distribution_penalty_scale, classroom_stickiness_weight, compact_bonus_weight,
 			weekday_load_penalty, room_day_load_penalty, room_week_load_penalty, task_day_load_penalty,
 			early_period_penalty, late_period_penalty, random_jitter, classroom_stickiness_bonus, weekend_penalty,
-			llm_prompt, llm_result_json, llm_overrides
+			llm_prompt, llm_result_json, llm_overrides,
+			model_weight, llm_weight, same_day_weight, capacity_waste_penalty,
+			teacher_day_load_penalty, class_day_load_penalty, teacher_overload_penalty
 		) VALUES (
 			#{taskId}, #{allowedWeeks}, #{allowedWeekdays}, #{allowedPeriods}, #{schemeCount},
 			#{teacherProfilePenaltyScale}, #{distributionPenaltyScale}, #{classroomStickinessWeight}, #{compactBonusWeight},
 			#{weekdayLoadPenalty}, #{roomDayLoadPenalty}, #{roomWeekLoadPenalty}, #{taskDayLoadPenalty},
 			#{earlyPeriodPenalty}, #{latePeriodPenalty}, #{randomJitter}, #{classroomStickinessBonus}, #{weekendPenalty},
-			#{llmPrompt}, #{llmResultJson}, #{llmOverrides}
+			#{llmPrompt}, #{llmResultJson}, #{llmOverrides},
+			#{modelWeight}, #{llmWeight}, #{sameDayWeight}, #{capacityWastePenalty},
+			#{teacherDayLoadPenalty}, #{classDayLoadPenalty}, #{teacherOverloadPenalty}
 		)
 		""")
 	@Options(useGeneratedKeys = true, keyProperty = "id")
@@ -56,7 +60,14 @@ public interface AllocationTaskGenerationConfigMapper {
 		    weekend_penalty = #{weekendPenalty},
 		    llm_prompt = #{llmPrompt},
 		    llm_result_json = #{llmResultJson},
-		    llm_overrides = #{llmOverrides}
+		    llm_overrides = #{llmOverrides},
+		    model_weight = #{modelWeight},
+		    llm_weight = #{llmWeight},
+		    same_day_weight = #{sameDayWeight},
+		    capacity_waste_penalty = #{capacityWastePenalty},
+		    teacher_day_load_penalty = #{teacherDayLoadPenalty},
+		    class_day_load_penalty = #{classDayLoadPenalty},
+		    teacher_overload_penalty = #{teacherOverloadPenalty}
 		WHERE task_id = #{taskId}
 		""")
 	int updateByTaskId(AllocationTaskGenerationConfig config);
