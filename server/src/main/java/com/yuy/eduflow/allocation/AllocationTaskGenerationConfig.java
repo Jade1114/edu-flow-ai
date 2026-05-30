@@ -13,17 +13,8 @@ public class AllocationTaskGenerationConfig {
 	private String allowedPeriods;
 	private Integer schemeCount;
 	private BigDecimal teacherProfilePenaltyScale;
-	private BigDecimal distributionPenaltyScale;
-	private BigDecimal classroomStickinessWeight;
-	private BigDecimal compactBonusWeight;
-	private BigDecimal weekdayLoadPenalty;
-	private BigDecimal roomDayLoadPenalty;
-	private BigDecimal roomWeekLoadPenalty;
-	private BigDecimal taskDayLoadPenalty;
 	private BigDecimal earlyPeriodPenalty;
 	private BigDecimal latePeriodPenalty;
-	private BigDecimal randomJitter;
-	private BigDecimal classroomStickinessBonus;
 	private BigDecimal weekendPenalty;
 	private String llmPrompt;
 	private String llmResultJson;

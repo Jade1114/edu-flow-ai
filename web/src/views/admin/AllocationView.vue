@@ -12,17 +12,8 @@ const defaultGenerationConfig = () => ({
   allowedPeriods: [1, 2, 3, 4],
   schemeCount: 3,
   teacherProfilePenaltyScale: 80,
-  distributionPenaltyScale: 10,
-  classroomStickinessWeight: 15,
-  compactBonusWeight: 0,
-  weekdayLoadPenalty: 0.03,
-  roomDayLoadPenalty: 0.015,
-  roomWeekLoadPenalty: 0.008,
-  taskDayLoadPenalty: 0.05,
   earlyPeriodPenalty: 0.04,
   latePeriodPenalty: 0.03,
-  randomJitter: 0.001,
-  classroomStickinessBonus: 0.02,
   weekendPenalty: 0.05,
   llmPrompt: "",
   llmResultJson: "",
@@ -104,125 +95,54 @@ const policyLabelMap = {
 const PRESET_WEIGHTS = {
   BALANCED: {
     weekend_penalty: 0.01,
-    weekday_load_penalty: 0.008,
-    room_day_load_penalty: 0.005,
-    room_week_load_penalty: 0.002,
-    task_day_load_penalty: 0.012,
     early_period_penalty: 0.012,
     late_period_penalty: 0.008,
-    compact_bonus_weight: 0.0,
-    random_jitter: 0.002,
-    classroom_stickiness_bonus: 0.006,
   },
   TEACHER_FRIENDLY: {
     weekend_penalty: 0.015,
-    weekday_load_penalty: 0.006,
-    room_day_load_penalty: 0.004,
-    room_week_load_penalty: 0.001,
-    task_day_load_penalty: 0.025,
     early_period_penalty: 0.04,
     late_period_penalty: 0.03,
-    compact_bonus_weight: 0.0,
-    random_jitter: 0.001,
-    classroom_stickiness_bonus: 0.004,
   },
   CLASS_BALANCED: {
     weekend_penalty: 0.01,
-    weekday_load_penalty: 0.012,
-    room_day_load_penalty: 0.004,
-    room_week_load_penalty: 0.001,
-    task_day_load_penalty: 0.008,
     early_period_penalty: 0.01,
     late_period_penalty: 0.01,
-    compact_bonus_weight: 0.0,
-    random_jitter: 0.002,
-    classroom_stickiness_bonus: 0.005,
   },
   ROOM_EFFICIENT: {
     weekend_penalty: 0.01,
-    weekday_load_penalty: 0.002,
-    room_day_load_penalty: 0.025,
-    room_week_load_penalty: 0.01,
-    task_day_load_penalty: 0.005,
     early_period_penalty: 0.005,
     late_period_penalty: 0.005,
-    compact_bonus_weight: 0.0,
-    random_jitter: 0.003,
-    classroom_stickiness_bonus: 0.008,
   },
   COMPACT: {
     weekend_penalty: 0.005,
-    weekday_load_penalty: 0.002,
-    room_day_load_penalty: 0.008,
-    room_week_load_penalty: 0.002,
-    task_day_load_penalty: 0.01,
     early_period_penalty: 0.005,
     late_period_penalty: 0.005,
-    compact_bonus_weight: 0.015,
-    random_jitter: 0.002,
-    classroom_stickiness_bonus: 0.003,
   },
 };
 
 const weightLabels = {
   teacher_profile_penalty_scale: "教师画像权重",
-  distribution_penalty_scale: "分布均衡权重",
-  classroom_stickiness_weight: "教室粘性权重",
-  compact_bonus_weight: "紧凑奖励权重",
-  weekday_load_penalty: "星期均衡惩罚",
-  room_day_load_penalty: "教室日负载",
-  room_week_load_penalty: "教室周负载",
-  task_day_load_penalty: "单日集中惩罚",
   early_period_penalty: "早课惩罚",
   late_period_penalty: "晚课惩罚",
-  random_jitter: "随机扰动",
-  classroom_stickiness_bonus: "教室粘性奖励",
   weekend_penalty: "周末惩罚",
 };
 
 const weightDescs = {
-  weekday_load_penalty: "每天课时分布不均的惩罚力度，越大越均匀",
-  room_day_load_penalty: "同一教室单日过度使用的惩罚",
-  room_week_load_penalty: "同一教室整周过度使用的惩罚",
-  task_day_load_penalty: "同一教学任务集中在同一天的惩罚",
   early_period_penalty: "安排在早课（第1-2节）的惩罚，强避免可拉高到 0.1+",
   late_period_penalty: "安排在晚课（第4-5节）的惩罚，强避免可拉高到 0.08+",
   teacher_profile_penalty_scale: "教师画像软偏好的整体影响强度",
-  distribution_penalty_scale: "课表分布均衡的整体影响强度",
-  classroom_stickiness_weight: "同一教学任务尽量固定教室，也会偏好原绑定教室",
-  compact_bonus_weight: "压缩在更少天数完成的奖励",
-  random_jitter: "随机扰动，打破重复模式的微小噪声",
-  classroom_stickiness_bonus: "同一教学任务保持在同教室的奖励，越大越不换教室",
   weekend_penalty:
     "仅在允许周末排课时生效；当前生成链路默认硬过滤周六/周日，调这个不是强制开关",
 };
 
 const weightMax = {
   teacherProfilePenaltyScale: 100,
-  distributionPenaltyScale: 20,
-  classroomStickinessWeight: 20,
-  compactBonusWeight: 10,
-  weekdayLoadPenalty: 0.05,
-  roomDayLoadPenalty: 0.06,
-  roomWeekLoadPenalty: 0.03,
-  taskDayLoadPenalty: 0.08,
   earlyPeriodPenalty: 0.15,
   latePeriodPenalty: 0.12,
-  randomJitter: 0.01,
-  classroomStickinessBonus: 0.05,
   weekendPenalty: 0.35,
   teacher_profile_penalty_scale: 100,
-  distribution_penalty_scale: 20,
-  classroom_stickiness_weight: 20,
-  compact_bonus_weight: 10,
-  weekday_load_penalty: 0.05,
-  room_day_load_penalty: 0.06,
-  room_week_load_penalty: 0.03,
-  task_day_load_penalty: 0.08,
   early_period_penalty: 0.15,
   late_period_penalty: 0.12,
-  random_jitter: 0.01,
-  classroom_stickiness_bonus: 0.05,
   weekend_penalty: 0.35,
 };
 
@@ -288,15 +208,8 @@ function serializeGenerationConfig(config) {
 function presetToGenerationConfigWeights(preset) {
   const weights = PRESET_WEIGHTS[preset] || PRESET_WEIGHTS.BALANCED;
   return {
-    weekdayLoadPenalty: weights.weekday_load_penalty,
-    roomDayLoadPenalty: weights.room_day_load_penalty,
-    roomWeekLoadPenalty: weights.room_week_load_penalty,
-    taskDayLoadPenalty: weights.task_day_load_penalty,
     earlyPeriodPenalty: weights.early_period_penalty,
     latePeriodPenalty: weights.late_period_penalty,
-    compactBonusWeight: weights.compact_bonus_weight,
-    randomJitter: weights.random_jitter,
-    classroomStickinessBonus: weights.classroom_stickiness_bonus,
     weekendPenalty: weights.weekend_penalty,
   };
 }
@@ -370,23 +283,10 @@ async function applyLlmWeights() {
       const config = taskForm.value.generationConfig;
       taskForm.value.generationConfig = {
         ...config,
-        weekdayLoadPenalty:
-          params.weekday_load_penalty ?? config.weekdayLoadPenalty,
-        roomDayLoadPenalty:
-          params.room_day_load_penalty ?? config.roomDayLoadPenalty,
-        roomWeekLoadPenalty:
-          params.room_week_load_penalty ?? config.roomWeekLoadPenalty,
-        taskDayLoadPenalty:
-          params.task_day_load_penalty ?? config.taskDayLoadPenalty,
         earlyPeriodPenalty:
           params.early_period_penalty ?? config.earlyPeriodPenalty,
         latePeriodPenalty:
           params.late_period_penalty ?? config.latePeriodPenalty,
-        compactBonusWeight:
-          params.compact_bonus_weight ?? config.compactBonusWeight,
-        randomJitter: params.random_jitter ?? config.randomJitter,
-        classroomStickinessBonus:
-          params.classroom_stickiness_bonus ?? config.classroomStickinessBonus,
         weekendPenalty: params.weekend_penalty ?? config.weekendPenalty,
       };
       llmWeightsApplied.value = true;
@@ -405,17 +305,8 @@ async function applyLlmWeights() {
 
 const generationWeightFields = [
   ["teacherProfilePenaltyScale", "教师画像权重"],
-  ["distributionPenaltyScale", "分布均衡权重"],
-  ["classroomStickinessWeight", "教室粘性权重"],
-  ["compactBonusWeight", "紧凑奖励权重"],
-  ["weekdayLoadPenalty", "星期均衡惩罚"],
-  ["roomDayLoadPenalty", "教室日负载"],
-  ["roomWeekLoadPenalty", "教室周负载"],
-  ["taskDayLoadPenalty", "单日集中惩罚"],
   ["earlyPeriodPenalty", "早课惩罚"],
   ["latePeriodPenalty", "晚课惩罚"],
-  ["randomJitter", "随机扰动"],
-  ["classroomStickinessBonus", "教室粘性奖励"],
   ["weekendPenalty", "周末惩罚"],
 ];
 

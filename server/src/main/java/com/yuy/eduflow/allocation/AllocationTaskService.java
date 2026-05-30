@@ -172,17 +172,8 @@ public class AllocationTaskService {
 		config.setAllowedPeriods(defaultString(request.allowedPeriods(), DEFAULT_ALLOWED_PERIODS));
 		config.setSchemeCount(defaultInteger(request.schemeCount(), 3));
 		config.setTeacherProfilePenaltyScale(defaultDecimal(request.teacherProfilePenaltyScale(), "50.0000"));
-		config.setDistributionPenaltyScale(defaultDecimal(request.distributionPenaltyScale(), "5.0000"));
-		config.setClassroomStickinessWeight(defaultDecimal(request.classroomStickinessWeight(), "5.0000"));
-		config.setCompactBonusWeight(defaultDecimal(request.compactBonusWeight(), "0.0000"));
-		config.setWeekdayLoadPenalty(defaultDecimal(request.weekdayLoadPenalty(), "0.008000"));
-		config.setRoomDayLoadPenalty(defaultDecimal(request.roomDayLoadPenalty(), "0.005000"));
-		config.setRoomWeekLoadPenalty(defaultDecimal(request.roomWeekLoadPenalty(), "0.002000"));
-		config.setTaskDayLoadPenalty(defaultDecimal(request.taskDayLoadPenalty(), "0.012000"));
 		config.setEarlyPeriodPenalty(defaultDecimal(request.earlyPeriodPenalty(), "0.012000"));
 		config.setLatePeriodPenalty(defaultDecimal(request.latePeriodPenalty(), "0.008000"));
-		config.setRandomJitter(defaultDecimal(request.randomJitter(), "0.002000"));
-		config.setClassroomStickinessBonus(defaultDecimal(request.classroomStickinessBonus(), "0.006000"));
 		config.setWeekendPenalty(defaultDecimal(request.weekendPenalty(), "0.010000"));
 		config.setLlmPrompt(request.llmPrompt());
 		config.setLlmResultJson(request.llmResultJson());
@@ -198,17 +189,8 @@ public class AllocationTaskService {
 		config.setAllowedPeriods(DEFAULT_ALLOWED_PERIODS);
 		config.setSchemeCount(3);
 		config.setTeacherProfilePenaltyScale(new BigDecimal("80.0000"));
-		config.setDistributionPenaltyScale(new BigDecimal("10.0000"));
-		config.setClassroomStickinessWeight(new BigDecimal("15.0000"));
-		config.setCompactBonusWeight(new BigDecimal("0.0000"));
-		config.setWeekdayLoadPenalty(new BigDecimal("0.030000"));
-		config.setRoomDayLoadPenalty(new BigDecimal("0.015000"));
-		config.setRoomWeekLoadPenalty(new BigDecimal("0.008000"));
-		config.setTaskDayLoadPenalty(new BigDecimal("0.050000"));
 		config.setEarlyPeriodPenalty(new BigDecimal("0.040000"));
 		config.setLatePeriodPenalty(new BigDecimal("0.030000"));
-		config.setRandomJitter(new BigDecimal("0.001000"));
-		config.setClassroomStickinessBonus(new BigDecimal("0.020000"));
 		config.setWeekendPenalty(new BigDecimal("0.050000"));
 		return config;
 	}
