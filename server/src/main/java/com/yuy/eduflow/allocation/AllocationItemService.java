@@ -323,22 +323,22 @@ public class AllocationItemService {
 		boolean valid,
 		String conflictSummary
 	) {
+		// Diagnostic info only — authoritative scoring is from ML pipeline
 		double profilePenaltyTotal = profileMessages.values().stream()
 			.mapToDouble(this::profilePenaltyValue)
 			.sum();
 		int profilePenaltyHitCount = profileMessages.size();
 		double teacherScore = clampScore(100.0 - profilePenaltyTotal);
 		double classBalanceScore = calculateClassBalanceScore(views);
-		double hardPenalty = Math.min(60.0, violations.size() * 8.0);
-		double schemeScore = round1(clampScore(teacherScore * 0.55 + classBalanceScore * 0.45 - hardPenalty));
+		Double schemeScore = scheme != null ? scheme.getSchemeScore() : null;
 
 		Map<String, Object> summary = parseEvaluationSummary(scheme != null ? scheme.getEvaluationSummary() : null);
 		Object previousLightgbm = summary.get("lightgbm");
 		Object previousGaSummary = summary.get("ga_summary");
 		summary.clear();
 		summary.put("scheme_score", schemeScore);
-		summary.put("teacher_score", Math.round(teacherScore));
-		summary.put("class_balance_score", Math.round(classBalanceScore));
+		summary.put("teacher_score_diagnostic", Math.round(teacherScore));
+		summary.put("class_balance_score_diagnostic", Math.round(classBalanceScore));
 		summary.put("teacher_profile_penalty_hit_count", profilePenaltyHitCount);
 		summary.put("teacher_profile_penalty_total", round1(profilePenaltyTotal));
 		summary.put("hard_conflict_count", violations.size());
@@ -356,7 +356,7 @@ public class AllocationItemService {
 		reevaluation.put("source", "java_manual_adjustment_v1");
 		reevaluation.put("evaluated_at", LocalDateTime.now().toString());
 		reevaluation.put("model_score_stale", true);
-		reevaluation.put("note", "手动调整后已重算冲突、教师画像扣分和班级均衡；LightGBM 模型分沿用生成时状态");
+		reevaluation.put("note", "手动调整后 retains ML quality_score; Java recalc stashed as diagnostic");
 		summary.put("reevaluation", reevaluation);
 
 		return new SchemeEvaluation(schemeScore, toJson(summary));
