@@ -12,10 +12,10 @@ from typing import Any
 ROOT_DIR = Path(__file__).resolve().parents[2]  # ml/scheduling/infra/ → ml/
 PROJECT_ROOT = Path(__file__).resolve().parents[3]  # → 项目根目录
 PROJECT_LOG_DIR = PROJECT_ROOT / "logs" / "python"
-BASE_MODEL_PATH = ROOT_DIR / "models" / "base" / "schedule_ranker_v1.txt"
-BASE_FEATURE_SCHEMA_PATH = ROOT_DIR / "models" / "base" / "feature_schema.json"
-FEEDBACK_MODEL_PATH = ROOT_DIR / "models" / "feedback" / "current" / "schedule_ranker.txt"
-FEEDBACK_FEATURE_SCHEMA_PATH = ROOT_DIR / "models" / "feedback" / "current" / "feature_schema.json"
+BASE_MODEL_PATH = Path(os.environ.get("ML_BASE_MODEL_PATH", ROOT_DIR / "models" / "base" / "schedule_ranker_v1.txt"))
+BASE_FEATURE_SCHEMA_PATH = Path(os.environ.get("ML_BASE_FEATURE_SCHEMA_PATH", ROOT_DIR / "models" / "base" / "feature_schema.json"))
+FEEDBACK_MODEL_PATH = Path(os.environ.get("ML_FEEDBACK_MODEL_PATH", ROOT_DIR / "models" / "feedback" / "current" / "schedule_ranker.txt"))
+FEEDBACK_FEATURE_SCHEMA_PATH = Path(os.environ.get("ML_FEEDBACK_FEATURE_SCHEMA_PATH", ROOT_DIR / "models" / "feedback" / "current" / "feature_schema.json"))
 MODEL_PATH = FEEDBACK_MODEL_PATH if FEEDBACK_MODEL_PATH.exists() else BASE_MODEL_PATH
 FEATURE_SCHEMA_PATH = FEEDBACK_FEATURE_SCHEMA_PATH if FEEDBACK_FEATURE_SCHEMA_PATH.exists() else BASE_FEATURE_SCHEMA_PATH
 OUTPUT_DIR = ROOT_DIR / "data" / "generated"
