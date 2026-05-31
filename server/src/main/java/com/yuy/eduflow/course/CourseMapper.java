@@ -13,7 +13,7 @@ public interface CourseMapper {
 
 	@Select("""
 		<script>
-		SELECT id, name, course_type, required_hours, description, status, created_at, updated_at
+		SELECT id, name, code, credits, course_type, required_hours, description, status, created_at, updated_at
 		FROM course
 		WHERE 1 = 1
 		<if test='keyword != null and keyword != ""'>
@@ -28,15 +28,15 @@ public interface CourseMapper {
 	List<Course> findAll(@Param("keyword") String keyword, @Param("status") String status);
 
 	@Select("""
-		SELECT id, name, course_type, required_hours, description, status, created_at, updated_at
+		SELECT id, name, code, credits, course_type, required_hours, description, status, created_at, updated_at
 		FROM course
 		WHERE id = #{id}
 		""")
 	Course findById(Long id);
 
 	@Insert("""
-		INSERT INTO course (name, course_type, required_hours, description, status)
-		VALUES (#{name}, #{courseType}, #{requiredHours}, #{description}, #{status})
+		INSERT INTO course (name, code, credits, course_type, required_hours, description, status)
+		VALUES (#{name}, #{code}, #{credits}, #{courseType}, #{requiredHours}, #{description}, #{status})
 		""")
 	@Options(useGeneratedKeys = true, keyProperty = "id")
 	int insert(Course course);
@@ -44,6 +44,8 @@ public interface CourseMapper {
 	@Update("""
 		UPDATE course
 		SET name = #{name},
+		    code = #{code},
+		    credits = #{credits},
 		    course_type = #{courseType},
 		    required_hours = #{requiredHours},
 		    description = #{description},

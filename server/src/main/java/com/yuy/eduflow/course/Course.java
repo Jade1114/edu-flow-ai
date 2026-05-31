@@ -8,6 +8,8 @@ import lombok.Data;
 public class Course {
 	private Long id;
 	private String name;
+	private String code;
+	private Double credits;
 	private String courseType;
 	private Integer requiredHours;
 	private String description;
