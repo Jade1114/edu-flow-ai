@@ -63,6 +63,7 @@ class BeamState:
 
         self.assignments.append({
             "task_id": task.get("id"),
+            "teaching_task_id": task.get("id"),  # 兼容 Java 持久层字段名
             "teacher_id": teacher_id,
             "teacher_name": task.get("teacher_name", ""),
             "class_group_ids": task.get("class_group_ids", []),
