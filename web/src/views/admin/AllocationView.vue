@@ -185,6 +185,38 @@ const activePolicy = ref("BALANCED");
 
 const teachingTasks = ref([]);
 
+// 教学任务过滤
+const taskFilterCourse = ref("");
+const taskFilterTeacher = ref("");
+const taskFilterClassGroup = ref("");
+
+const taskFilterCourseOptions = computed(() => {
+  const names = teachingTasks.value.map((t) => (t.course || {}).name || "").filter((n) => n);
+  return [...new Set(names)].sort().map((n) => ({ label: n, value: n }));
+});
+const taskFilterTeacherOptions = computed(() => {
+  const names = teachingTasks.value.map((t) => (t.primaryTeacher || {}).name || "").filter((n) => n);
+  return [...new Set(names)].sort().map((n) => ({ label: n, value: n }));
+});
+const taskFilterClassGroupOptions = computed(() => {
+  const names = teachingTasks.value.flatMap((t) => (t.classGroups || []).map((cg) => cg.name).filter((n) => n));
+  return [...new Set(names)].sort().map((n) => ({ label: n, value: n }));
+});
+
+const filteredTeachingTasks = computed(() => {
+  let list = teachingTasks.value;
+  if (taskFilterCourse.value) {
+    list = list.filter((t) => (t.course || {}).name === taskFilterCourse.value);
+  }
+  if (taskFilterTeacher.value) {
+    list = list.filter((t) => (t.primaryTeacher || {}).name === taskFilterTeacher.value);
+  }
+  if (taskFilterClassGroup.value) {
+    list = list.filter((t) => (t.classGroups || []).some((cg) => cg.name === taskFilterClassGroup.value));
+  }
+  return list;
+});
+
 function csvToNumberArray(value, fallback) {
   if (!value) return [...fallback];
   return String(value)
@@ -417,12 +449,26 @@ function handleTaskSelectionChange(selection) {
 }
 
 function selectAllTasks() {
-  taskForm.value.teachingTaskIds = teachingTasks.value.map((tt) => tt.id);
-  // 同步表格勾选状态
+  const target = filteredTeachingTasks.value;
+  const newIds = target.map((tt) => tt.id);
+  // 合并已有选择（保留已选但不在过滤结果中的）
+  taskForm.value.teachingTaskIds = [...new Set([...taskForm.value.teachingTaskIds, ...newIds])];
   if (taskTableRef.value) {
-    teachingTasks.value.forEach((tt) =>
-      taskTableRef.value.toggleRowSelection(tt, true),
-    );
+    target.forEach((tt) => taskTableRef.value.toggleRowSelection(tt, true));
+  }
+}
+
+function onTaskFilterChange() {
+  // 清除无效的已选 ID（选了但不在过滤结果中的）
+  const visibleIds = new Set(filteredTeachingTasks.value.map((tt) => tt.id));
+  taskForm.value.teachingTaskIds = taskForm.value.teachingTaskIds.filter((id) => visibleIds.has(id));
+  if (taskTableRef.value) {
+    taskTableRef.value.clearSelection();
+    filteredTeachingTasks.value.forEach((tt) => {
+      if (taskForm.value.teachingTaskIds.includes(tt.id)) {
+        taskTableRef.value.toggleRowSelection(tt, true);
+      }
+    });
   }
 }
 
@@ -1808,23 +1854,25 @@ onUnmounted(() => {
           </el-form-item>
         </template>
         <el-form-item label="教学任务">
-          <div
-            style="
-              margin-bottom: 8px;
-              display: flex;
-              gap: 8px;
-              align-items: center;
-            "
-          >
+          <div style="margin-bottom: 8px; display: flex; gap: 8px; align-items: center; flex-wrap: wrap">
+            <el-select v-model="taskFilterCourse" placeholder="课程" clearable size="small" style="width: 140px" @change="onTaskFilterChange">
+              <el-option v-for="o in taskFilterCourseOptions" :key="o.value" :label="o.label" :value="o.value" />
+            </el-select>
+            <el-select v-model="taskFilterTeacher" placeholder="教师" clearable size="small" style="width: 120px" @change="onTaskFilterChange">
+              <el-option v-for="o in taskFilterTeacherOptions" :key="o.value" :label="o.label" :value="o.value" />
+            </el-select>
+            <el-select v-model="taskFilterClassGroup" placeholder="班级" clearable size="small" style="width: 160px" @change="onTaskFilterChange">
+              <el-option v-for="o in taskFilterClassGroupOptions" :key="o.value" :label="o.label" :value="o.value" />
+            </el-select>
             <el-button size="small" @click="selectAllTasks">全选</el-button>
             <el-button size="small" @click="clearAllTasks">清空</el-button>
             <span style="font-size: 12px; color: #909399">
-              已选 {{ taskForm.teachingTaskIds.length }} 个
+              已选 {{ taskForm.teachingTaskIds.length }} / {{ filteredTeachingTasks.length }} 个
             </span>
           </div>
           <el-table
             ref="taskTableRef"
-            :data="teachingTasks"
+            :data="filteredTeachingTasks"
             border
             size="small"
             max-height="320"
