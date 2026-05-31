@@ -328,6 +328,9 @@ def _run_generation(task_id: int, teacher_profiles_jsonl: str | None = None) -> 
 
     # ── V2 engine (Beam Search) or legacy GA batch ──
     if V2_ENABLED:
+        # 字段名称归一化：DB 返回 teaching_task_id，V2 内部用 id
+        for t in tasks:
+            t["id"] = t.get("teaching_task_id")
         _log.info("✅ V2 engine: %d tasks → Beam Search", len(tasks))
         v2_result = generate_v2(tasks, classrooms, time_slots, beam_width=3)
         if v2_result.get("success"):
