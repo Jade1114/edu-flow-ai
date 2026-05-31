@@ -10,12 +10,15 @@
 
 from __future__ import annotations
 
+import random
+
 
 def rank_rooms(
     task: dict,
     classrooms: list[dict],
     current_room_usage: dict[int, int] | None = None,
     top_k: int = 5,
+    diversity_seed: int | None = None,
 ) -> list[dict]:
     """为单个教学任务排序推荐教室。
 
@@ -45,38 +48,34 @@ def rank_rooms(
         capacity = room.get("capacity", 40)
         usage = current_room_usage.get(room_id, 0)
 
-        reasons = []
-        score = 0.0
-
-        # 1. 类型匹配（硬条件：不匹配则排除）
+        # 硬约束过滤：类型不匹配或容量不足直接跳过
         if required_type and room_type and required_type != room_type:
-            continue  # 类型不匹配，跳过
+            continue
+        capacity_ratio = student_count / max(1, capacity)
+        if capacity_ratio > 1.0:
+            continue
+
+        # 评分
+        score = 0.0
+        reasons = []
+
         if required_type:
             score += 20.0
             reasons.append("类型匹配")
-
-        # 2. 容量匹配
-        capacity_ratio = student_count / max(1, capacity)
-        if capacity_ratio > 1.0:
-            continue  # 教室装不下，跳过
 
         if capacity_ratio >= 0.6:
             score += 30.0 * capacity_ratio
             reasons.append(f"容量合适({capacity_ratio:.0%})")
         elif capacity_ratio >= 0.3:
             score += 20.0 * capacity_ratio
-            reasons.append(f"容量偏松({capacity_ratio:.0%})")
         else:
             score += 10.0 * capacity_ratio
-            reasons.append(f"容量过松({capacity_ratio:.0%})")
 
-        # 3. 负载均衡（使用率越低越好）
         if usage > 0:
-            load_penalty = min(15.0, usage * 2.0)
-            score -= load_penalty
+            score -= min(40.0, usage * 8.0)
+            reasons.append(f"负载({usage})")
         else:
-            score += 5.0  # 未使用的教室有加分
-            reasons.append("空闲教室")
+            score += 10.0
 
         scored.append({
             "room_id": room_id,
@@ -88,8 +87,31 @@ def rank_rooms(
             "reasons": reasons,
         })
 
-    scored.sort(key=lambda r: -r["score"])
-    return scored[:top_k]
+    # 多样性偏移：同分情况下不同任务推荐不同教室
+    # 当 usage 全为 0 时（新鲜状态），用 room_id 做确定性偏移
+    if diversity_seed is not None and all(s["usage"] == 0 for s in scored):
+        rng = random.Random(diversity_seed)
+        for s in scored:
+            s["score"] += rng.uniform(1, 20) * (s["room_id"] % 10) / 10.0
+
+    # 按楼栋分组，确保每栋楼都有代表进入 top-k
+    from collections import defaultdict
+    groups: dict[str, list[dict]] = defaultdict(list)
+    for s in scored:
+        prefix = s["name"][:2] if s["name"] else "??"
+        groups[prefix].append(s)
+
+    diverse = []
+    rng2 = random.Random(diversity_seed) if diversity_seed is not None else random
+    keys = list(groups.keys())
+    rng2.shuffle(keys)
+    for k in keys:
+        group = groups[k]
+        group.sort(key=lambda r: -r["score"])
+        diverse.append(group[0])
+
+    diverse.sort(key=lambda r: -r["score"])
+    return diverse[:top_k]
 
 
 def _norm(value: str) -> str:

@@ -160,7 +160,8 @@ def construct_timetable(
             templates = generate_templates(total_lessons, top_k=3)
 
             # 生成推荐教室
-            rooms = rank_rooms(task, classrooms, dict(state.room_usage), top_k=3)
+            rooms = rank_rooms(task, classrooms, dict(state.room_usage), top_k=3,
+                                diversity_seed=task.get("id", 0))
 
             # 生成候选 (week, day, period, room)
             for tmpl in templates:
@@ -199,22 +200,39 @@ def construct_timetable(
             stats["failed"] += 1
             continue
 
-        # 按评分降序，取 TopB 个不同扩展
+        # 按评分降序 + 教室多样性，取 TopB 个扩展
         candidates.sort(key=lambda c: -c["score"])
         best_states: list[BeamState] = []
+        used_rooms: set[int] = set()
+        used_slots: set[tuple] = set()
 
-        for cand in candidates[:beam_width * 2]:
+        for cand in candidates:
+            room_id = cand["room"].get("room_id") if cand["room"] else None
+            slot = cand["slot"]
+
+            # 同一间教室同一 slot 不重复选择
+            room_key = (room_id, slot) if room_id else slot
+            if room_key in used_rooms:
+                continue
+
             new_state = cand["state"].clone()
             new_state.add(
                 cand["task"], cand["template"],
                 cand["room"], cand["slot"], cand["score"],
             )
             best_states.append(new_state)
+            used_rooms.add(room_key)
 
             if len(best_states) >= beam_width:
                 break
 
         beam = best_states[:beam_width]
+        if not beam:
+            # 兜底：多样性没找到足够候选，放宽限制
+            for cand in candidates[:beam_width]:
+                s2 = cand["state"].clone()
+                s2.add(cand["task"], cand["template"], cand["room"], cand["slot"], cand["score"])
+                beam.append(s2)
         stats["assigned"] += 1
 
     # 4. 返回最优完整课表
