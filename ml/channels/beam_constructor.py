@@ -61,8 +61,8 @@ class BeamState:
         teacher_id = task.get("teacher_id", 0)
         room_id = (room.get("room_id") or room.get("id")) if room else None
 
-        # 构造 Java 持久层需要的 time_slot_id
-        time_slot_id_val = week * 100 + day * 10 + period
+        # 构造 Java 持久层需要的 time_slot_id（匹配 DB 自增规则）
+        time_slot_id_val = 1001 + (week - 1) * 25 + (day - 1) * 5 + (period - 1)
 
         self.assignments.append({
             "task_id": task.get("id"),
