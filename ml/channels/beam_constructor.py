@@ -59,13 +59,14 @@ class BeamState:
         """放置一个任务到课表。"""
         week, day, period = slot
         teacher_id = task.get("teacher_id", 0)
-        room_id = room.get("id") if room else None
+        room_id = (room.get("room_id") or room.get("id")) if room else None
 
         self.assignments.append({
             "task_id": task.get("id"),
             "teacher_id": teacher_id,
             "teacher_name": task.get("teacher_name", ""),
             "class_group_ids": task.get("class_group_ids", []),
+            "total_lessons": task.get("total_lessons", 0),
             "week_number": week,
             "day_of_week": day,
             "period_index": period,
@@ -143,6 +144,7 @@ def construct_timetable(
 
     for task in sorted_tasks:
         candidates = []
+        iter_counts: dict[str, int] = {"state_skip": 0, "template": 0, "slot": 0, "hard_tc": 0, "room_loop": 0, "hard_rc": 0, "placed": 0}
 
         # 为每个 beam 中的局部课表生成候选
         for state in beam:
@@ -153,9 +155,11 @@ def construct_timetable(
                 "room_slots": state.room_slots,
             }
 
-            # 检查是否已排
-            task_id = task.get("id", 0)
-            if any(a.get("task_id") == task_id for a in state.assignments):
+            # 检查是否已排（用 task_id + total_lessons 联合校验，同教师不同课时不会误判）
+            tid = task.get("id", 0)
+            tlessons = task.get("total_lessons", 0)
+            if any(a.get("task_id") == tid and a.get("total_lessons") == tlessons for a in state.assignments):
+                iter_counts["state_skip"] += 1
                 continue
 
             # 生成模板
@@ -168,19 +172,24 @@ def construct_timetable(
 
             # 生成候选 (week, day, period, room)
             for tmpl in templates:
+                iter_counts["template"] += 1
                 for w in tmpl["weeks"]:
                     for d, p in day_period_list:
+                        iter_counts["slot"] += 1
                         slot = (w, d, p)
 
-                        # 硬约束过滤
+                        # 硬约束过滤（教师+班级）
                         conflict = has_hard_conflict(task, None, slot, hard_state)
                         if conflict:
+                            iter_counts["hard_tc"] += 1
                             continue
 
                         # 对每个推荐教室评分
                         for room in rooms:
+                            iter_counts["room_loop"] += 1
                             conflict = has_hard_conflict(task, room["room_id"], slot, hard_state)
                             if conflict:
+                                iter_counts["hard_rc"] += 1
                                 continue
 
                             # Placement Scorer
@@ -197,45 +206,25 @@ def construct_timetable(
                                 "score": result["score"],
                                 "breakdown": result.get("breakdown", {}),
                             })
+                            iter_counts["placed"] += 1
 
         if not candidates:
-            total_lessons = task.get("total_lessons", 0)
             teacher_name = task.get("teacher_name", "?")
-            teacher_id = task.get("teacher_id", 0)
-            # 对当前 beam 状态做一次完整候选生成，统计被挡原因
-            debug_state = beam[0] if beam else BeamState()
-            ds = {"teacher_slots": debug_state.teacher_slots,
-                  "class_slots": debug_state.class_slots,
-                  "room_slots": debug_state.room_slots}
-            tmpl = generate_templates(total_lessons, top_k=3)
-            rooms_cache = rank_rooms(task, classrooms, dict(debug_state.room_usage), top_k=3,
-                                      diversity_seed=task.get("id", 0))
-            tck = f"T:{teacher_id}"
-            block_reasons: dict[str, int] = {}
-            for w in range(1, 19):
-                for d in range(1, 6):
-                    for p in range(1, 6):
-                        tc = has_hard_conflict(task, None, (w, d, p), ds)
-                        if tc:
-                            block_reasons[tc] = block_reasons.get(tc, 0) + 1
-            _log.warning(f"无法安排: {teacher_name}({len(block_reasons)}种阻挡): {block_reasons}")
+            _log.warning(f"无法安排: {teacher_name} — 迭代追踪: {iter_counts}")
             unassigned.append(task)
             stats["failed"] += 1
             continue
 
-        # 按评分降序 + 教室多样性，取 TopB 个扩展
+        # 按评分降序取 TopB 个扩展
+        # 每个 beam state 独立贡献候选，不跨 beam 去重
         candidates.sort(key=lambda c: -c["score"])
         best_states: list[BeamState] = []
-        used_rooms: set[int] = set()
-        used_slots: set[tuple] = set()
+        seen_beam_ids: set[int] = set()
 
         for cand in candidates:
-            room_id = cand["room"].get("room_id") if cand["room"] else None
-            slot = cand["slot"]
-
-            # 同一间教室同一 slot 不重复选择
-            room_key = (room_id, slot) if room_id else slot
-            if room_key in used_rooms:
+            bid = id(cand["state"])
+            # 已经从这个 beam state 选了一个扩展，跳过后续同 beam 的候选
+            if bid in seen_beam_ids:
                 continue
 
             new_state = cand["state"].clone()
@@ -244,18 +233,12 @@ def construct_timetable(
                 cand["room"], cand["slot"], cand["score"],
             )
             best_states.append(new_state)
-            used_rooms.add(room_key)
+            seen_beam_ids.add(bid)
 
             if len(best_states) >= beam_width:
                 break
 
         beam = best_states[:beam_width]
-        if not beam:
-            # 兜底：多样性没找到足够候选，放宽限制
-            for cand in candidates[:beam_width]:
-                s2 = cand["state"].clone()
-                s2.add(cand["task"], cand["template"], cand["room"], cand["slot"], cand["score"])
-                beam.append(s2)
         stats["assigned"] += 1
 
     # 4. 返回最优完整课表
