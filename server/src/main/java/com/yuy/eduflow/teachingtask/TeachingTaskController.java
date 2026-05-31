@@ -2,6 +2,7 @@ package com.yuy.eduflow.teachingtask;
 
 import com.yuy.eduflow.common.ApiResponse;
 import java.util.List;
+import java.util.Map;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -22,11 +23,17 @@ public class TeachingTaskController {
     }
 
     @GetMapping
-    public ApiResponse<List<TeachingTask>> findAll(
+    public ApiResponse<Map<String, Object>> findAll(
             @RequestParam(required = false) String status,
             @RequestParam(required = false) Long courseId,
-            @RequestParam(required = false) Long teacherId) {
-        return ApiResponse.success(teachingTaskService.findAll(status, courseId, teacherId));
+            @RequestParam(required = false) Long teacherId,
+            @RequestParam(defaultValue = "-1") int page,
+            @RequestParam(defaultValue = "20") int size) {
+        if (page < 0) {
+            List<TeachingTask> all = teachingTaskService.findAll(status, courseId, teacherId);
+            return ApiResponse.success(Map.of("content", all, "total", all.size(), "page", 0, "size", all.size()));
+        }
+        return ApiResponse.success(teachingTaskService.findAllPaged(status, courseId, teacherId, page, size));
     }
 
     @GetMapping("/{id}")

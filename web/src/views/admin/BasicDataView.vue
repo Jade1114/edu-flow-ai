@@ -103,21 +103,21 @@ const loadingCourses = ref(false)
 const loadingClassGroups = ref(false)
 
 // Pagination
+// Pagination (SQL pagination via API)
 const teachingTaskPage = ref(1)
 const teachingTaskPageSize = ref(20)
+const teachingTaskTotal = ref(0)
 const coursePage = ref(1)
 const coursePageSize = ref(20)
+const courseTotal = ref(0)
 const classGroupPage = ref(1)
 const classGroupPageSize = ref(20)
-const paginatedTeachingTasks = computed(() =>
-    teachingTasks.value.slice((teachingTaskPage.value - 1) * teachingTaskPageSize.value, teachingTaskPage.value * teachingTaskPageSize.value)
-)
-const paginatedCourses = computed(() =>
-    courses.value.slice((coursePage.value - 1) * coursePageSize.value, coursePage.value * coursePageSize.value)
-)
-const paginatedClassGroups = computed(() =>
-    classGroups.value.slice((classGroupPage.value - 1) * classGroupPageSize.value, classGroupPage.value * classGroupPageSize.value)
-)
+const classGroupTotal = ref(0)
+
+// For SQL pagination, data from API is already paginated
+const paginatedTeachingTasks = computed(() => teachingTasks.value)
+const paginatedCourses = computed(() => courses.value)
+const paginatedClassGroups = computed(() => classGroups.value)
 // TeachingTask
 const teachingTasks = ref<TeachingTask[]>([])
 const teachingTaskDialog = ref(false)
@@ -175,7 +175,11 @@ function onCourseTypeChanged(type: string) {
 async function loadTeachingTasks() {
     loadingTeachingTasks.value = true
     try {
-        teachingTasks.value = await request.get<TeachingTask[]>('/api/teaching-tasks')
+        const res = await request.get('/api/teaching-tasks', {
+            params: { page: teachingTaskPage.value - 1, size: teachingTaskPageSize.value }
+        })
+        teachingTasks.value = res.content || []
+        teachingTaskTotal.value = res.total || 0
     } finally {
         loadingTeachingTasks.value = false
     }
@@ -435,7 +439,11 @@ const courseRules = {
 async function loadCourses() {
     loadingCourses.value = true
     try {
-        courses.value = await request.get<Course[]>('/api/courses')
+        const res = await request.get('/api/courses', {
+            params: { page: coursePage.value - 1, size: coursePageSize.value }
+        })
+        courses.value = res.content || []
+        courseTotal.value = res.total || 0
     } finally {
         loadingCourses.value = false
     }
@@ -491,7 +499,11 @@ const classGroupRules = {
 async function loadClassGroups() {
     loadingClassGroups.value = true
     try {
-        classGroups.value = await request.get<ClassGroup[]>('/api/class-groups')
+        const res = await request.get('/api/class-groups', {
+            params: { page: classGroupPage.value - 1, size: classGroupPageSize.value }
+        })
+        classGroups.value = res.content || []
+        classGroupTotal.value = res.total || 0
     } finally {
         loadingClassGroups.value = false
     }
@@ -714,13 +726,15 @@ onMounted(() => {
                     </el-table-column>
                 </el-table>
                 <el-pagination
-                    v-if="teachingTasks.length > teachingTaskPageSize"
+                    v-if="teachingTaskTotal > teachingTaskPageSize"
                     v-model:current-page="teachingTaskPage"
                     v-model:page-size="teachingTaskPageSize"
-                    :total="teachingTasks.length"
+                    :total="teachingTaskTotal"
                     :page-sizes="[10, 20, 50, 100]"
                     layout="total, sizes, prev, pager, next"
                     style="margin-top: 12px; justify-content: flex-end"
+                    @current-change="loadTeachingTasks"
+                    @size-change="() => { teachingTaskPage = 1; loadTeachingTasks() }"
                 />
             </el-tab-pane>
 
@@ -755,13 +769,15 @@ onMounted(() => {
                     </el-table-column>
                 </el-table>
                 <el-pagination
-                    v-if="courses.length > coursePageSize"
+                    v-if="courseTotal > coursePageSize"
                     v-model:current-page="coursePage"
                     v-model:page-size="coursePageSize"
-                    :total="courses.length"
+                    :total="courseTotal"
                     :page-sizes="[10, 20, 50, 100]"
                     layout="total, sizes, prev, pager, next"
                     style="margin-top: 12px; justify-content: flex-end"
+                    @current-change="loadCourses"
+                    @size-change="() => { coursePage = 1; loadCourses() }"
                 />
             </el-tab-pane>
 
@@ -785,13 +801,15 @@ onMounted(() => {
                     </el-table-column>
                 </el-table>
                 <el-pagination
-                    v-if="classGroups.length > classGroupPageSize"
+                    v-if="classGroupTotal > classGroupPageSize"
                     v-model:current-page="classGroupPage"
                     v-model:page-size="classGroupPageSize"
-                    :total="classGroups.length"
+                    :total="classGroupTotal"
                     :page-sizes="[10, 20, 50, 100]"
                     layout="total, sizes, prev, pager, next"
                     style="margin-top: 12px; justify-content: flex-end"
+                    @current-change="loadClassGroups"
+                    @size-change="() => { classGroupPage = 1; loadClassGroups() }"
                 />
             </el-tab-pane>
 

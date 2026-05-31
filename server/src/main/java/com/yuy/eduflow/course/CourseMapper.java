@@ -13,6 +13,38 @@ public interface CourseMapper {
 
 	@Select("""
 		<script>
+		SELECT COUNT(*) FROM course
+		WHERE 1 = 1
+		<if test='keyword != null and keyword != ""'>
+		  AND name LIKE CONCAT('%', #{keyword}, '%')
+		</if>
+		<if test='status != null and status != ""'>
+		  AND status = #{status}
+		</if>
+		</script>
+		""")
+	long countAll(@Param("keyword") String keyword, @Param("status") String status);
+
+	@Select("""
+		<script>
+		SELECT id, name, code, credits, course_type, required_hours, description, status, created_at, updated_at
+		FROM course
+		WHERE 1 = 1
+		<if test='keyword != null and keyword != ""'>
+		  AND name LIKE CONCAT('%', #{keyword}, '%')
+		</if>
+		<if test='status != null and status != ""'>
+		  AND status = #{status}
+		</if>
+		ORDER BY id DESC
+		LIMIT #{limit} OFFSET #{offset}
+		</script>
+		""")
+	List<Course> findAllPaged(@Param("keyword") String keyword, @Param("status") String status,
+							  @Param("limit") int limit, @Param("offset") int offset);
+
+	@Select("""
+		<script>
 		SELECT id, name, code, credits, course_type, required_hours, description, status, created_at, updated_at
 		FROM course
 		WHERE 1 = 1

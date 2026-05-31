@@ -10,7 +10,9 @@ import com.yuy.eduflow.common.exception.ValidationException;
 import com.yuy.eduflow.course.CourseService;
 import com.yuy.eduflow.enums.ActiveStatus;
 import com.yuy.eduflow.teacher.TeacherService;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -52,6 +54,18 @@ public class TeachingTaskService {
      */
     public List<TeachingTask> findAll(String status, Long courseId, Long teacherId) {
         return teachingTaskMapper.findAll(status, courseId, teacherId);
+    }
+
+    public Map<String, Object> findAllPaged(String status, Long courseId, Long teacherId, int page, int size) {
+        int offset = page * size;
+        List<TeachingTask> content = teachingTaskMapper.findAllPaged(status, courseId, teacherId, size, offset);
+        long total = teachingTaskMapper.findAllCount(status, courseId, teacherId);
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("content", content);
+        result.put("total", total);
+        result.put("page", page);
+        result.put("size", size);
+        return result;
     }
 
     /**

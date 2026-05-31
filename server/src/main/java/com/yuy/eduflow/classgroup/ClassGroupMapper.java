@@ -14,6 +14,32 @@ public interface ClassGroupMapper {
 
 	@Select("""
 		<script>
+		SELECT COUNT(*) FROM class_group
+		WHERE 1 = 1
+		<if test='keyword != null and keyword != ""'>
+		  AND name LIKE CONCAT('%', #{keyword}, '%')
+		</if>
+		</script>
+		""")
+	long countAll(@Param("keyword") String keyword);
+
+	@Select("""
+		<script>
+		SELECT id, name, major, grade, student_count, description, created_at, updated_at
+		FROM class_group
+		WHERE 1 = 1
+		<if test='keyword != null and keyword != ""'>
+		  AND name LIKE CONCAT('%', #{keyword}, '%')
+		</if>
+		ORDER BY id DESC
+		LIMIT #{limit} OFFSET #{offset}
+		</script>
+		""")
+	List<ClassGroup> findAllPaged(@Param("keyword") String keyword,
+								  @Param("limit") int limit, @Param("offset") int offset);
+
+	@Select("""
+		<script>
 		SELECT id, name, major, grade, student_count, description, created_at, updated_at
 		FROM class_group
 		WHERE 1 = 1

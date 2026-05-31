@@ -19,6 +19,18 @@ public interface TeachingTaskMapper {
             @Param("courseId") Long courseId,
             @Param("teacherId") Long teacherId);
 
+    long findAllCount(
+            @Param("status") String status,
+            @Param("courseId") Long courseId,
+            @Param("teacherId") Long teacherId);
+
+    List<TeachingTask> findAllPaged(
+            @Param("status") String status,
+            @Param("courseId") Long courseId,
+            @Param("teacherId") Long teacherId,
+            @Param("limit") int limit,
+            @Param("offset") int offset);
+
     TeachingTask findById(Long id);
 
     @Insert("""

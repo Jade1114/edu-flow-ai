@@ -2,7 +2,9 @@ package com.yuy.eduflow.course;
 
 import com.yuy.eduflow.common.exception.ResourceNotFoundException;
 import com.yuy.eduflow.common.exception.ValidationException;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import org.springframework.stereotype.Service;
 import com.yuy.eduflow.enums.ActiveStatus;
 import org.springframework.util.StringUtils;
@@ -19,6 +21,18 @@ public class CourseService {
 
 	public List<Course> findAll(String keyword, String status) {
 		return courseMapper.findAll(keyword, status);
+	}
+
+	public Map<String, Object> findAllPaged(String keyword, String status, int page, int size) {
+		int offset = page * size;
+		List<Course> content = courseMapper.findAllPaged(keyword, status, size, offset);
+		long total = courseMapper.countAll(keyword, status);
+		Map<String, Object> result = new LinkedHashMap<>();
+		result.put("content", content);
+		result.put("total", total);
+		result.put("page", page);
+		result.put("size", size);
+		return result;
 	}
 
 	public Course findById(Long id) {

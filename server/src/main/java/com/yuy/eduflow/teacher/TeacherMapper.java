@@ -13,6 +13,38 @@ public interface TeacherMapper {
 
 	@Select("""
 		<script>
+		SELECT COUNT(*) FROM teacher
+		WHERE 1 = 1
+		<if test='keyword != null and keyword != ""'>
+		  AND (name LIKE CONCAT('%', #{keyword}, '%') OR employee_no LIKE CONCAT('%', #{keyword}, '%'))
+		</if>
+		<if test='status != null and status != ""'>
+		  AND status = #{status}
+		</if>
+		</script>
+		""")
+	long countAll(@Param("keyword") String keyword, @Param("status") String status);
+
+	@Select("""
+		<script>
+		SELECT id, employee_no, password, role, name, department, title, max_weekly_hours, status, created_at, updated_at
+		FROM teacher
+		WHERE 1 = 1
+		<if test='keyword != null and keyword != ""'>
+		  AND (name LIKE CONCAT('%', #{keyword}, '%') OR employee_no LIKE CONCAT('%', #{keyword}, '%'))
+		</if>
+		<if test='status != null and status != ""'>
+		  AND status = #{status}
+		</if>
+		ORDER BY id DESC
+		LIMIT #{limit} OFFSET #{offset}
+		</script>
+		""")
+	List<Teacher> findAllPaged(@Param("keyword") String keyword, @Param("status") String status,
+							   @Param("limit") int limit, @Param("offset") int offset);
+
+	@Select("""
+		<script>
 		SELECT id, employee_no, password, role, name, department, title, max_weekly_hours, status, created_at, updated_at
 		FROM teacher
 		WHERE 1 = 1

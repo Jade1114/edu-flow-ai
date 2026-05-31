@@ -69,6 +69,36 @@
         ORDER BY t.id DESC
     </select>
 
+    <select id="findAllCount" resultType="long">
+        SELECT COUNT(*) FROM teaching_task t
+        WHERE 1 = 1
+        <if test='status != null and status != ""'>
+            AND t.status = #{status}
+        </if>
+        <if test='courseId != null'>
+            AND t.course_id = #{courseId}
+        </if>
+        <if test='teacherId != null'>
+            AND (t.primary_teacher_id = #{teacherId} OR t.assistant_teacher_id = #{teacherId})
+        </if>
+    </select>
+
+    <select id="findAllPaged" resultMap="teachingTaskDetailMap">
+        <include refid="teachingTaskJoin"/>
+        WHERE 1 = 1
+        <if test='status != null and status != ""'>
+            AND t.status = #{status}
+        </if>
+        <if test='courseId != null'>
+            AND t.course_id = #{courseId}
+        </if>
+        <if test='teacherId != null'>
+            AND (t.primary_teacher_id = #{teacherId} OR t.assistant_teacher_id = #{teacherId})
+        </if>
+        ORDER BY t.id DESC
+        LIMIT #{limit} OFFSET #{offset}
+    </select>
+
     <select id="findById" resultMap="teachingTaskResultMap">
         <include refid="teachingTaskJoin"/>
         WHERE t.id = #{id}
