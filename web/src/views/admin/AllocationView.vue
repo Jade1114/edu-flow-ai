@@ -17,6 +17,13 @@ const defaultGenerationConfig = () => ({
   weekendPenalty: 0.05,
   llmPrompt: "",
   llmResultJson: "",
+  modelWeight: 0.6,
+  llmWeight: 0.4,
+  sameDayWeight: 0.05,
+  capacityWastePenalty: 0.0,
+  teacherDayLoadPenalty: 0.0,
+  classDayLoadPenalty: 0.0,
+  teacherOverloadPenalty: 0.0,
 });
 
 const taskForm = ref({
@@ -133,6 +140,13 @@ const weightDescs = {
   teacher_profile_penalty_scale: "教师画像软偏好的整体影响强度",
   weekend_penalty:
     "仅在允许周末排课时生效；当前生成链路默认硬过滤周六/周日，调这个不是强制开关",
+  modelWeight: "LightGBM 模型评分在 quality_score 中的权重 (α)",
+  llmWeight: "LLM 临时约束在 quality_score 中的权重 (β)",
+  sameDayWeight: "同一教师/班级同日多节课的惩罚力度",
+  capacityWastePenalty: "教室容量利用率低于 60% 的惩罚",
+  teacherDayLoadPenalty: "教师单日排课过多的惩罚",
+  classDayLoadPenalty: "班级单日排课过多的惩罚",
+  teacherOverloadPenalty: "教师周课时超额的惩罚",
 };
 
 const weightMax = {
@@ -144,6 +158,13 @@ const weightMax = {
   early_period_penalty: 0.15,
   late_period_penalty: 0.12,
   weekend_penalty: 0.35,
+  modelWeight: 1.0,
+  llmWeight: 1.0,
+  sameDayWeight: 1.0,
+  capacityWastePenalty: 1.0,
+  teacherDayLoadPenalty: 1.0,
+  classDayLoadPenalty: 1.0,
+  teacherOverloadPenalty: 1.0,
 };
 
 // === 任务编辑弹窗新变量 ===
@@ -308,9 +329,17 @@ const generationWeightFields = [
   ["earlyPeriodPenalty", "早课惩罚"],
   ["latePeriodPenalty", "晚课惩罚"],
   ["weekendPenalty", "周末惩罚"],
+  ["modelWeight", "LightGBM 权重 (α)"],
+  ["llmWeight", "LLM 权重 (β)"],
+  ["sameDayWeight", "同日重复惩罚"],
+  ["capacityWastePenalty", "教室浪费惩罚"],
+  ["teacherDayLoadPenalty", "教师单日过载惩罚"],
+  ["classDayLoadPenalty", "班级单日过载惩罚"],
+  ["teacherOverloadPenalty", "教师周超量惩罚"],
 ];
 
 const taskPolicyPreset = ref("BALANCED");
+const configMode = ref("simple"); // 'simple' | 'advanced'
 
 async function loadTasks() {
   tasks.value = await request.get("/api/allocation-tasks");
@@ -336,6 +365,7 @@ function openTaskDialog(row) {
         : [],
       generationConfig: normalizeGenerationConfig(row.generationConfig),
     };
+    configMode.value = "advanced";
     taskPolicyPreset.value = detectWeightsPreset(
       normalizeGenerationConfig(row.generationConfig),
     );
@@ -349,6 +379,7 @@ function openTaskDialog(row) {
       teachingTaskIds: [],
       generationConfig: defaultGenerationConfig(),
     };
+    configMode.value = "simple";
     taskPolicyPreset.value = "BALANCED";
   }
   llmRequirement.value = "";
@@ -403,10 +434,14 @@ async function saveTask() {
   }
   const payload = {
     ...taskForm.value,
-    generationConfig: serializeGenerationConfig(
-      taskForm.value.generationConfig,
-    ),
   };
+  if (configMode.value === "advanced") {
+    payload.generationConfig = serializeGenerationConfig(
+      taskForm.value.generationConfig,
+    );
+  } else {
+    delete payload.generationConfig;
+  }
   if (payload.id) {
     await request.put(`/api/allocation-tasks/${payload.id}`, payload);
   } else {
@@ -1426,12 +1461,12 @@ onUnmounted(() => {
           style="margin-bottom: 16px"
         />
         <div style="color: #606266; font-size: 13px">
-          本次将按任务配置表中的生成方案数执行：
+          本次将按任务配置表生成
           <strong>{{
             normalizeGenerationConfig(generateTargetTask.generationConfig)
               .schemeCount
           }}</strong>
-          个。 如需调整，请先编辑任务的生成配置。
+          个候选方案。
         </div>
       </div>
       <template #footer>
@@ -1600,154 +1635,168 @@ onUnmounted(() => {
           <el-input v-model="taskForm.name" />
         </el-form-item>
         <el-divider content-position="left">生成配置</el-divider>
-        <el-form-item label="生成方案数">
-          <el-input-number
-            v-model="taskForm.generationConfig.schemeCount"
-            :min="1"
-            :max="5"
-          />
-          <span style="margin-left: 8px; color: #909399; font-size: 12px"
-            >点击生成时按这里的数量生成候选方案</span
-          >
-        </el-form-item>
-        <el-form-item label="周次多选">
-          <el-checkbox-group
-            v-model="taskForm.generationConfig.allowedWeeks"
-            style="display: flex; flex-wrap: wrap; gap: 4px 10px"
-          >
-            <el-checkbox
-              v-for="week in weekOptions"
-              :key="week"
-              :value="week"
-              >{{ week }}</el-checkbox
-            >
-          </el-checkbox-group>
-        </el-form-item>
-        <el-form-item label="星期多选">
-          <el-checkbox-group
-            v-model="taskForm.generationConfig.allowedWeekdays"
-          >
-            <el-checkbox
-              v-for="day in weekdayOptions"
-              :key="day.value"
-              :value="day.value"
-              >{{ day.label }}</el-checkbox
-            >
-          </el-checkbox-group>
-        </el-form-item>
-        <el-form-item label="节次多选">
-          <el-checkbox-group v-model="taskForm.generationConfig.allowedPeriods">
-            <el-checkbox
-              v-for="period in periodOptions"
-              :key="period.value"
-              :value="period.value"
-              >{{ period.label }}</el-checkbox
-            >
-          </el-checkbox-group>
-        </el-form-item>
-        <el-form-item label="策略预设">
-          <el-radio-group
-            v-model="taskPolicyPreset"
-            @change="applyPresetToTaskConfig"
-          >
-            <el-radio-button
-              v-for="opt in policyOptions"
-              :key="opt.value"
-              :value="opt.value"
-              >{{ opt.label }}</el-radio-button
-            >
+        <el-form-item label="配置模式">
+          <el-radio-group v-model="configMode">
+            <el-radio-button value="simple">极简模式</el-radio-button>
+            <el-radio-button value="advanced">高级模式</el-radio-button>
           </el-radio-group>
+          <span v-if="configMode === 'simple'" style="margin-left: 8px; color: #909399; font-size: 12px">
+            使用默认参数，不可修改
+          </span>
+          <span v-else style="margin-left: 8px; color: #909399; font-size: 12px">
+            可调整全部生成参数
+          </span>
         </el-form-item>
-        <el-form-item label="LLM 权重">
-          <div style="display: flex; gap: 8px; margin-bottom: 8px; width: 100%">
-            <el-input
-              v-model="llmRequirement"
-              placeholder="如：减少上午排课、尽量不排周末、课表更紧凑"
-              style="flex: 1"
-              size="small"
+        <template v-if="configMode === 'advanced'">
+          <el-form-item label="生成方案数">
+            <el-input-number
+              v-model="taskForm.generationConfig.schemeCount"
+              :min="1"
+              :max="5"
             />
-            <el-button
-              type="primary"
-              size="small"
-              :loading="llmTranslating"
-              @click="applyLlmWeights"
+            <span style="margin-left: 8px; color: #909399; font-size: 12px"
+              >点击生成时按这里的数量生成候选方案</span
             >
-              LLM 翻译
-            </el-button>
-          </div>
-          <div
-            v-if="llmInterpretation"
-            style="
-              margin: 4px 0 8px;
-              padding: 8px 12px;
-              background: #f0f9ff;
-              border-radius: 6px;
-              font-size: 12px;
-              color: #606266;
-              line-height: 1.6;
-            "
-          >
-            {{ llmInterpretation }}
-          </div>
-          <div
-            v-if="llmWeightsApplied"
-            style="display: flex; align-items: center; gap: 8px"
-          >
-            <el-tag type="warning" size="small">LLM 自定义权重</el-tag>
-            <el-button size="small" text @click="resetLlmWeights">
-              恢复预设
-            </el-button>
-          </div>
-          <div style="font-size: 12px; color: #909399; margin: 2px 0 0">
-            这里只调整全局排课风格；某位教师的特殊时间、工作量或偏好请到教师画像中维护。
-          </div>
-        </el-form-item>
-        <el-form-item label="软权重">
-          <div
-            style="
-              display: grid;
-              grid-template-columns: repeat(2, minmax(240px, 1fr));
-              gap: 8px;
-              width: 100%;
-            "
-          >
+          </el-form-item>
+          <el-form-item label="周次多选">
+            <el-checkbox-group
+              v-model="taskForm.generationConfig.allowedWeeks"
+              style="display: flex; flex-wrap: wrap; gap: 4px 10px"
+            >
+              <el-checkbox
+                v-for="week in weekOptions"
+                :key="week"
+                :value="week"
+                >{{ week }}</el-checkbox
+              >
+            </el-checkbox-group>
+          </el-form-item>
+          <el-form-item label="星期多选">
+            <el-checkbox-group
+              v-model="taskForm.generationConfig.allowedWeekdays"
+            >
+              <el-checkbox
+                v-for="day in weekdayOptions"
+                :key="day.value"
+                :value="day.value"
+                >{{ day.label }}</el-checkbox
+              >
+            </el-checkbox-group>
+          </el-form-item>
+          <el-form-item label="节次多选">
+            <el-checkbox-group v-model="taskForm.generationConfig.allowedPeriods">
+              <el-checkbox
+                v-for="period in periodOptions"
+                :key="period.value"
+                :value="period.value"
+                >{{ period.label }}</el-checkbox
+              >
+            </el-checkbox-group>
+          </el-form-item>
+          <el-form-item label="策略预设">
+            <el-radio-group
+              v-model="taskPolicyPreset"
+              @change="applyPresetToTaskConfig"
+            >
+              <el-radio-button
+                v-for="opt in policyOptions"
+                :key="opt.value"
+                :value="opt.value"
+                >{{ opt.label }}</el-radio-button
+              >
+            </el-radio-group>
+          </el-form-item>
+          <el-form-item label="LLM 权重">
+            <div style="display: flex; gap: 8px; margin-bottom: 8px; width: 100%">
+              <el-input
+                v-model="llmRequirement"
+                placeholder="如：减少上午排课、尽量不排周末、课表更紧凑"
+                style="flex: 1"
+                size="small"
+              />
+              <el-button
+                type="primary"
+                size="small"
+                :loading="llmTranslating"
+                @click="applyLlmWeights"
+              >
+                LLM 翻译
+              </el-button>
+            </div>
             <div
-              v-for="[key, label] in generationWeightFields"
-              :key="key"
-              :title="weightDescs[key] || key"
+              v-if="llmInterpretation"
               style="
-                display: flex;
-                align-items: center;
-                justify-content: space-between;
-                gap: 8px;
-                padding: 6px 8px;
-                border: 1px solid #ebeef5;
+                margin: 4px 0 8px;
+                padding: 8px 12px;
+                background: #f0f9ff;
                 border-radius: 6px;
+                font-size: 12px;
+                color: #606266;
+                line-height: 1.6;
               "
             >
-              <span style="font-size: 12px; color: #606266">{{ label }}</span>
-              <el-input-number
-                v-model="taskForm.generationConfig[key]"
-                :min="0"
-                :max="weightMax[key] || 100"
-                :step="
-                  key.toLowerCase().includes('scale') || key.includes('Weight')
-                    ? 1
-                    : 0.001
-                "
-                :precision="
-                  key.toLowerCase().includes('scale') || key.includes('Weight')
-                    ? 2
-                    : 3
-                "
-                size="small"
-                controls-position="right"
-                style="width: 120px"
-                @change="onWeightChange"
-              />
+              {{ llmInterpretation }}
             </div>
-          </div>
-        </el-form-item>
+            <div
+              v-if="llmWeightsApplied"
+              style="display: flex; align-items: center; gap: 8px"
+            >
+              <el-tag type="warning" size="small">LLM 自定义权重</el-tag>
+              <el-button size="small" text @click="resetLlmWeights">
+                恢复预设
+              </el-button>
+            </div>
+            <div style="font-size: 12px; color: #909399; margin: 2px 0 0">
+              这里只调整全局排课风格；某位教师的特殊时间、工作量或偏好请到教师画像中维护。
+            </div>
+          </el-form-item>
+          <el-form-item label="软权重">
+            <div
+              style="
+                display: grid;
+                grid-template-columns: repeat(2, minmax(240px, 1fr));
+                gap: 8px;
+                width: 100%;
+              "
+            >
+              <div
+                v-for="[key, label] in generationWeightFields"
+                :key="key"
+                :title="weightDescs[key] || key"
+                style="
+                  display: flex;
+                  align-items: center;
+                  justify-content: space-between;
+                  gap: 8px;
+                  padding: 6px 8px;
+                  border: 1px solid #ebeef5;
+                  border-radius: 6px;
+                "
+              >
+                <span style="font-size: 12px; color: #606266">{{ label }}</span>
+                <el-input-number
+                  v-model="taskForm.generationConfig[key]"
+                  :min="0"
+                  :max="weightMax[key] || 100"
+                  :step="
+                    key.toLowerCase().includes('scale') || key.includes('Weight')
+                      ? 1
+                      : 0.001
+                  "
+                  :precision="
+                    key.toLowerCase().includes('scale') || key.includes('Weight')
+                      ? 2
+                      : 3
+                  "
+                  size="small"
+                  controls-position="right"
+                  style="width: 120px"
+                  @change="onWeightChange"
+                />
+              </div>
+            </div>
+          </el-form-item>
+        </template>
         <el-form-item label="教学任务">
           <div
             style="
