@@ -18,6 +18,7 @@ try:
     from ml.channels.teacher_classifier import classify_teachers
     from ml.channels.beam_constructor import construct_timetable
     from ml.channels.conflict_detector import detect_conflicts
+    from ml.channels.repair_engine import repair_assignments
 except ImportError:
     import sys
     from pathlib import Path
@@ -25,6 +26,7 @@ except ImportError:
     from ml.channels.teacher_classifier import classify_teachers
     from ml.channels.beam_constructor import construct_timetable
     from ml.channels.conflict_detector import detect_conflicts
+    from ml.channels.repair_engine import repair_assignments
 
 _log = logging.getLogger("v2")
 
@@ -76,16 +78,29 @@ def generate_v2(
         teacher_priority=list(high_cross),
     )
 
-    # 4. 冲突检测
+    # 4. 冲突检测 + 修复
     if result.get("success") and result.get("assignments"):
         conflict_report = detect_conflicts(result["assignments"])
         result["conflicts"] = conflict_report
         result["stats"]["conflict_count"] = conflict_report["conflict_count"]
-        _log.info("  Conflicts: %d (teacher=%d, class=%d, room=%d), clusters=%d",
+
+        if conflict_report["conflict_count"] > 0:
+            _log.info("  Conflicts detected: %d, running repair...", conflict_report["conflict_count"])
+            repair_result = repair_assignments(
+                result["assignments"], conflict_report, classrooms, time_slots
+            )
+            if repair_result["repairs"] > 0:
+                result["assignments"] = repair_result["assignments"]
+                result["stats"]["repairs"] = repair_result["repairs"]
+                # Re-detect after repair
+                cr2 = detect_conflicts(result["assignments"])
+                result["stats"]["remaining_conflicts"] = cr2["conflict_count"]
+                result["conflicts"] = cr2
+                _log.info("  Repair: %d fixes, %d remaining conflicts",
+                          repair_result["repairs"], cr2["conflict_count"])
+
+        _log.info("  Conflicts (final): %d, clusters=%d",
                   conflict_report["conflict_count"],
-                  len(conflict_report["conflicts"]["teacher"]),
-                  len(conflict_report["conflicts"]["class"]),
-                  len(conflict_report["conflicts"]["room"]),
                   len(conflict_report["conflict_graph"]["clusters"]))
 
     # 5. 补充统计
