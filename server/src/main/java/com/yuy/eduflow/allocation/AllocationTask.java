@@ -11,8 +11,6 @@ public class AllocationTask {
 	private Long id;
 	private String name;
 	private String description;
-	private Integer startWeek;
-	private Integer endWeek;
     private TaskStatus status;
 	private String createdBy;
 	private LocalDateTime createdAt;

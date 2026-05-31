@@ -30,8 +30,6 @@ const taskForm = ref({
   id: null,
   name: "",
   description: "",
-  startWeek: 1,
-  endWeek: 18,
   teachingTaskIds: [],
   generationConfig: defaultGenerationConfig(),
 });
@@ -410,8 +408,6 @@ function openTaskDialog(row) {
       id: row.id,
       name: row.name || "",
       description: row.description || "",
-      startWeek: row.startWeek || 1,
-      endWeek: row.endWeek || 18,
       teachingTaskIds: row.teachingTasks
         ? row.teachingTasks.map((tt) => tt.id)
         : [],
@@ -426,8 +422,6 @@ function openTaskDialog(row) {
       id: null,
       name: "",
       description: "",
-      startWeek: 1,
-      endWeek: 18,
       teachingTaskIds: [],
       generationConfig: defaultGenerationConfig(),
     };
@@ -1420,16 +1414,14 @@ async function viewSchemeDetail(schemeId) {
   conflictDiagnosis.value = conflicts || null;
   classrooms.value = allRooms;
   updateSchemeRow(detail);
-  // 从任务列表中找到对应任务的周次范围
-  const task = tasks.value.find((t) => t.id === detail.taskId);
   buildTimeSlotMap(allTimeSlots);
   schemeDetail.value = {
     ...detail,
     items,
-    taskStartWeek: task?.startWeek || 1,
-    taskEndWeek: task?.endWeek || 18,
+    taskStartWeek: 1,
+    taskEndWeek: 18,
   };
-  currentWeek.value = task?.startWeek || 1;
+  currentWeek.value = 1;
   resetTimetableFilters();
   detailVisible.value = true;
 }
@@ -1464,11 +1456,7 @@ onUnmounted(() => {
     <el-table :data="tasks" border size="small">
       <el-table-column prop="id" label="ID" width="60" />
       <el-table-column prop="name" label="任务名称" />
-      <el-table-column label="周次范围" width="120">
-        <template #default="{ row }">
-          第 {{ row.startWeek }} ~ {{ row.endWeek }} 周
-        </template>
-      </el-table-column>
+
       <el-table-column label="教学任务数" width="100">
         <template #default="{ row }">
           {{ row.teachingTasks?.length || 0 }}

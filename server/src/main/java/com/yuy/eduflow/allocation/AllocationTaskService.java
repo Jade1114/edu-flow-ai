@@ -237,8 +237,7 @@ public class AllocationTaskService {
 	private AllocationTask toTask(AllocationTask task, AllocationTaskRequest request) {
         task.setName(request.name());
         task.setDescription(request.description());
-        task.setStartWeek(request.startWeek() != null ? request.startWeek() : 1);
-        task.setEndWeek(request.endWeek() != null ? request.endWeek() : 18);
+
         task.setStatus(
                 request.status() != null && !request.status().isBlank() ? TaskStatus.from(request.status().trim()) : TaskStatus.DRAFT);
         task.setCreatedBy(request.createdBy());
@@ -249,15 +248,7 @@ public class AllocationTaskService {
         if (request.name() == null || request.name().isBlank()) {
             throw new ValidationException("任务名称不能为空");
         }
-        if (request.startWeek() != null && (request.startWeek() < 1 || request.startWeek() > 18)) {
-            throw new ValidationException("起始周次必须在1到18之间");
-        }
-        if (request.endWeek() != null && (request.endWeek() < 1 || request.endWeek() > 18)) {
-            throw new ValidationException("结束周次必须在1到18之间");
-        }
-        if (request.startWeek() != null && request.endWeek() != null && request.startWeek() > request.endWeek()) {
-            throw new ValidationException("起始周次不能大于结束周次");
-        }
+
 		validateGenerationConfig(request.generationConfig());
     }
 
