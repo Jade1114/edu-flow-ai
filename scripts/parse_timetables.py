@@ -1,0 +1,344 @@
+#!/usr/bin/env python3
+"""
+全校课表批量解析脚本
+输入：2025-2026学年1学期总课表/ 下的 *.xls 文件
+输出：data/real-dataset/ 下的结构化 JSON + CSV
+
+用法：python3 scripts/parse_timetables.py
+"""
+
+import xlrd
+import re
+import json
+import os
+import csv
+import sys
+from pathlib import Path
+
+# ── 配置 ─────────────────────────────────────────────
+INPUT_DIR = Path.home() / "Downloads" / "2025-2026学年1学期总课表"
+OUTPUT_DIR = Path(__file__).resolve().parents[1] / "data" / "real-dataset"
+# ────────────────────────────────────────────────────
+
+# 星期映射
+DAY_MAP = {0: 1, 1: 2, 2: 3, 3: 4, 4: 5, 5: 6, 6: 7}  # col group index → day (1=Mon)
+PERIOD_MAP = {0: "1-2", 1: "3-4", 2: "5-6", 3: "7-8", 4: "9-11"}  # group → period label
+PERIOD_START = {0: 1, 1: 3, 2: 5, 3: 7, 4: 9}
+
+# ── 文件名解析 ────────────────────────────────────────
+def parse_filename(fname: str) -> dict:
+    """从文件名提取年级、专业、班级"""
+    # 2023级软件工程2班课表_xxx.xls
+    m = re.search(r'(\d{4})级(.+?)(\d+)班', fname)
+    if not m:
+        return {"grade": "?", "major": "?", "class_no": "?"}
+    return {
+        "grade": int(m.group(1)),
+        "major": m.group(2).strip(),
+        "class_no": int(m.group(3)),
+    }
+
+
+# ── 单文件解析 ────────────────────────────────────────
+def parse_one_xls(path: Path) -> dict:
+    """解析一个课表 xls，返回结构化数据"""
+    wb = xlrd.open_workbook(str(path))
+    ws = wb.sheet_by_index(0)
+
+    meta = parse_filename(path.name)
+    title = str(ws.cell_value(0, 0))
+
+    # 从标题提取院系（去掉学期前缀）
+    dept_m = re.search(r'第\d+学期(.+?系\(学院\))', title)
+    if not dept_m:
+        dept_m = re.search(r'(.+?系\(学院\))', title)
+    meta["department"] = dept_m.group(1) if dept_m else ""
+
+    # ── 课程汇总信息（最后一行） ──
+    summary = str(ws.cell_value(ws.nrows - 2, 0))
+    
+    # 解析所有课程
+    # 格式：课程名(代码)(ID[id]学分[学分]) 时[学时] 师[教师1,教师2] 室[教室1,教室2]
+    course_pattern = re.compile(
+        r'([\u4e00-\u9fa5]+)\(([^)]+?)\)\(ID\[\d+\]学分\[([\d.]+)\]\)\s+'
+        r'时\[([\d.]+)\]\s+师\[([^\]]+)\]\s+室\[([^\]]+)\]'
+    )
+    courses_raw = course_pattern.findall(summary)
+
+    courses = []
+    for c in courses_raw:
+        name, code, credits, hours, teachers, rooms = c
+        teacher_list = [t.strip() for t in re.split(r'[,，]', teachers) if t.strip()]
+        room_list = [r.strip() for r in re.split(r'[,，]', rooms.replace(" ", "")) if r.strip()]
+        courses.append({
+            "name": name,
+            "code": code,
+            "credits": float(credits),
+            "hours": float(hours),
+            "teachers": teacher_list,
+            "rooms": room_list,
+        })
+
+    # ── 排课明细（周次 × 天 × 节次） ──
+    timetable = []
+    
+    # 表头在 row 2（天）和 row 3（节次组）
+    # 从 row 4 开始是第 1 周，到 row 23 是第 20 周（或 19 周）
+    for r in range(4, min(ws.nrows - 2, 4 + 20)):  # 最多 20 周
+        week_val = ws.cell_value(r, 0)
+        try:
+            week = int(float(week_val))
+        except (ValueError, TypeError):
+            continue
+        
+        # 日期字符串（col 1）
+        date_str = str(ws.cell_value(r, 1)).strip()
+        
+        # col 2-36: 周一(2-6) ~ 周日(32-36), 每组 5 列
+        for c in range(2, ws.ncols):
+            val = str(ws.cell_value(r, c)).strip()
+            if not val or val in ["报到注册", "期末考试", "清明节", "五一节", "国庆节", ""]:
+                continue
+            
+            day_idx = (c - 2) // 5  # 0=周一, 6=周日
+            period_idx = (c - 2) % 5  # 0=1-2节, 4=9-11节
+            day = DAY_MAP.get(day_idx, day_idx + 1)
+            period_label = PERIOD_MAP.get(period_idx, f"{period_idx+1}")
+            
+            lines = val.split('\n')
+            course_code = lines[0].strip() if lines else val
+            room_code = lines[1].strip() if len(lines) >= 2 else ""
+            
+            entry = {
+                "week": week,
+                "day": day,
+                "period_label": period_label,
+                "period_start": PERIOD_START.get(period_idx, 1),
+                "course_code": course_code,
+                "room": room_code,
+            }
+            timetable.append(entry)
+
+    return {
+        "meta": meta,
+        "title": title,
+        "courses": courses,
+        "timetable": timetable,
+    }
+
+
+# ── 数据收集和去重 ────────────────────────────────────
+def collect_all():
+    """遍历所有 xls，收集汇总数据"""
+    xls_files = sorted(INPUT_DIR.glob("*.xls"))
+    if not xls_files:
+        print(f"❌ 在 {INPUT_DIR} 下没有找到 .xls 文件")
+        sys.exit(1)
+    
+    print(f"📂 找到 {len(xls_files)} 个课表文件，开始解析...\n")
+    
+    all_teachers = {}       # name -> {departments, courses}
+    all_classrooms = {}     # room -> {courses_used_in}
+    all_courses = {}        # code -> {name, credits, hours, teachers, rooms, classes}
+    all_class_groups = []   # list of {grade, major, class_no, department}
+    all_teaching_tasks = []  # list of {course, teacher, class, hours, rooms, semester}
+    all_timetables = []     # list of {class, course, week, day, period, room}
+    
+    semester = "2025-2026-1"  # 当前总课表学期
+    
+    for fi, path in enumerate(xls_files):
+        if (fi + 1) % 100 == 0:
+            print(f"  进度: {fi+1}/{len(xls_files)}...")
+        
+        try:
+            data = parse_one_xls(path)
+        except Exception as e:
+            print(f"  ⚠️ 解析失败: {path.name} — {e}")
+            continue
+        
+        meta = data["meta"]
+        
+        # 班级信息
+        class_key = f"{meta['grade']}级{meta['major']}{meta['class_no']}班"
+        all_class_groups.append({
+            "key": class_key,
+            "grade": meta["grade"],
+            "major": meta["major"],
+            "class_no": meta["class_no"],
+            "department": meta["department"],
+            "student_count": extract_student_count(data["title"]),
+        })
+        
+        # 课程 + 教师 + 教室
+        for c in data["courses"]:
+            code = c["code"]
+            if code not in all_courses:
+                all_courses[code] = {
+                    "name": c["name"],
+                    "code": code,
+                    "credits": c["credits"],
+                    "hours": c["hours"],
+                    "teachers": [],
+                    "rooms": set(),
+                    "classes": [],
+                }
+            # Update to max values if this semester has different values
+            all_courses[code]["credits"] = max(all_courses[code]["credits"], c["credits"])
+            all_courses[code]["hours"] = max(all_courses[code]["hours"], c["hours"])
+            
+            for t in c["teachers"]:
+                if t not in all_teachers:
+                    all_teachers[t] = {"name": t, "departments": set(), "courses": []}
+                all_teachers[t]["departments"].add(meta["department"])
+                if code not in all_teachers[t]["courses"]:
+                    all_teachers[t]["courses"].append(code)
+                if t not in all_courses[code]["teachers"]:
+                    all_courses[code]["teachers"].append(t)
+            
+            for r in c["rooms"]:
+                all_courses[code]["rooms"].add(r)
+                if r not in all_classrooms:
+                    all_classrooms[r] = {"name": r, "courses": []}
+                if code not in all_classrooms[r]["courses"]:
+                    all_classrooms[r]["courses"].append(code)
+            
+            if class_key not in all_courses[code]["classes"]:
+                all_courses[code]["classes"].append(class_key)
+            
+            # 教学任务
+            for t in c["teachers"]:
+                all_teaching_tasks.append({
+                    "course_code": code,
+                    "course_name": c["name"],
+                    "teacher": t,
+                    "class_group": class_key,
+                    "grade": meta["grade"],
+                    "major": meta["major"],
+                    "class_no": meta["class_no"],
+                    "total_hours": c["hours"],
+                    "rooms": c["rooms"],
+                    "semester": semester,
+                })
+        
+        # 排课明细
+        for entry in data["timetable"]:
+            all_timetables.append({
+                "class_group": class_key,
+                "grade": meta["grade"],
+                "major": meta["major"],
+                "class_no": meta["class_no"],
+                **entry,
+            })
+    
+    # 去重教师课程列表
+    for t_name, info in all_teachers.items():
+        info["courses"] = list(set(info["courses"]))
+        info["departments"] = list(info["departments"])
+    
+    # 去重教室课程列表
+    for r_name, info in all_classrooms.items():
+        info["courses"] = list(set(info["courses"]))
+    
+    # 转换 set → list
+    for code, info in all_courses.items():
+        info["rooms"] = list(info["rooms"])
+    
+    print(f"\n✅ 解析完成！")
+    print(f"   {len(all_class_groups)} 个班级")
+    print(f"   {len(all_courses)} 门课程")
+    print(f"   {len(all_teachers)} 位教师")
+    print(f"   {len(all_classrooms)} 间教室")
+    print(f"   {len(all_teaching_tasks)} 条教学任务")
+    print(f"   {len(all_timetables)} 条排课记录")
+    
+    return {
+        "teachers": all_teachers,
+        "classrooms": all_classrooms,
+        "courses": all_courses,
+        "class_groups": all_class_groups,
+        "teaching_tasks": all_teaching_tasks,
+        "timetables": all_timetables,
+    }
+
+
+def extract_student_count(title: str) -> int:
+    m = re.search(r'共(\d+)人', title)
+    return int(m.group(1)) if m else 0
+
+
+# ── 输出 ──────────────────────────────────────────────
+def write_outputs(data: dict):
+    OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+    
+    # 1. teachers.json
+    teachers_list = sorted(data["teachers"].values(), key=lambda x: x["name"])
+    (OUTPUT_DIR / "teachers.json").write_text(
+        json.dumps(teachers_list, ensure_ascii=False, indent=2), encoding="utf-8"
+    )
+    print(f"  📄 teachers.json — {len(teachers_list)} 人")
+    
+    # 2. classrooms.json
+    classrooms_list = sorted(data["classrooms"].values(), key=lambda x: x["name"])
+    (OUTPUT_DIR / "classrooms.json").write_text(
+        json.dumps(classrooms_list, ensure_ascii=False, indent=2), encoding="utf-8"
+    )
+    print(f"  📄 classrooms.json — {len(classrooms_list)} 间")
+    
+    # 3. courses.json
+    courses_list = sorted(data["courses"].values(), key=lambda x: x["code"])
+    (OUTPUT_DIR / "courses.json").write_text(
+        json.dumps(courses_list, ensure_ascii=False, indent=2), encoding="utf-8"
+    )
+    print(f"  📄 courses.json — {len(courses_list)} 门")
+    
+    # 4. class_groups.json
+    (OUTPUT_DIR / "class_groups.json").write_text(
+        json.dumps(data["class_groups"], ensure_ascii=False, indent=2), encoding="utf-8"
+    )
+    print(f"  📄 class_groups.json — {len(data['class_groups'])} 个")
+    
+    # 5. teaching_tasks.json
+    (OUTPUT_DIR / "teaching_tasks.json").write_text(
+        json.dumps(data["teaching_tasks"], ensure_ascii=False, indent=2), encoding="utf-8"
+    )
+    print(f"  📄 teaching_tasks.json — {len(data['teaching_tasks'])} 条")
+    
+    # 6. timetables.jsonl (JSON Lines — 逐行可读，适合海量数据)
+    with open(OUTPUT_DIR / "timetables.jsonl", "w", encoding="utf-8") as f:
+        for entry in data["timetables"]:
+            f.write(json.dumps(entry, ensure_ascii=False) + "\n")
+    print(f"  📄 timetables.jsonl — {len(data['timetables'])} 条")
+    
+    # 7. summary.csv
+    with open(OUTPUT_DIR / "summary.csv", "w", newline="", encoding="utf-8") as f:
+        writer = csv.writer(f)
+        writer.writerow(["班级", "年级", "专业", "班号", "人数", "院系", "课程数", "教师数"])
+        
+        # Group teaching tasks by class
+        from collections import Counter
+        tasks_by_class = {}
+        for tt in data["teaching_tasks"]:
+            ck = tt["class_group"]
+            if ck not in tasks_by_class:
+                tasks_by_class[ck] = {"courses": set(), "teachers": set()}
+            tasks_by_class[ck]["courses"].add(tt["course_code"])
+            tasks_by_class[ck]["teachers"].add(tt["teacher"])
+        
+        for cg in data["class_groups"]:
+            ck = cg["key"]
+            stats = tasks_by_class.get(ck, {"courses": set(), "teachers": set()})
+            writer.writerow([
+                ck, cg["grade"], cg["major"], cg["class_no"],
+                cg["student_count"], cg["department"],
+                len(stats["courses"]), len(stats["teachers"]),
+            ])
+    print(f"  📄 summary.csv — 汇总统计")
+    
+    print(f"\n📂 全部输出到: {OUTPUT_DIR}")
+
+
+# ── 主入口 ────────────────────────────────────────────
+if __name__ == "__main__":
+    data = collect_all()
+    write_outputs(data)
+    print("\n🎉 完成！")
