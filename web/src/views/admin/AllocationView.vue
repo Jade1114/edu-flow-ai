@@ -356,9 +356,10 @@ async function loadTasks() {
 }
 
 async function loadTeachingTasks() {
-  teachingTasks.value = await request.get(
-    `/api/teaching-tasks?status=${ActiveStatus.ACTIVE}`,
+  const res = await request.get(
+    `/api/teaching-tasks?status=${ActiveStatus.ACTIVE}&page=-1`,
   );
+  teachingTasks.value = Array.isArray(res) ? res : (res?.content || []);
 }
 
 function openTaskDialog(row) {

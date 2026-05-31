@@ -74,11 +74,11 @@ watch(activeTab, (newTab) => {
 
 async function loadTabData(tab: string) {
     if (tab === 'teachingTask') {
-        // Teaching task form needs courses, teachers, classGroups, classrooms
+        // Teaching task form needs courses, teachers, classGroups, classrooms (all for dropdowns)
         await Promise.all([
-            !loadedTabs.value.has('course') && loadCourses(),
-            !loadedTabs.value.has('teacher') && loadTeachers(),
-            !loadedTabs.value.has('classGroup') && loadClassGroups(),
+            !loadedTabs.value.has('course') && loadCourses(true),
+            !loadedTabs.value.has('teacher') && loadTeachers(true),
+            !loadedTabs.value.has('classGroup') && loadClassGroups(true),
             !loadedTabs.value.has('classroom') && loadClassrooms(),
             loadTeachingTasks(),
         ])
@@ -364,10 +364,12 @@ function syncTeacherQuery() {
     })
 }
 
-async function loadTeachers() {
+async function loadTeachers(all = false) {
     loadingTeachers.value = true
     try {
-        teachers.value = await request.get<Teacher[]>('/api/teachers')
+        const params: any = all ? { page: -1 } : { page: 0, size: 50 }
+        const res = await request.get('/api/teachers', { params })
+        teachers.value = res.content || (Array.isArray(res) ? res : [])
     } finally {
         loadingTeachers.value = false
     }
@@ -436,14 +438,13 @@ const courseRules = {
     name: [{ required: true, message: '请输入课程名称', trigger: 'blur' }],
 }
 
-async function loadCourses() {
+async function loadCourses(all = false) {
     loadingCourses.value = true
     try {
-        const res = await request.get('/api/courses', {
-            params: { page: coursePage.value - 1, size: coursePageSize.value }
-        })
-        courses.value = res.content || []
-        courseTotal.value = res.total || 0
+        const params: any = all ? { page: -1 } : { page: coursePage.value - 1, size: coursePageSize.value }
+        const res = await request.get('/api/courses', { params })
+        courses.value = res.content || (Array.isArray(res) ? res : [])
+        if (!all && res.total != null) courseTotal.value = res.total
     } finally {
         loadingCourses.value = false
     }
@@ -496,14 +497,13 @@ const classGroupRules = {
     name: [{ required: true, message: '请输入班级名称', trigger: 'blur' }],
 }
 
-async function loadClassGroups() {
+async function loadClassGroups(all = false) {
     loadingClassGroups.value = true
     try {
-        const res = await request.get('/api/class-groups', {
-            params: { page: classGroupPage.value - 1, size: classGroupPageSize.value }
-        })
-        classGroups.value = res.content || []
-        classGroupTotal.value = res.total || 0
+        const params: any = all ? { page: -1 } : { page: classGroupPage.value - 1, size: classGroupPageSize.value }
+        const res = await request.get('/api/class-groups', { params })
+        classGroups.value = res.content || (Array.isArray(res) ? res : [])
+        if (!all && res.total != null) classGroupTotal.value = res.total
     } finally {
         loadingClassGroups.value = false
     }
