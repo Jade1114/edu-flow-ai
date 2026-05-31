@@ -17,12 +17,14 @@ import logging
 try:
     from ml.channels.teacher_classifier import classify_teachers
     from ml.channels.beam_constructor import construct_timetable
+    from ml.channels.conflict_detector import detect_conflicts
 except ImportError:
     import sys
     from pathlib import Path
     sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
     from ml.channels.teacher_classifier import classify_teachers
     from ml.channels.beam_constructor import construct_timetable
+    from ml.channels.conflict_detector import detect_conflicts
 
 _log = logging.getLogger("v2")
 
@@ -74,7 +76,19 @@ def generate_v2(
         teacher_priority=list(high_cross),
     )
 
-    # 4. 补充统计
+    # 4. 冲突检测
+    if result.get("success") and result.get("assignments"):
+        conflict_report = detect_conflicts(result["assignments"])
+        result["conflicts"] = conflict_report
+        result["stats"]["conflict_count"] = conflict_report["conflict_count"]
+        _log.info("  Conflicts: %d (teacher=%d, class=%d, room=%d), clusters=%d",
+                  conflict_report["conflict_count"],
+                  len(conflict_report["conflicts"]["teacher"]),
+                  len(conflict_report["conflicts"]["class"]),
+                  len(conflict_report["conflicts"]["room"]),
+                  len(conflict_report["conflict_graph"]["clusters"]))
+
+    # 5. 补充统计
     if result.get("success"):
         assigned_count = len(result.get("assignments", []))
         unassigned_count = len(result.get("unassigned", []))
