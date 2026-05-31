@@ -94,24 +94,32 @@ def rank_rooms(
         for s in scored:
             s["score"] += rng.uniform(1, 20) * (s["room_id"] % 10) / 10.0
 
-    # 按楼栋分组，确保每栋楼都有代表进入 top-k
+    # 按楼栋分组，尽量每栋楼都有代表，但不强压到 1 个
     from collections import defaultdict
     groups: dict[str, list[dict]] = defaultdict(list)
     for s in scored:
         prefix = s["name"][:2] if s["name"] else "??"
         groups[prefix].append(s)
 
-    diverse = []
+    diverse: list[dict] = []
     rng2 = random.Random(diversity_seed) if diversity_seed is not None else random
     keys = list(groups.keys())
-    rng2.shuffle(keys)
-    for k in keys:
-        group = groups[k]
-        group.sort(key=lambda r: -r["score"])
-        diverse.append(group[0])
 
-    diverse.sort(key=lambda r: -r["score"])
-    return diverse[:top_k]
+    if len(keys) == 1:
+        # 单楼栋：直接用全局 top-k
+        scored.sort(key=lambda r: -r["score"])
+        diverse = scored[:top_k]
+    else:
+        # 多楼栋：每栋取最优，混合排序
+        rng2.shuffle(keys)
+        for k in keys:
+            group = groups[k]
+            group.sort(key=lambda r: -r["score"])
+            diverse.append(group[0])
+        diverse.sort(key=lambda r: -r["score"])
+        diverse = diverse[:top_k]
+
+    return diverse
 
 
 def _norm(value: str) -> str:

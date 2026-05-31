@@ -15,7 +15,10 @@ LightGBM 可在此处注入 Placement Scorer。
 
 from __future__ import annotations
 
+import logging
 from collections import defaultdict
+
+_log = logging.getLogger("v2.beam")
 
 try:
     from ml.channels.template_generator import generate_templates
@@ -196,6 +199,26 @@ def construct_timetable(
                             })
 
         if not candidates:
+            total_lessons = task.get("total_lessons", 0)
+            teacher_name = task.get("teacher_name", "?")
+            teacher_id = task.get("teacher_id", 0)
+            # 对当前 beam 状态做一次完整候选生成，统计被挡原因
+            debug_state = beam[0] if beam else BeamState()
+            ds = {"teacher_slots": debug_state.teacher_slots,
+                  "class_slots": debug_state.class_slots,
+                  "room_slots": debug_state.room_slots}
+            tmpl = generate_templates(total_lessons, top_k=3)
+            rooms_cache = rank_rooms(task, classrooms, dict(debug_state.room_usage), top_k=3,
+                                      diversity_seed=task.get("id", 0))
+            tck = f"T:{teacher_id}"
+            block_reasons: dict[str, int] = {}
+            for w in range(1, 19):
+                for d in range(1, 6):
+                    for p in range(1, 6):
+                        tc = has_hard_conflict(task, None, (w, d, p), ds)
+                        if tc:
+                            block_reasons[tc] = block_reasons.get(tc, 0) + 1
+            _log.warning(f"无法安排: {teacher_name}({len(block_reasons)}种阻挡): {block_reasons}")
             unassigned.append(task)
             stats["failed"] += 1
             continue
