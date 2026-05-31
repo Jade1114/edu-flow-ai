@@ -2,7 +2,9 @@ package com.yuy.eduflow.classgroup;
 
 import com.yuy.eduflow.common.exception.ResourceNotFoundException;
 import com.yuy.eduflow.common.exception.ValidationException;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 
@@ -16,6 +18,18 @@ public class ClassGroupService {
 
 	public List<ClassGroup> findAll(String keyword) {
 		return classGroupMapper.findAll(keyword);
+	}
+
+	public Map<String, Object> findAllPaged(String keyword, int page, int size) {
+		int offset = page * size;
+		List<ClassGroup> content = classGroupMapper.findAllPaged(keyword, size, offset);
+		long total = classGroupMapper.countAll(keyword);
+		Map<String, Object> result = new LinkedHashMap<>();
+		result.put("content", content);
+		result.put("total", total);
+		result.put("page", page);
+		result.put("size", size);
+		return result;
 	}
 
 	public ClassGroup findById(Long id) {
