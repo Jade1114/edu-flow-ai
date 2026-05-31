@@ -212,6 +212,13 @@ public class AllocationTaskService {
 		config.setEarlyPeriodPenalty(new BigDecimal("0.040000"));
 		config.setLatePeriodPenalty(new BigDecimal("0.030000"));
 		config.setWeekendPenalty(new BigDecimal("0.050000"));
+		config.setModelWeight(new BigDecimal("0.600000"));
+		config.setLlmWeight(new BigDecimal("0.400000"));
+		config.setSameDayWeight(new BigDecimal("0.050000"));
+		config.setCapacityWastePenalty(new BigDecimal("0.000000"));
+		config.setTeacherDayLoadPenalty(new BigDecimal("0.000000"));
+		config.setClassDayLoadPenalty(new BigDecimal("0.000000"));
+		config.setTeacherOverloadPenalty(new BigDecimal("0.000000"));
 		return config;
 	}
 
