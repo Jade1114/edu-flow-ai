@@ -73,9 +73,24 @@ watch(activeTab, (newTab) => {
 })
 
 async function loadTabData(tab: string) {
+    if (tab === 'teachingTask') {
+        // Teaching task form needs courses, teachers, classGroups, classrooms
+        await Promise.all([
+            !loadedTabs.value.has('course') && loadCourses(),
+            !loadedTabs.value.has('teacher') && loadTeachers(),
+            !loadedTabs.value.has('classGroup') && loadClassGroups(),
+            !loadedTabs.value.has('classroom') && loadClassrooms(),
+            loadTeachingTasks(),
+        ])
+        loadedTabs.value.add('teachingTask')
+        loadedTabs.value.add('course')
+        loadedTabs.value.add('teacher')
+        loadedTabs.value.add('classGroup')
+        loadedTabs.value.add('classroom')
+        return
+    }
     if (loadedTabs.value.has(tab)) return
     if (tab === 'teacher') await loadTeachers()
-    if (tab === 'teachingTask') await loadTeachingTasks()
     if (tab === 'course') await loadCourses()
     if (tab === 'classGroup') await loadClassGroups()
     if (tab === 'classroom') await loadClassrooms()
