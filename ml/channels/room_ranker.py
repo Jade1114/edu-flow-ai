@@ -1,16 +1,16 @@
 """Room Ranker — 候选空间压缩第二步。
 
-为每个教学任务排序推荐教室（规则版，后续可升级为 LightGBM）。
-
-评分维度：
-1. 容量匹配     — 教室容量 ≥ 学生数，且不过度浪费
-2. 类型匹配     — 普通教室/机房/体育场匹配
-3. 负载均衡     — 优先推荐当前使用率低的教室
+为每个教学任务排序推荐教室。
+使用 LightGBM 模型（可用时），否则回退规则版。
 """
 
 from __future__ import annotations
 
 import random
+
+from .model_loader import predict as ml_predict, is_loaded as ml_available
+
+_ML_ENABLED = ml_available()
 
 
 def rank_rooms(
@@ -76,6 +76,22 @@ def rank_rooms(
             reasons.append(f"负载({usage})")
         else:
             score += 10.0
+
+        # ML 增强（模型可用时）
+        if _ML_ENABLED:
+            features = {
+                "teacher_cross_count": task.get("teacher_cross_count", 0),
+                "teacher_tasks": task.get("teacher_tasks", 0),
+                "student_count": student_count,
+                "room_capacity": capacity,
+                "capacity_ratio": round(student_count / max(1, capacity), 2),
+                "is_early": 0, "is_late": 0, "is_weekend": 0,
+                "day_of_week": 0, "period_index": 0, "period_count": 0,
+                "teacher_slot_count": 0, "class_slot_count": 0,
+                "room_slot_count": 0, "same_day_count": 0,
+            }
+            ml_score = ml_predict(features)
+            score += ml_score * 50  # ML 分数映射到评分空间
 
         scored.append({
             "room_id": room_id,
