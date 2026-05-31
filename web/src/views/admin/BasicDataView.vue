@@ -12,6 +12,8 @@ import type { Teacher } from '@/types/teacher'
 interface Course {
     id: number | null
     name: string
+    code: string
+    credits: number
     courseType: string
     requiredHours: number
     description?: string
@@ -80,6 +82,27 @@ async function loadTabData(tab: string) {
     loadedTabs.value.add(tab)
 }
 
+// Loading states
+const loadingTeachingTasks = ref(false)
+const loadingCourses = ref(false)
+const loadingClassGroups = ref(false)
+
+// Pagination
+const teachingTaskPage = ref(1)
+const teachingTaskPageSize = ref(20)
+const coursePage = ref(1)
+const coursePageSize = ref(20)
+const classGroupPage = ref(1)
+const classGroupPageSize = ref(20)
+const paginatedTeachingTasks = computed(() =>
+    teachingTasks.value.slice((teachingTaskPage.value - 1) * teachingTaskPageSize.value, teachingTaskPage.value * teachingTaskPageSize.value)
+)
+const paginatedCourses = computed(() =>
+    courses.value.slice((coursePage.value - 1) * coursePageSize.value, coursePage.value * coursePageSize.value)
+)
+const paginatedClassGroups = computed(() =>
+    classGroups.value.slice((classGroupPage.value - 1) * classGroupPageSize.value, classGroupPage.value * classGroupPageSize.value)
+)
 // TeachingTask
 const teachingTasks = ref<TeachingTask[]>([])
 const teachingTaskDialog = ref(false)
@@ -103,7 +126,12 @@ const teachingTaskRules = {
 }
 
 async function loadTeachingTasks() {
-    teachingTasks.value = await request.get<TeachingTask[]>('/api/teaching-tasks')
+    loadingTeachingTasks.value = true
+    try {
+        teachingTasks.value = await request.get<TeachingTask[]>('/api/teaching-tasks')
+    } finally {
+        loadingTeachingTasks.value = false
+    }
 }
 function openTeachingTaskDialog(row: any) {
     if (row) {
@@ -312,7 +340,12 @@ const courseRules = {
 }
 
 async function loadCourses() {
-    courses.value = await request.get<Course[]>('/api/courses')
+    loadingCourses.value = true
+    try {
+        courses.value = await request.get<Course[]>('/api/courses')
+    } finally {
+        loadingCourses.value = false
+    }
 }
 function openCourseDialog(row: any) {
     courseForm.value = row
@@ -363,7 +396,12 @@ const classGroupRules = {
 }
 
 async function loadClassGroups() {
-    classGroups.value = await request.get<ClassGroup[]>('/api/class-groups')
+    loadingClassGroups.value = true
+    try {
+        classGroups.value = await request.get<ClassGroup[]>('/api/class-groups')
+    } finally {
+        loadingClassGroups.value = false
+    }
 }
 function openClassGroupDialog(row: any) {
     classGroupForm.value = row
@@ -541,13 +579,13 @@ onMounted(() => {
                         >新增教学任务
                     </el-button>
                 </div>
-                <el-table :data="teachingTasks" border size="small">
+                <el-table :data="paginatedTeachingTasks" v-loading="loadingTeachingTasks" border size="small">
                     <el-table-column prop="id" label="ID" width="60" />
-                    <el-table-column prop="course.name" label="课程" />
-                    <el-table-column prop="primaryTeacher.name" label="主讲教师" />
-                    <el-table-column prop="assistantTeacher.name" label="协作教师" />
+                    <el-table-column prop="course.name" label="课程" show-overflow-tooltip />
+                    <el-table-column prop="primaryTeacher.name" label="主讲教师" show-overflow-tooltip />
+                    <el-table-column prop="assistantTeacher.name" label="协作教师" show-overflow-tooltip />
                     <el-table-column prop="totalHours" label="总课时" width="80" />
-                    <el-table-column label="教室" show-overflow-tooltip>
+                    <el-table-column label="教室" show-overflow-tooltip width="130">
                         <template #default="{ row }">
                             {{
                                 row.classroom
@@ -568,21 +606,20 @@ onMounted(() => {
                     </el-table-column>
                     <el-table-column label="操作" width="140">
                         <template #default="{ row }">
-                            <el-button
-                                type="primary"
-                                size="small"
-                                @click="openTeachingTaskDialog(row)"
-                                >编辑</el-button
-                            >
-                            <el-button
-                                type="danger"
-                                size="small"
-                                @click="deleteTeachingTask(row.id)"
-                                >删除</el-button
-                            >
+                            <el-button type="primary" size="small" @click="openTeachingTaskDialog(row)">编辑</el-button>
+                            <el-button type="danger" size="small" @click="deleteTeachingTask(row.id)">删除</el-button>
                         </template>
                     </el-table-column>
                 </el-table>
+                <el-pagination
+                    v-if="teachingTasks.length > teachingTaskPageSize"
+                    v-model:current-page="teachingTaskPage"
+                    v-model:page-size="teachingTaskPageSize"
+                    :total="teachingTasks.length"
+                    :page-sizes="[10, 20, 50, 100]"
+                    layout="total, sizes, prev, pager, next"
+                    style="margin-top: 12px; justify-content: flex-end"
+                />
             </el-tab-pane>
 
             <KeepAlive>
@@ -596,10 +633,12 @@ onMounted(() => {
                         >新增课程</el-button
                     >
                 </div>
-                <el-table :data="courses" border size="small">
-                    <el-table-column prop="name" label="课程名称" />
+                <el-table :data="paginatedCourses" v-loading="loadingCourses" border size="small">
+                    <el-table-column prop="name" label="课程名称" show-overflow-tooltip />
+                    <el-table-column prop="code" label="课程代码" width="100" />
+                    <el-table-column prop="credits" label="学分" width="70" />
                     <el-table-column prop="courseType" label="课程类型" width="120" />
-                    <el-table-column prop="requiredHours" label="学时" width="80" />
+                    <el-table-column prop="requiredHours" label="学时" width="70" />
                     <el-table-column prop="description" label="描述" show-overflow-tooltip />
                     <el-table-column label="状态" width="80">
                         <template #default="{ row }">
@@ -608,15 +647,20 @@ onMounted(() => {
                     </el-table-column>
                     <el-table-column label="操作" width="140">
                         <template #default="{ row }">
-                            <el-button type="primary" size="small" @click="openCourseDialog(row)"
-                                >编辑</el-button
-                            >
-                            <el-button type="danger" size="small" @click="deleteCourse(row.id)"
-                                >删除</el-button
-                            >
+                            <el-button type="primary" size="small" @click="openCourseDialog(row)">编辑</el-button>
+                            <el-button type="danger" size="small" @click="deleteCourse(row.id)">删除</el-button>
                         </template>
                     </el-table-column>
                 </el-table>
+                <el-pagination
+                    v-if="courses.length > coursePageSize"
+                    v-model:current-page="coursePage"
+                    v-model:page-size="coursePageSize"
+                    :total="courses.length"
+                    :page-sizes="[10, 20, 50, 100]"
+                    layout="total, sizes, prev, pager, next"
+                    style="margin-top: 12px; justify-content: flex-end"
+                />
             </el-tab-pane>
 
             <!-- ClassGroup -->
@@ -626,25 +670,27 @@ onMounted(() => {
                         >新增班级</el-button
                     >
                 </div>
-                <el-table :data="classGroups" border size="small">
-                    <el-table-column prop="name" label="班级名称" />
-                    <el-table-column prop="major" label="专业" />
-                    <el-table-column prop="grade" label="年级" width="100" />
+                <el-table :data="paginatedClassGroups" v-loading="loadingClassGroups" border size="small">
+                    <el-table-column prop="name" label="班级名称" show-overflow-tooltip />
+                    <el-table-column prop="major" label="专业" show-overflow-tooltip />
+                    <el-table-column prop="grade" label="年级" width="80" />
                     <el-table-column prop="studentCount" label="人数" width="80" />
                     <el-table-column label="操作" width="140">
                         <template #default="{ row }">
-                            <el-button
-                                type="primary"
-                                size="small"
-                                @click="openClassGroupDialog(row)"
-                                >编辑</el-button
-                            >
-                            <el-button type="danger" size="small" @click="deleteClassGroup(row.id)"
-                                >删除</el-button
-                            >
+                            <el-button type="primary" size="small" @click="openClassGroupDialog(row)">编辑</el-button>
+                            <el-button type="danger" size="small" @click="deleteClassGroup(row.id)">删除</el-button>
                         </template>
                     </el-table-column>
                 </el-table>
+                <el-pagination
+                    v-if="classGroups.length > classGroupPageSize"
+                    v-model:current-page="classGroupPage"
+                    v-model:page-size="classGroupPageSize"
+                    :total="classGroups.length"
+                    :page-sizes="[10, 20, 50, 100]"
+                    layout="total, sizes, prev, pager, next"
+                    style="margin-top: 12px; justify-content: flex-end"
+                />
             </el-tab-pane>
 
             <!-- Classroom -->
