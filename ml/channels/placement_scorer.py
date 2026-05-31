@@ -1,10 +1,13 @@
 """Placement Scorer — 对 (Task, Template, Room, Slot) 组合评分。
 
-这是未来 LightGBM 评分模型的接口。
-当前版本使用规则评分，数据结构与未来 ML 版本兼容。
+使用 LightGBM 模型评分（可用时），否则回退规则版。
 """
 
 from __future__ import annotations
+
+from .model_loader import predict as ml_predict, is_loaded as ml_available
+
+_ML_ENABLED = ml_available()
 
 
 def score_placement(
@@ -93,7 +96,36 @@ def score_placement(
             score += penalty
             breakdown["same_day"] = penalty
 
-    total_score = max(0.0, min(100.0, score + 50.0)) / 100.0
+    # 规则基础分
+    rule_score = max(0.0, min(100.0, score + 50.0)) / 100.0
+
+    # ML 增强（若模型可用）
+    ml_score = None
+    if _ML_ENABLED and room:
+        features = {
+            "teacher_cross_count": task.get("teacher_cross_count", 0),
+            "teacher_tasks": task.get("teacher_tasks", 0),
+            "student_count": task.get("student_count", 30),
+            "room_capacity": room.get("capacity", 40),
+            "capacity_ratio": task.get("student_count", 30) / max(1, room.get("capacity", 40)),
+            "is_early": 1 if period == 1 else 0,
+            "is_late": 1 if period >= 4 else 0,
+            "is_weekend": 1 if day >= 6 else 0,
+            "day_of_week": day,
+            "period_index": period,
+            "period_count": 0,
+            "teacher_slot_count": current_timetable.get(f"T:{task.get('teacher_id')}:{week}:{day}:{period}", 0),
+            "class_slot_count": 0,
+            "room_slot_count": 0,
+            "same_day_count": task.get("teacher_tasks", 0) if task.get("teacher_tasks", 0) > 5 else 0,
+        }
+        ml_score = ml_predict(features)
+
+    total_score = rule_score
+    if ml_score is not None:
+        # 规则 + ML 加权融合：规则 40%, ML 60%
+        total_score = rule_score * 0.4 + ml_score * 0.6
+        breakdown["ml_score"] = round(ml_score, 4)
 
     return {
         "score": round(total_score, 4),
