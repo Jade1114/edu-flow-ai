@@ -123,7 +123,7 @@ def import_classrooms(cursor):
     count = 0
     for r in data:
         sql = """INSERT IGNORE INTO classroom (name, capacity, status)
-                 VALUES (%s, 40, 'ACTIVE')"""
+                 VALUES (%s, 80, 'ACTIVE')"""
         cursor.execute(sql, (r["name"],))
         if cursor.rowcount > 0:
             count += 1
