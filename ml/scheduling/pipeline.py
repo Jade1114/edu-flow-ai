@@ -30,12 +30,12 @@ def generate_scheme(
     teacher_profiles: dict | None = None,
     *,
     rng: random.Random,
-    population_size: int = 60,
-    generations: int = 60,
-    elite_size: int = 5,
-    tournament_size: int = 4,
-    mutation_rate: float = 0.15,
-    init_candidate_top_n: int = 40,
+    population_size: int,
+    generations: int,
+    elite_size: int,
+    tournament_size: int,
+    mutation_rate: float,
+    init_candidate_top_n: int,
     scoring_config: dict[str, Any] | None = None,
     llm_overrides: list[dict] | None = None,
 ) -> tuple[list[dict[str, Any]], dict[str, Any]]:
@@ -313,7 +313,6 @@ def _to_rows(
                 })
 
     return rows
-
 
 def _parse_id_tuple(value: Any) -> tuple[int, ...]:
     if value is None:
