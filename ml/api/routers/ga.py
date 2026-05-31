@@ -21,6 +21,9 @@ from ml.scheduling.pipeline import generate_scheme
 from ml.scheduling.scoring import build_scoring_config
 from ml.scheduling.infra.constants import PROJECT_LOG_DIR
 from ml.scheduling.teacher_profiles import load_teacher_profiles_jsonl
+from ml.channels.integration import generate_v2
+
+V2_ENABLED = True  # Toggle V2 engine
 
 router = APIRouter(tags=["ga"])
 
@@ -123,6 +126,42 @@ async def translate_constraint(request: TranslateRequest):
         "constraints": constraints,
         "count": len(constraints),
     }
+
+
+# ── V2 output writer ─────────────────────────────────
+def _write_v2_output(task_id: int, result: dict) -> Path:
+    """Write V2 beam search result as scheme files."""
+    from datetime import datetime as dt
+    ts = dt.now().strftime("%Y%m%d%H%M%S%f")[:-3]
+    out = Path(__file__).resolve().parents[1] / "data" / "generated" / f"task_{task_id}_{ts}"
+    out.mkdir(parents=True, exist_ok=True)
+
+    assignments = result.get("assignments", [])
+    conflict_info = result.get("conflicts", {})
+    stats = result.get("stats", {})
+
+    scheme_data = {
+        "items": assignments,
+        "v2_engine": True,
+        "total_score": result.get("total_score", 0),
+        "assign_rate": stats.get("assign_rate", 0),
+        "conflict_count": conflict_info.get("conflict_count", 0),
+        "conflict_clusters": len(conflict_info.get("conflict_graph", {}).get("clusters", [])),
+    }
+
+    (out / "schemes.jsonl").write_text(
+        json.dumps(scheme_data, ensure_ascii=False, default=str)
+    )
+    (out / "ga_summary.json").write_text(json.dumps({
+        "v2_engine": True,
+        "assignments": len(assignments),
+        "total_score": result.get("total_score", 0),
+        "assign_rate": stats.get("assign_rate", 0),
+        "conflicts": conflict_info.get("conflict_count", 0),
+        "unassigned": stats.get("unassigned", 0),
+    }, ensure_ascii=False, indent=2))
+    _log.info("V2 output: %s assignments → %s", len(assignments), out)
+    return out
 
 
 # ── GA generation (inlined from scripts/generate_scheme_ga.py) ─────
@@ -287,8 +326,19 @@ def _run_generation(task_id: int, teacher_profiles_jsonl: str | None = None) -> 
     tid_set = set(teaching_task_ids)
     tasks = [t for t in tasks if int(t.get("teaching_task_id") or 0) in tid_set]
 
-    # ── Batch mode: split by class_group if tasks > threshold ──
-    BATCH_THRESHOLD = 30  # per-class GA works best with ≤ 30 tasks
+    # ── V2 engine (Beam Search) or legacy GA batch ──
+    if V2_ENABLED:
+        _log.info("✅ V2 engine: %d tasks → Beam Search", len(tasks))
+        v2_result = generate_v2(tasks, classrooms, time_slots, beam_width=3)
+        if v2_result.get("success"):
+            # Wrap V2 result into expected scheme format
+            out_dir = _write_v2_output(task_id, v2_result)
+            return {"output_dir": str(out_dir), "scheme_count": 1, "timings_ms": {}}
+        else:
+            _log.warning("V2 failed: %s, falling back to GA", v2_result.get("error"))
+    
+    # Legacy batch GA fallback (split by class_group if tasks > 30)
+    BATCH_THRESHOLD = 30
     if len(tasks) > BATCH_THRESHOLD:
         _log.info("Batch mode: %d tasks > %d → splitting by class_group", len(tasks), BATCH_THRESHOLD)
         return _run_batch_generation(tasks, classrooms, time_slots, teacher_profiles,
