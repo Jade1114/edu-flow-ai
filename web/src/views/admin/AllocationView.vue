@@ -304,11 +304,20 @@ async function applyLlmWeights() {
       const config = taskForm.value.generationConfig;
       taskForm.value.generationConfig = {
         ...config,
+        teacherProfilePenaltyScale:
+          params.teacher_profile_penalty_scale ?? config.teacherProfilePenaltyScale,
         earlyPeriodPenalty:
           params.early_period_penalty ?? config.earlyPeriodPenalty,
         latePeriodPenalty:
           params.late_period_penalty ?? config.latePeriodPenalty,
         weekendPenalty: params.weekend_penalty ?? config.weekendPenalty,
+        sameDayWeight: params.same_day_weight ?? config.sameDayWeight,
+        teacherDayLoadPenalty:
+          params.teacher_day_load_penalty ?? config.teacherDayLoadPenalty,
+        classDayLoadPenalty:
+          params.class_day_load_penalty ?? config.classDayLoadPenalty,
+        teacherOverloadPenalty:
+          params.teacher_overload_penalty ?? config.teacherOverloadPenalty,
       };
       llmWeightsApplied.value = true;
       taskPolicyPreset.value = "CUSTOM";
