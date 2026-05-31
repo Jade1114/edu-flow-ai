@@ -270,38 +270,38 @@ def extract_student_count(title: str) -> int:
 def write_outputs(data: dict):
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
     
-    # 1. teachers.json
+    # 1. teachers.jsonl
     teachers_list = sorted(data["teachers"].values(), key=lambda x: x["name"])
-    (OUTPUT_DIR / "teachers.json").write_text(
-        json.dumps(teachers_list, ensure_ascii=False, indent=2), encoding="utf-8"
-    )
-    print(f"  📄 teachers.json — {len(teachers_list)} 人")
-    
-    # 2. classrooms.json
+    with open(OUTPUT_DIR / "teachers.jsonl", "w", encoding="utf-8") as f:
+        for t in teachers_list:
+            f.write(json.dumps(t, ensure_ascii=False) + "\n")
+    print(f"  📄 teachers.jsonl — {len(teachers_list)} 人")
+
+    # 2. classrooms.jsonl
     classrooms_list = sorted(data["classrooms"].values(), key=lambda x: x["name"])
-    (OUTPUT_DIR / "classrooms.json").write_text(
-        json.dumps(classrooms_list, ensure_ascii=False, indent=2), encoding="utf-8"
-    )
-    print(f"  📄 classrooms.json — {len(classrooms_list)} 间")
-    
-    # 3. courses.json
+    with open(OUTPUT_DIR / "classrooms.jsonl", "w", encoding="utf-8") as f:
+        for r in classrooms_list:
+            f.write(json.dumps(r, ensure_ascii=False) + "\n")
+    print(f"  📄 classrooms.jsonl — {len(classrooms_list)} 间")
+
+    # 3. courses.jsonl
     courses_list = sorted(data["courses"].values(), key=lambda x: x["code"])
-    (OUTPUT_DIR / "courses.json").write_text(
-        json.dumps(courses_list, ensure_ascii=False, indent=2), encoding="utf-8"
-    )
-    print(f"  📄 courses.json — {len(courses_list)} 门")
-    
-    # 4. class_groups.json
-    (OUTPUT_DIR / "class_groups.json").write_text(
-        json.dumps(data["class_groups"], ensure_ascii=False, indent=2), encoding="utf-8"
-    )
-    print(f"  📄 class_groups.json — {len(data['class_groups'])} 个")
-    
-    # 5. teaching_tasks.json
-    (OUTPUT_DIR / "teaching_tasks.json").write_text(
-        json.dumps(data["teaching_tasks"], ensure_ascii=False, indent=2), encoding="utf-8"
-    )
-    print(f"  📄 teaching_tasks.json — {len(data['teaching_tasks'])} 条")
+    with open(OUTPUT_DIR / "courses.jsonl", "w", encoding="utf-8") as f:
+        for c in courses_list:
+            f.write(json.dumps(c, ensure_ascii=False) + "\n")
+    print(f"  📄 courses.jsonl — {len(courses_list)} 门")
+
+    # 4. class_groups.jsonl
+    with open(OUTPUT_DIR / "class_groups.jsonl", "w", encoding="utf-8") as f:
+        for g in data["class_groups"]:
+            f.write(json.dumps(g, ensure_ascii=False) + "\n")
+    print(f"  📄 class_groups.jsonl — {len(data['class_groups'])} 个")
+
+    # 5. teaching_tasks.jsonl
+    with open(OUTPUT_DIR / "teaching_tasks.jsonl", "w", encoding="utf-8") as f:
+        for tt in data["teaching_tasks"]:
+            f.write(json.dumps(tt, ensure_ascii=False) + "\n")
+    print(f"  📄 teaching_tasks.jsonl — {len(data['teaching_tasks'])} 条")
     
     # 6. timetables.jsonl (JSON Lines — 逐行可读，适合海量数据)
     with open(OUTPUT_DIR / "timetables.jsonl", "w", encoding="utf-8") as f:
