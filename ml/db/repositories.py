@@ -164,12 +164,12 @@ def fetch_generation_config(connection, task_id: int) -> dict[str, Any] | None:
         SELECT
             allowed_weeks, allowed_weekdays, allowed_periods,
             scheme_count,
-            teacher_profile_penalty_scale, distribution_penalty_scale,
-            classroom_stickiness_weight, compact_bonus_weight,
-            weekday_load_penalty, room_day_load_penalty,
-            room_week_load_penalty, task_day_load_penalty,
-            early_period_penalty, late_period_penalty,
-            random_jitter, classroom_stickiness_bonus, weekend_penalty
+            teacher_profile_penalty_scale,
+            early_period_penalty, late_period_penalty, weekend_penalty,
+            model_weight, llm_weight,
+            same_day_weight, capacity_waste_penalty,
+            teacher_day_load_penalty, class_day_load_penalty,
+            teacher_overload_penalty
         FROM allocation_task_generation_config
         WHERE task_id = %s
         """,
