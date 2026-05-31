@@ -37,6 +37,8 @@ CREATE TABLE IF NOT EXISTS teacher_profile (
 CREATE TABLE IF NOT EXISTS course (
     id BIGINT PRIMARY KEY AUTO_INCREMENT,
     name VARCHAR(100) NOT NULL,
+    code VARCHAR(32) NULL COMMENT '课程代码（如软184、云126）',
+    credits DECIMAL(4,1) NULL COMMENT '学分',
     course_type VARCHAR(50) NULL,
     required_room_type VARCHAR(50) NULL COMMENT '课程所需教室类型 普通教室/阶梯教室/机房实验室',
     required_hours INT NULL,
@@ -45,6 +47,7 @@ CREATE TABLE IF NOT EXISTS course (
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     UNIQUE KEY uk_course_name (name),
+    INDEX idx_course_code (code),
     INDEX idx_course_status (status),
     INDEX idx_course_name (name)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
