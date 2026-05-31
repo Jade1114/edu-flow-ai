@@ -28,14 +28,26 @@ PERIOD_START = {0: 1, 1: 3, 2: 5, 3: 7, 4: 9}
 # ── 文件名解析 ────────────────────────────────────────
 def parse_filename(fname: str) -> dict:
     """从文件名提取年级、专业、班级"""
-    # 2023级软件工程2班课表_xxx.xls
-    m = re.search(r'(\d{4})级(.+?)(\d+)班', fname)
+    # 标准格式: 2023级软件工程2班课表_xxx.xls
+    # 特殊格式: 2024级工商管理（国际）班课表_xxx.xls（无班号）
+    m = re.search(r'(\d{4})级(.+?)班', fname)
     if not m:
         return {"grade": "?", "major": "?", "class_no": "?"}
+    
+    major_part = m.group(2).strip()  # e.g. "软件工程2" or "工商管理（国际）"
+    # 提取班号：最后连续数字
+    num_m = re.search(r'(\d+)$', major_part)
+    if num_m:
+        class_no = int(num_m.group(1))
+        major = major_part[:-len(num_m.group(1))].strip()
+    else:
+        class_no = 1  # 无班号默认1班
+        major = major_part
+    
     return {
         "grade": int(m.group(1)),
-        "major": m.group(2).strip(),
-        "class_no": int(m.group(3)),
+        "major": major,
+        "class_no": class_no,
     }
 
 
@@ -146,6 +158,8 @@ def collect_all():
     
     semester = "2025-2026-1"  # 当前总课表学期
     
+    warnings = []  # Data quality warnings
+
     for fi, path in enumerate(xls_files):
         if (fi + 1) % 100 == 0:
             print(f"  进度: {fi+1}/{len(xls_files)}...")
@@ -158,8 +172,22 @@ def collect_all():
         
         meta = data["meta"]
         
+        # 校验：文件名解析异常
+        if meta["grade"] == "?":
+            print(f"  ⚠️ 文件名解析失败: {path.name}")
+            continue
+        
         # 班级信息
         class_key = f"{meta['grade']}级{meta['major']}{meta['class_no']}班"
+        
+        # 校验：学生数异常
+        stu_cnt = extract_student_count(data["title"])
+        if 0 < stu_cnt < 5:
+            warnings.append(f"   ⚠️ 学生数异常: {class_key} — {stu_cnt}人 (数据确认中)")
+        
+        # 校验：课程数为0
+        if len(data["courses"]) == 0:
+            warnings.append(f"   ⚠️ 课程数为0: {class_key}")
         all_class_groups.append({
             "key": class_key,
             "grade": meta["grade"],
@@ -244,6 +272,10 @@ def collect_all():
         info["rooms"] = list(info["rooms"])
     
     print(f"\n✅ 解析完成！")
+    if warnings:
+        print(f"\n⚠️  数据校验告警（{len(warnings)} 条）：")
+        for w in warnings:
+            print(w)
     print(f"   {len(all_class_groups)} 个班级")
     print(f"   {len(all_courses)} 门课程")
     print(f"   {len(all_teachers)} 位教师")
