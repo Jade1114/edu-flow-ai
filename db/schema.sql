@@ -46,7 +46,7 @@ CREATE TABLE IF NOT EXISTS course (
     status VARCHAR(20) NOT NULL DEFAULT 'ACTIVE',
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-    UNIQUE KEY uk_course_name (name),
+    UNIQUE KEY uk_course_name_code (name, code),
     INDEX idx_course_code (code),
     INDEX idx_course_status (status),
     INDEX idx_course_name (name)

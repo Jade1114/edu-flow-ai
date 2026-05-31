@@ -167,16 +167,15 @@ def import_time_slots(cursor):
     log(f"✅ time_slot: {count} 条（20周×5天×5节次）")
 
 
-def import_teaching_tasks(cursor, course_id_by_name, teacher_id_map, room_id_map, class_group_map):
+def import_teaching_tasks(cursor, course_id_by_code, teacher_id_map, room_id_map, class_group_map):
     data = load_jsonl("teaching_tasks.jsonl")
     
-    # 预处理：class_group_map 的 key 是 "2023级软件工程2班"
     task_count = 0
     cg_count = 0
     skipped = 0
     
     for tt in data:
-        course_id = course_id_by_name.get(tt["course_name"])
+        course_id = course_id_by_code.get(tt["course_code"])
         teacher_id = teacher_id_map.get(tt["teacher"])
         
         if not course_id or not teacher_id:
@@ -265,7 +264,7 @@ def main():
             import_time_slots(cursor)
             
             print("\n📥 6/8 教学任务 + 班级关联...")
-            import_teaching_tasks(cursor, course_by_name, teacher_map, room_map, cg_map)
+            import_teaching_tasks(cursor, course_by_code, teacher_map, room_map, cg_map)
             
             conn.commit()
             print(f"\n{'='*50}")
