@@ -180,15 +180,19 @@ def _run_batch_generation(
     all_by_scheme = [{"items": []} for _ in range(scheme_count)]
     all_summaries = []
 
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+    
+    MAX_WORKERS = min(8, len(class_list))
+    
     for si in range(scheme_count):
         _log.info("=== Scheme %d/%d ===", si + 1, scheme_count)
         merged_rows = []
+        completed = 0
 
-        for ci, cg_name in enumerate(class_list):
+        def _run_one_class(cg_name, ci):
             cg_tasks = tasks_by_class[cg_name]
             seed = (task_id * 1_000_003 + si * 9_176 + ci * 7919 + 17) % 2_147_483_647
             rng = _random.Random(seed)
-
             try:
                 rows, m = generate_scheme(
                     cg_tasks, classrooms, time_slots, profiles,
@@ -201,12 +205,25 @@ def _run_batch_generation(
                     init_candidate_top_n=int(ga_params["candidate_top_n"]),
                     scoring_config=scoring_config,
                 )
-                merged_rows.extend(rows)
-                _log.debug("  [%d/%d] %s: %d tasks → quality=%.3f",
-                           ci + 1, len(class_list), cg_name,
-                           len(cg_tasks), m.get("quality_score", 0))
+                return (cg_name, rows, m, None)
             except Exception as e:
-                _log.warning("  Class %s FAILED: %s", cg_name, e)
+                return (cg_name, [], {}, str(e))
+
+        with ThreadPoolExecutor(max_workers=MAX_WORKERS) as pool:
+            futures = {
+                pool.submit(_run_one_class, cg_name, ci): cg_name
+                for ci, cg_name in enumerate(class_list)
+            }
+            for future in as_completed(futures):
+                cg_name, rows, m, err = future.result()
+                completed += 1
+                if err:
+                    _log.warning("  [%d/%d] %s FAILED: %s", completed, len(class_list), cg_name, err)
+                else:
+                    merged_rows.extend(rows)
+                    _log.debug("  [%d/%d] %s: %d tasks → quality=%.3f",
+                               completed, len(class_list), cg_name,
+                               len(rows), m.get("quality_score", 0))
 
         # Conflict detection
         teacher_slot = defaultdict(list)
