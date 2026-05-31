@@ -84,7 +84,11 @@ public class AllocationMlSchemeService {
 		Map<String, Object> requestBody = new LinkedHashMap<>();
 		requestBody.put("task_id", task.getId());
 		Path teacherProfilesJsonl = teacherProfileSnapshotService.exportForAllocationTask(task.getId());
-		requestBody.put("teacher_profiles_jsonl", teacherProfilesJsonl.toString());
+		if (teacherProfilesJsonl != null) {
+			requestBody.put("teacher_profiles_jsonl", teacherProfilesJsonl.toString());
+		} else {
+			log.warn("教师画像不可用，排课将在无教师画像约束下进行：taskId={}", task.getId());
+		}
 
 		log.info("ML GA scheme generator starting (HTTP): taskId={}, taskName={}",
 			task.getId(), task.getName());

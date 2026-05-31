@@ -34,10 +34,20 @@ public class TeacherProfileSnapshotService {
 
 	public Path exportForAllocationTask(Long taskId) {
 		List<TeacherProfile> profiles = teacherProfileMapper.findByAllocationTaskId(taskId);
-		Path path = resolveProjectRoot()
-			.resolve("ml")
-			.resolve("data")
-			.resolve("profiles")
+		if (profiles.isEmpty()) {
+			log.warn("教师画像为空，将不使用教师画像约束：taskId={}", taskId);
+			return null;
+		}
+		
+		Path root;
+		try {
+			root = resolveProjectRoot();
+		} catch (BusinessException e) {
+			log.warn("无法定位项目根目录，跳过教师画像快照导出：taskId={}", taskId);
+			return null;
+		}
+		
+		Path path = root.resolve("ml").resolve("data").resolve("profiles")
 			.resolve("snapshots")
 			.resolve("task_" + taskId + "_" + LocalDateTime.now().format(FILE_TS) + ".teacher_profiles.jsonl");
 
@@ -52,7 +62,8 @@ public class TeacherProfileSnapshotService {
 				taskId, profiles.size(), path);
 			return path;
 		} catch (IOException exception) {
-			throw new BusinessException(500, "导出教师画像快照失败：" + exception.getMessage(), exception);
+			log.warn("导出教师画像快照失败，将不使用教师画像约束：taskId={}", taskId);
+			return null;
 		}
 	}
 
