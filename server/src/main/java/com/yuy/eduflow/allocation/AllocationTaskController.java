@@ -165,4 +165,17 @@ public class AllocationTaskController {
 		allocationTaskService.deleteConstraint(id, constraintId);
 		return ApiResponse.success();
 	}
+
+	@GetMapping("/{id}/config")
+	public ApiResponse<AllocationTaskGenerationConfig> getConfig(@PathVariable Long id) {
+		return ApiResponse.success(allocationTaskService.getGenerationConfig(id));
+	}
+
+	@PutMapping("/{id}/config")
+	public ApiResponse<AllocationTaskGenerationConfig> updateConfig(
+		@PathVariable Long id,
+		@RequestBody AllocationTaskGenerationConfigRequest request
+	) {
+		return ApiResponse.success(allocationTaskService.updateGenerationConfig(id, request));
+	}
 }

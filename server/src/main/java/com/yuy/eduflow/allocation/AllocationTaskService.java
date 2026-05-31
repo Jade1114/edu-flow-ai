@@ -61,6 +61,19 @@ public class AllocationTaskService {
 		return config != null ? config : defaultGenerationConfig(taskId);
 	}
 
+	@Transactional
+	public AllocationTaskGenerationConfig updateGenerationConfig(Long taskId, AllocationTaskGenerationConfigRequest request) {
+		findById(taskId);
+		AllocationTaskGenerationConfig config = toGenerationConfig(taskId, request);
+		AllocationTaskGenerationConfig existing = generationConfigMapper.findByTaskId(taskId);
+		if (existing == null) {
+			generationConfigMapper.insert(config);
+		} else {
+			generationConfigMapper.updateByTaskId(config);
+		}
+		return generationConfigMapper.findByTaskId(taskId);
+	}
+
 	private List<TeachingTask> loadTeachingTasks(Long taskId) {
 		List<AllocationTaskTeachingTaskResult> results = allocationTaskMapper.findTeachingTasks(taskId);
 		return results.stream().map(this::toTeachingTask).collect(Collectors.toList());
@@ -178,6 +191,13 @@ public class AllocationTaskService {
 		config.setLlmPrompt(request.llmPrompt());
 		config.setLlmResultJson(request.llmResultJson());
 		config.setLlmOverrides(request.llmOverrides());
+		config.setModelWeight(defaultDecimal(request.modelWeight(), "0.600000"));
+		config.setLlmWeight(defaultDecimal(request.llmWeight(), "0.400000"));
+		config.setSameDayWeight(defaultDecimal(request.sameDayWeight(), "0.050000"));
+		config.setCapacityWastePenalty(defaultDecimal(request.capacityWastePenalty(), "0.000000"));
+		config.setTeacherDayLoadPenalty(defaultDecimal(request.teacherDayLoadPenalty(), "0.000000"));
+		config.setClassDayLoadPenalty(defaultDecimal(request.classDayLoadPenalty(), "0.000000"));
+		config.setTeacherOverloadPenalty(defaultDecimal(request.teacherOverloadPenalty(), "0.000000"));
 		return config;
 	}
 

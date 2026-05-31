@@ -13,6 +13,13 @@ public record AllocationTaskGenerationConfigRequest(
 	BigDecimal weekendPenalty,
 	String llmPrompt,
 	String llmResultJson,
-	String llmOverrides
+	String llmOverrides,
+	BigDecimal modelWeight,
+	BigDecimal llmWeight,
+	BigDecimal sameDayWeight,
+	BigDecimal capacityWastePenalty,
+	BigDecimal teacherDayLoadPenalty,
+	BigDecimal classDayLoadPenalty,
+	BigDecimal teacherOverloadPenalty
 ) {
 }
