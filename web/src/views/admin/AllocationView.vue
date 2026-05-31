@@ -186,9 +186,16 @@ const activePolicy = ref("BALANCED");
 const teachingTasks = ref([]);
 
 // 教学任务过滤
+const taskFilterDept = ref("");
 const taskFilterCourse = ref("");
 const taskFilterTeacher = ref("");
 const taskFilterClassGroup = ref("");
+
+const taskFilterDeptOptions = computed(() => {
+  const names = teachingTasks.value.flatMap((t) => (t.classGroups || [])
+    .filter((cg) => cg.department).map((cg) => cg.department));
+  return [...new Set(names)].sort().map((n) => ({ label: n, value: n }));
+});
 
 const taskFilterCourseOptions = computed(() => {
   const names = teachingTasks.value.map((t) => (t.course || {}).name || "").filter((n) => n);
@@ -205,6 +212,9 @@ const taskFilterClassGroupOptions = computed(() => {
 
 const filteredTeachingTasks = computed(() => {
   let list = teachingTasks.value;
+  if (taskFilterDept.value) {
+    list = list.filter((t) => (t.classGroups || []).some((cg) => cg.department === taskFilterDept.value));
+  }
   if (taskFilterCourse.value) {
     list = list.filter((t) => (t.course || {}).name === taskFilterCourse.value);
   }
@@ -1855,6 +1865,9 @@ onUnmounted(() => {
         </template>
         <el-form-item label="教学任务">
           <div style="margin-bottom: 8px; display: flex; gap: 8px; align-items: center; flex-wrap: wrap">
+            <el-select v-model="taskFilterDept" placeholder="院系" clearable size="small" style="width: 160px" @change="onTaskFilterChange">
+              <el-option v-for="o in taskFilterDeptOptions" :key="o.value" :label="o.label" :value="o.value" />
+            </el-select>
             <el-select v-model="taskFilterCourse" placeholder="课程" clearable size="small" style="width: 140px" @change="onTaskFilterChange">
               <el-option v-for="o in taskFilterCourseOptions" :key="o.value" :label="o.label" :value="o.value" />
             </el-select>
@@ -1886,7 +1899,7 @@ onUnmounted(() => {
               label="教师"
               width="80"
             />
-            <el-table-column label="班级" width="150">
+            <el-table-column label="班级" width="200" show-overflow-tooltip>
               <template #default="{ row }">
                 {{ row.classGroups?.map((cg) => cg.name).join(", ") || "-" }}
               </template>

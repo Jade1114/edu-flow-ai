@@ -80,7 +80,7 @@ public interface TeachingTaskMapper {
     int deleteClassGroups(Long teachingTaskId);
 
     @Select("""
-            SELECT cg.id, cg.name, cg.major, cg.grade, cg.student_count, cg.description
+            SELECT cg.id, cg.name, cg.major, cg.department, cg.grade, cg.student_count, cg.description
             FROM class_group cg
             JOIN teaching_task_class_group ttcg ON cg.id = ttcg.class_group_id
             WHERE ttcg.teaching_task_id = #{teachingTaskId}

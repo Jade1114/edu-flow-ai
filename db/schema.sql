@@ -56,6 +56,7 @@ CREATE TABLE IF NOT EXISTS class_group (
     id BIGINT PRIMARY KEY AUTO_INCREMENT,
     name VARCHAR(100) NOT NULL,
     major VARCHAR(100) NULL,
+    department VARCHAR(100) NULL COMMENT '所属院系',
     grade VARCHAR(20) NULL,
     student_count INT NULL,
     description TEXT NULL,

@@ -8,6 +8,7 @@ public class ClassGroup {
 	private Long id;
 	private String name;
 	private String major;
+	private String department;
 	private String grade;
 	private Integer studentCount;
 	private String description;
