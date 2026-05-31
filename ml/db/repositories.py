@@ -50,7 +50,8 @@ def fetch_tasks(connection) -> list[dict[str, Any]]:
             COALESCE(SUM(cg.student_count), 0) AS total_student_count,
             GROUP_CONCAT(cg.id ORDER BY cg.id) AS class_group_ids,
             GROUP_CONCAT(cg.major ORDER BY cg.id) AS class_group_majors,
-            GROUP_CONCAT(cg.grade ORDER BY cg.id) AS class_group_grades
+            GROUP_CONCAT(cg.grade ORDER BY cg.id) AS class_group_grades,
+            GROUP_CONCAT(cg.name ORDER BY cg.id) AS class_group_names
         FROM teaching_task tt
         JOIN course c ON c.id = tt.course_id
         JOIN teacher t ON t.id = tt.primary_teacher_id

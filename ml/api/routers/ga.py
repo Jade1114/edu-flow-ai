@@ -145,6 +145,96 @@ def _setup_logger() -> logging.Logger:
     return _log
 
 
+def _run_batch_generation(
+    tasks: "list[dict]",
+    classrooms: "list[dict]",
+    time_slots: "list[dict]",
+    teacher_profiles: "dict|None",
+    task_id: int,
+    raw_config: "dict|None",
+    teacher_profiles_jsonl: "str|None",
+) -> "dict":
+    """Run per-class GA and merge results with conflict detection."""
+    from collections import defaultdict
+
+    tasks_by_class: "dict[str, list[dict]]" = defaultdict(list)
+    for t in tasks:
+        cg = t.get("class_group_names") or t.get("class_group_majors") or "?"
+        if isinstance(cg, str) and "," in cg:
+            cg = cg.split(",")[0]
+        tasks_by_class[cg].append(t)
+
+    _log.info("Batch: %d classes, total %d tasks", len(tasks_by_class), len(tasks))
+
+    ga_params = resolve_ga_params(_log)
+    scheme_count = _resolve_scheme_count(raw_config)
+    scoring_config = build_scoring_config(raw_config)
+
+    profiles = teacher_profiles
+    profile_path = teacher_profiles_jsonl or os.environ.get("TEACHER_PROFILES_JSONL")
+    if profile_path:
+        profiles = load_teacher_profiles_jsonl(profile_path)
+
+    import random as _random
+    class_list = sorted(tasks_by_class.keys())
+    all_by_scheme = [{"items": []} for _ in range(scheme_count)]
+    all_summaries = []
+
+    for si in range(scheme_count):
+        _log.info("=== Scheme %d/%d ===", si + 1, scheme_count)
+        merged_rows = []
+
+        for ci, cg_name in enumerate(class_list):
+            cg_tasks = tasks_by_class[cg_name]
+            seed = (task_id * 1_000_003 + si * 9_176 + ci * 7919 + 17) % 2_147_483_647
+            rng = _random.Random(seed)
+
+            try:
+                rows, m = generate_scheme(
+                    cg_tasks, classrooms, time_slots, profiles,
+                    rng=rng,
+                    population_size=int(ga_params["population_size"]),
+                    generations=int(ga_params["generations"]),
+                    elite_size=int(ga_params["elite_size"]),
+                    tournament_size=int(ga_params["tournament_size"]),
+                    mutation_rate=float(ga_params["mutation_rate"]),
+                    init_candidate_top_n=int(ga_params["candidate_top_n"]),
+                    scoring_config=scoring_config,
+                )
+                merged_rows.extend(rows)
+                _log.debug("  [%d/%d] %s: %d tasks → quality=%.3f",
+                           ci + 1, len(class_list), cg_name,
+                           len(cg_tasks), m.get("quality_score", 0))
+            except Exception as e:
+                _log.warning("  Class %s FAILED: %s", cg_name, e)
+
+        # Conflict detection
+        teacher_slot = defaultdict(list)
+        for row in merged_rows:
+            slot = (row.get("week_number"), row.get("day_of_week"), row.get("period_index"))
+            teacher_slot[(row.get("teaching_task_id"), *slot)].append(row)
+
+        t_conf = sum(1 for v in teacher_slot.values() if len(v) > 1)
+        _log.info("  Scheme %d: %d assignments, teacher_conflicts=%d",
+                  si + 1, len(merged_rows), t_conf)
+
+        all_by_scheme[si] = {"items": merged_rows}
+        all_summaries.append({
+            "scheme_index": si + 1, "ga_profile": ga_params.get("profile"),
+            "class_count": len(class_list), "total_assignments": len(merged_rows),
+            "teacher_conflicts": t_conf,
+        })
+
+    ts = dt.now().strftime("%Y%m%d%H%M%S%f")[:-3]
+    out = Path(__file__).resolve().parents[1] / "data" / "generated" / f"task_{task_id}_{ts}"
+    out.mkdir(parents=True, exist_ok=True)
+    (out / "schemes.jsonl").write_text(
+        "\n".join(json.dumps(s, ensure_ascii=False, default=str) for s in all_by_scheme))
+    (out / "ga_summary.json").write_text(json.dumps(all_summaries, ensure_ascii=False, indent=2))
+    _log.info("Wrote batch results to %s", out)
+    return {"output_dir": str(out), "scheme_count": len(all_by_scheme), "timings_ms": {}}
+
+
 def _run_generation(task_id: int, teacher_profiles_jsonl: str | None = None) -> dict[str, Any]:
     _setup_logger()
     db = load_db_config()
@@ -180,6 +270,13 @@ def _run_generation(task_id: int, teacher_profiles_jsonl: str | None = None) -> 
     tid_set = set(teaching_task_ids)
     tasks = [t for t in tasks if int(t.get("teaching_task_id") or 0) in tid_set]
 
+    # ── Batch mode: split by class_group if tasks > threshold ──
+    BATCH_THRESHOLD = 30  # per-class GA works best with ≤ 30 tasks
+    if len(tasks) > BATCH_THRESHOLD:
+        _log.info("Batch mode: %d tasks > %d → splitting by class_group", len(tasks), BATCH_THRESHOLD)
+        return _run_batch_generation(tasks, classrooms, time_slots, teacher_profiles,
+                                     task_id, raw_config, teacher_profiles_jsonl)
+    
     scheme_count = _resolve_scheme_count(raw_config)
     ga_params = resolve_ga_params(_log)
     profile_jsonl_path = teacher_profiles_jsonl or os.environ.get("TEACHER_PROFILES_JSONL")
