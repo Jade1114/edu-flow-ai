@@ -20,7 +20,7 @@ import org.springframework.web.client.RestClient;
 /**
  * HTTP client for the Python FastAPI ML service.
  *
- * Submits GA job via POST, then waits for result via SSE stream.
+ * Submits a V3 scheduling job via POST, then waits for result via SSE stream.
  */
 @Slf4j
 @Component
@@ -96,10 +96,10 @@ public class MlApiClient {
 		}
 	}
 
-	// ── Async GA Generation (SSE) ─────────────────────────────────────
+	// ── Async V3 Generation (SSE) ─────────────────────────────────────
 
 	/**
-	 * Submit a GA job via POST, then wait via SSE. Returns output_dir string.
+	 * Submit a V3 scheduling job via POST, then wait via SSE. Returns output_dir string.
 	 */
 	public String generateSchemes(Map<String, Object> requestParams) {
 		String taskId = submitGenerateSchemes(requestParams);

@@ -63,7 +63,7 @@ public class AllocationMlSchemeService {
 		try {
 			schemes = parseGeneratedSchemes(outputDir, taskId);
 		} catch (IOException exception) {
-			throw new BusinessException(500, "解析模型方案 CSV 文件失败：" + exception.getMessage(), exception);
+			throw new BusinessException(500, "解析模型方案 JSONL 文件失败：" + exception.getMessage(), exception);
 		}
 		return new AllocationGenerationPreview(
 			taskId,
@@ -74,7 +74,7 @@ public class AllocationMlSchemeService {
 
 	/**
 	 * Call Python FastAPI to generate schemes. Returns the output_dir from the response
-	 * so the caller can read generated CSV files.
+	 * so the caller can read generated JSONL files.
 	 */
 	@SuppressWarnings("unchecked")
 	private Path runModelScript(
@@ -90,7 +90,7 @@ public class AllocationMlSchemeService {
 			log.warn("教师画像不可用，排课将在无教师画像约束下进行：taskId={}", task.getId());
 		}
 
-		log.info("ML GA scheme generator starting (HTTP): taskId={}, taskName={}",
+		log.info("ML V3 scheme generator starting (HTTP): taskId={}, taskName={}",
 			task.getId(), task.getName());
 
 		progressReporter.accept(running("ml", "调用自训练排课模型生成候选方案...", 15));
@@ -129,65 +129,56 @@ public class AllocationMlSchemeService {
 		}
 	}
 
-	private record GaSummaryData(String rawJson, String teacherProfileAuditJson, String roomRankerJson, String lightgbmJson, Double qualityScore) {}
+	private record SolverSummaryData(String rawJson, String teacherProfileAuditJson, Double qualityScore) {}
 
-	private List<GaSummaryData> loadGaSummaries(Path outputDir) {
-		Path jsonPath = outputDir.resolve("ga_summary.json");
+	private List<SolverSummaryData> loadSolverSummaries(Path outputDir) {
+		Path jsonPath = outputDir.resolve("cp_sat_summary.json");
 		if (!Files.exists(jsonPath)) {
-			return List.of();
+			jsonPath = outputDir.resolve("ga_summary.json");
+			if (!Files.exists(jsonPath)) {
+				return List.of();
+			}
 		}
 		try {
 			String rawJson = Files.readString(jsonPath, StandardCharsets.UTF_8);
-			List<GaSummaryData> summaries = new ArrayList<>();
+			List<SolverSummaryData> summaries = new ArrayList<>();
 			@SuppressWarnings("unchecked")
 			Map<String, Object> summaryMap = objectMapper.readValue(rawJson, Map.class);
-			String roomRankerJson = extractJsonField(rawJson, "room_ranker");
-			String lightgbmJson = extractJsonField(rawJson, "lightgbm");
 			String teacherProfileAuditJson = extractJsonField(rawJson, "teacher_profile_audit");
 			@SuppressWarnings("unchecked")
 			List<Map<String, Object>> schemeSummaries = (List<Map<String, Object>>) summaryMap.getOrDefault("schemes", List.of());
 			if (schemeSummaries.isEmpty()) {
-				summaries.add(new GaSummaryData(
+				summaries.add(new SolverSummaryData(
 					rawJson,
 					teacherProfileAuditJson,
-					roomRankerJson,
-					lightgbmJson,
 					summaryMap.get("quality_score") instanceof Number n ? n.doubleValue() : null
 				));
 				return summaries;
 			}
 			for (Map<String, Object> schemeSummary : schemeSummaries) {
 				Double qualityScore = schemeSummary.get("quality_score") instanceof Number n ? n.doubleValue() : null;
-				summaries.add(new GaSummaryData(
+				summaries.add(new SolverSummaryData(
 					rawJson,
 					teacherProfileAuditJson,
-					roomRankerJson,
-					lightgbmJson,
 					qualityScore
 				));
 			}
 			return summaries;
 		} catch (IOException e) {
-			log.warn("Failed to parse GA summary JSON {}: {}", jsonPath, e.getMessage());
+			log.warn("Failed to parse ML solver summary JSON {}: {}", jsonPath, e.getMessage());
 			return List.of();
 		}
 	}
 
-	private String mergeEvaluationSummary(EvaluationData evaluation, GaSummaryData gaSummary) {
+	private String mergeEvaluationSummary(EvaluationData evaluation, SolverSummaryData solverSummary) {
 		String evaluationJson = evaluation != null ? cleanJsonObject(evaluation.evaluationSummary()) : null;
-		if (gaSummary == null || gaSummary.rawJson() == null || gaSummary.rawJson().isBlank()) {
+		if (solverSummary == null || solverSummary.rawJson() == null || solverSummary.rawJson().isBlank()) {
 			return evaluationJson;
 		}
 		List<String> extraFields = new ArrayList<>();
-		extraFields.add("\"ga_summary\":" + gaSummary.rawJson());
-		if (gaSummary.teacherProfileAuditJson() != null) {
-			extraFields.add("\"teacher_profile_audit\":" + gaSummary.teacherProfileAuditJson());
-		}
-		if (gaSummary.roomRankerJson() != null) {
-			extraFields.add("\"room_ranker\":" + gaSummary.roomRankerJson());
-		}
-		if (gaSummary.lightgbmJson() != null) {
-			extraFields.add("\"lightgbm\":" + gaSummary.lightgbmJson());
+		extraFields.add("\"solver_summary\":" + solverSummary.rawJson());
+		if (solverSummary.teacherProfileAuditJson() != null) {
+			extraFields.add("\"teacher_profile_audit\":" + solverSummary.teacherProfileAuditJson());
 		}
 		if (evaluationJson == null || evaluationJson.isBlank()) {
 			return "{" + String.join(",", extraFields) + "}";
@@ -205,48 +196,6 @@ public class AllocationMlSchemeService {
 			return null;
 		}
 		return trimmed;
-	}
-
-	private List<String> splitTopLevelJsonObjects(String rawJson) {
-		String trimmed = rawJson == null ? "" : rawJson.trim();
-		if (!trimmed.startsWith("[") || !trimmed.endsWith("]")) {
-			return List.of();
-		}
-		List<String> objects = new ArrayList<>();
-		int depth = 0;
-		int start = -1;
-		boolean inString = false;
-		boolean escaped = false;
-		for (int i = 0; i < trimmed.length(); i++) {
-			char ch = trimmed.charAt(i);
-			if (inString) {
-				if (escaped) {
-					escaped = false;
-				} else if (ch == '\\') {
-					escaped = true;
-				} else if (ch == '"') {
-					inString = false;
-				}
-				continue;
-			}
-			if (ch == '"') {
-				inString = true;
-				continue;
-			}
-			if (ch == '{') {
-				if (depth == 0) {
-					start = i;
-				}
-				depth++;
-			} else if (ch == '}') {
-				depth--;
-				if (depth == 0 && start >= 0) {
-					objects.add(trimmed.substring(start, i + 1));
-					start = -1;
-				}
-			}
-		}
-		return objects;
 	}
 
 	private String extractJsonField(String rawJson, String fieldName) {
@@ -318,7 +267,7 @@ public class AllocationMlSchemeService {
 			schemesData.add(scheme);
 		}
 		log.info("ML parsed schemes.jsonl: schemeCount={}", schemesData.size());
-		List<GaSummaryData> gaSummaries = loadGaSummaries(outputDir);
+		List<SolverSummaryData> solverSummaries = loadSolverSummaries(outputDir);
 		int existingMaxIndex = allocationSchemeMapper.selectMaxSchemeIndex(taskId);
 		log.info("Existing max scheme index for taskId={}: {}", taskId, existingMaxIndex);
 		List<AllocationParsedScheme> schemes = new ArrayList<>();
@@ -341,12 +290,12 @@ public class AllocationMlSchemeService {
 			}
 			String summary = buildSummary(items, itemsData);
 			EvaluationData evaluation = loadEvaluation(outputDir, "scheme_" + String.format("%03d", i + 1));
-			GaSummaryData gaSummary = i < gaSummaries.size() ? gaSummaries.get(i) : null;
-			String evaluationSummary = mergeEvaluationSummary(evaluation, gaSummary);
-			String profileAudit = gaSummary != null ? gaSummary.teacherProfileAuditJson() : null;
+			SolverSummaryData solverSummary = i < solverSummaries.size() ? solverSummaries.get(i) : null;
+			String evaluationSummary = mergeEvaluationSummary(evaluation, solverSummary);
+			String profileAudit = solverSummary != null ? solverSummary.teacherProfileAuditJson() : null;
 			Double schemeScore = evaluation != null ? evaluation.schemeScore() : null;
-			if (schemeScore == null && gaSummary != null) {
-				schemeScore = gaSummary.qualityScore();
+			if (schemeScore == null && solverSummary != null) {
+				schemeScore = solverSummary.qualityScore();
 			}
 			log.info("ML parsed scheme: index={}, itemCount={}, summary={}, evaluationScore={}, teacherProfileAudit={}",
 				i + 1, items.size(), summary, schemeScore, profileAudit);
@@ -357,7 +306,7 @@ public class AllocationMlSchemeService {
 				items,
 				schemeScore,
 				evaluationSummary,
-				"v1"
+				"v3"
 			));
 		}
 		return schemes;

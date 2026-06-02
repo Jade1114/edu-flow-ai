@@ -333,8 +333,7 @@ public class AllocationItemService {
 		Double schemeScore = scheme != null ? scheme.getSchemeScore() : null;
 
 		Map<String, Object> summary = parseEvaluationSummary(scheme != null ? scheme.getEvaluationSummary() : null);
-		Object previousLightgbm = summary.get("lightgbm");
-		Object previousGaSummary = summary.get("ga_summary");
+		Object previousSolverSummary = summary.getOrDefault("solver_summary", summary.get("ga_summary"));
 		summary.clear();
 		summary.put("scheme_score", schemeScore);
 		summary.put("teacher_score_diagnostic", Math.round(teacherScore));
@@ -345,11 +344,8 @@ public class AllocationItemService {
 		summary.put("valid", valid);
 		summary.put("conflict_summary", conflictSummary);
 		summary.put("teacher_profile_audit", buildManualTeacherProfileAudit(profileMessages));
-		if (previousLightgbm != null) {
-			summary.put("lightgbm", previousLightgbm);
-		}
-		if (previousGaSummary != null) {
-			summary.put("ga_summary", previousGaSummary);
+		if (previousSolverSummary != null) {
+			summary.put("solver_summary", previousSolverSummary);
 		}
 
 		Map<String, Object> reevaluation = new LinkedHashMap<>();

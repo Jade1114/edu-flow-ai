@@ -11,64 +11,12 @@ from fastapi import APIRouter, HTTPException
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
-from ml.scheduling_v3.placement_candidates import generate_placement_candidates_jsonl
-from ml.scheduling_v3.plan_templates import generate_task_plans_jsonl
 from ml.scheduling_v3.pipeline import DEFAULT_PLAN_COUNT, DEFAULT_TOP_K, MAX_PLAN_COUNT, run_v3_pipeline
 
 router = APIRouter(tags=["v3"])
 _tasks: dict[str, dict] = {}
 _events: dict[str, list[dict]] = {}
 _event_queues: dict[str, list[asyncio.Queue]] = {}
-
-
-class PlacementCandidatesRequest(BaseModel):
-    task_id: int
-    top_k: int = Field(default=30, ge=1, le=50)
-    raw_top_k: int = Field(default=200, ge=1, le=5000)
-    room_pool_limit: int = Field(default=80, ge=1, le=500)
-    diversity_rerank: bool = True
-    max_per_room: int = Field(default=2, ge=1, le=50)
-    max_per_slot: int = Field(default=3, ge=1, le=50)
-    predict_batch_size: int = Field(default=100000, ge=1000, le=1000000)
-
-
-class TaskPlansRequest(BaseModel):
-    candidates_path: str
-    plan_count: int = Field(default=8, ge=1, le=MAX_PLAN_COUNT)
-    output_dir: str | None = None
-
-
-@router.post("/v3/placement-candidates")
-async def generate_placement_candidates(request: PlacementCandidatesRequest):
-    """Generate one JSONL row per teaching task with TopK placement resources."""
-
-    try:
-        return generate_placement_candidates_jsonl(
-            request.task_id,
-            top_k=request.top_k,
-            raw_top_k=request.raw_top_k,
-            room_pool_limit=request.room_pool_limit,
-            diversity_rerank=request.diversity_rerank,
-            max_per_room=request.max_per_room,
-            max_per_slot=request.max_per_slot,
-            predict_batch_size=request.predict_batch_size,
-        )
-    except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
-
-
-@router.post("/v3/task-plans")
-async def generate_task_plans(request: TaskPlansRequest):
-    """Generate stable local plan templates from V3 placement candidates."""
-
-    try:
-        return generate_task_plans_jsonl(
-            request.candidates_path,
-            plan_count=request.plan_count,
-            output_dir=request.output_dir,
-        )
-    except (FileNotFoundError, ValueError) as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
 class GenerateV3Request(BaseModel):

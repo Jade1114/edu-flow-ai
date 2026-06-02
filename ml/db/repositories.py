@@ -1,4 +1,4 @@
-"""SQL query helpers used by training sample generation and GA scheduling."""
+"""SQL query helpers used by training sample generation and scheduling pipelines."""
 
 from __future__ import annotations
 

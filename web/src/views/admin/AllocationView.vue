@@ -911,16 +911,16 @@ const schemeScores = computed(() => {
   }
 });
 
-const gaSummary = computed(() => schemeScores.value?.ga_summary || null);
+const solverSummary = computed(
+  () => schemeScores.value?.solver_summary || schemeScores.value?.ga_summary || null,
+);
 const teacherProfileAudit = computed(
-  () => schemeScores.value?.teacher_profile_audit || gaSummary.value?.teacher_profile_audit || null,
+  () => schemeScores.value?.teacher_profile_audit || solverSummary.value?.teacher_profile_audit || null,
 );
-const roomRankerStatus = computed(
-  () => schemeScores.value?.room_ranker || gaSummary.value?.room_ranker || schemeScores.value?.lightgbm || gaSummary.value?.lightgbm || null,
-);
+const solverStatus = computed(() => solverSummary.value?.solver_status || null);
 const reevaluationStatus = computed(() => schemeScores.value?.reevaluation || null);
-const gaParams = computed(
-  () => schemeScores.value?.ga_summary?.ga_params || gaSummary.value?.ga_params || null,
+const weekDistribution = computed(
+  () => solverSummary.value?.fallback?.week_distribution || solverSummary.value?.week_distribution || null,
 );
 const profilePenaltyItems = computed(() =>
   (schemeDetail.value?.items || []).filter(
@@ -1004,10 +1004,12 @@ function hardFilterSummary(audit) {
   return `${taskCount} 个教学任务启用硬不可排，共过滤 ${removed} 个候选星期/节次`;
 }
 
-function modelStatusText(status) {
-  if (!status) return "未返回模型状态";
-  if (status.enabled) return `Room Ranker 已启用，输出字段 ${status.score_field || "room_rank_score"}`;
-  return `Room Ranker 未启用：${status.disabled_reason || "未找到模型或特征 schema"}`;
+function solverStatusText(summary) {
+  if (!summary) return "未返回求解器状态";
+  const status = summary.solver_status || "UNKNOWN";
+  const schemes = summary.scheme_count ?? 0;
+  const requested = summary.scheme_count_requested ?? schemes;
+  return `${status} · 方案 ${schemes}/${requested}`;
 }
 
 function reevaluationStatusText(status) {
@@ -1015,9 +1017,12 @@ function reevaluationStatusText(status) {
   return "手动重评已刷新冲突/画像/均衡；教室排序分沿用生成时状态";
 }
 
-function gaParamsText(params) {
-  if (!params) return "未返回 GA 参数";
-  return `GA ${schemeScores.value?.ga_profile || gaSummary.value?.ga_profile || "default"} · 种群 ${params.population_size} · 迭代 ${params.generations}`;
+function weekDistributionText(distribution) {
+  if (!distribution) return "未返回周次分布";
+  const values = Object.entries(distribution)
+    .sort(([a], [b]) => Number(a) - Number(b))
+    .map(([week, count]) => `${week}:${count}`);
+  return values.join(" / ");
 }
 const currentWeek = ref(1);
 const dayNames = ["周一", "周二", "周三", "周四", "周五", "周六", "周日"];
@@ -2099,7 +2104,7 @@ onUnmounted(() => {
 
         <!-- 模型验收面板 -->
         <div
-          v-if="schemeScores || teacherProfileAudit || roomRankerStatus"
+          v-if="schemeScores || teacherProfileAudit || solverSummary"
           style="
             display: grid;
             grid-template-columns: repeat(4, minmax(150px, 1fr));
@@ -2135,17 +2140,26 @@ onUnmounted(() => {
             </div>
           </div>
           <div style="border: 1px solid #ebeef5; border-radius: 6px; padding: 10px 12px">
-            <div style="font-size: 12px; color: #909399">教室排序模型</div>
+            <div style="font-size: 12px; color: #909399">V3 求解器</div>
             <div>
-              <el-tag :type="roomRankerStatus?.enabled ? 'success' : 'warning'" size="small">
-                {{ roomRankerStatus?.enabled ? "已启用" : "未启用" }}
+              <el-tag
+                :type="
+                  solverStatus === 'FEASIBLE_ATOMIC_SESSION_FALLBACK' ||
+                  solverStatus === 'FEASIBLE' ||
+                  solverStatus === 'OPTIMAL'
+                    ? 'success'
+                    : 'warning'
+                "
+                size="small"
+              >
+                {{ solverStatus || "UNKNOWN" }}
               </el-tag>
             </div>
             <div style="font-size: 12px; color: #606266; margin-top: 6px">
-              {{ modelStatusText(roomRankerStatus) }}
+              {{ solverStatusText(solverSummary) }}
             </div>
             <div style="font-size: 12px; color: #909399; margin-top: 4px">
-              {{ gaParamsText(gaParams) }}
+              {{ weekDistributionText(weekDistribution) }}
             </div>
             <div
               v-if="reevaluationStatusText(reevaluationStatus)"

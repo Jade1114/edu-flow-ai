@@ -9,7 +9,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from ml import ml_logger
 
-# Load .env so ML_GA_PROFILE etc. are picked up from file
+# Load .env so ML service settings are picked up from file
 # Python doesn't auto-read .env like Spring does
 _dotenv_loaded = False
 try:
