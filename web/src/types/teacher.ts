@@ -10,7 +10,6 @@ export interface Teacher {
   name: string
   department?: string
   title?: string
-  maxWeeklyHours: number
   status: ActiveStatus
   createdAt?: string
   updatedAt?: string

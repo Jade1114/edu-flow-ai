@@ -3,6 +3,7 @@ import { ref, computed, onMounted, onUnmounted } from "vue";
 import request from "@/api/request";
 import { ElMessage, ElMessageBox } from "element-plus";
 import { ActiveStatus, SchemeStatus } from "@/constants/status.js";
+import { Search } from "@element-plus/icons-vue";
 
 const tasks = ref([]);
 const taskDialog = ref(false);
@@ -29,7 +30,6 @@ const defaultGenerationConfig = () => ({
 const taskForm = ref({
   id: null,
   name: "",
-  description: "",
   teachingTaskIds: [],
   generationConfig: defaultGenerationConfig(),
 });
@@ -138,7 +138,7 @@ const weightDescs = {
   teacher_profile_penalty_scale: "教师画像软偏好的整体影响强度",
   weekend_penalty:
     "仅在允许周末排课时生效；当前生成链路默认硬过滤周六/周日，调这个不是强制开关",
-  modelWeight: "LightGBM 模型评分在 quality_score 中的权重 (α)",
+  modelWeight: "教室排序分在 quality_score 中的权重 (α)",
   llmWeight: "LLM 临时约束在 quality_score 中的权重 (β)",
   sameDayWeight: "同一教师/班级同日多节课的惩罚力度",
   capacityWastePenalty: "教室容量利用率低于 60% 的惩罚",
@@ -188,6 +188,11 @@ const taskFilterDept = ref("");
 const taskFilterCourse = ref("");
 const taskFilterTeacher = ref("");
 const taskFilterClassGroup = ref("");
+const taskFilterCourseType = ref([]); // 多选，空=全部
+const taskFilterKeyword = ref(""); // 关键词搜索
+const taskShowNormalOnly = ref(false); // 快速开关：只保留理论课/上机课
+
+const NORMAL_COURSE_TYPES = ["理论课", "上机课"];
 
 const taskFilterDeptOptions = computed(() => {
   const names = teachingTasks.value.flatMap((t) => (t.classGroups || [])
@@ -207,6 +212,12 @@ const taskFilterClassGroupOptions = computed(() => {
   const names = teachingTasks.value.flatMap((t) => (t.classGroups || []).map((cg) => cg.name).filter((n) => n));
   return [...new Set(names)].sort().map((n) => ({ label: n, value: n }));
 });
+const taskFilterCourseTypeOptions = computed(() => {
+  const types = teachingTasks.value
+    .map((t) => (t.course || {}).courseType || "")
+    .filter((n) => n);
+  return [...new Set(types)].sort((a, b) => a.localeCompare(b, "zh")).map((n) => ({ label: n, value: n }));
+});
 
 const filteredTeachingTasks = computed(() => {
   let list = teachingTasks.value;
@@ -221,6 +232,29 @@ const filteredTeachingTasks = computed(() => {
   }
   if (taskFilterClassGroup.value) {
     list = list.filter((t) => (t.classGroups || []).some((cg) => cg.name === taskFilterClassGroup.value));
+  }
+  if (taskFilterCourseType.value.length > 0) {
+    list = list.filter((t) => taskFilterCourseType.value.includes((t.course || {}).courseType));
+  }
+  if (taskShowNormalOnly.value) {
+    list = list.filter((t) => NORMAL_COURSE_TYPES.includes((t.course || {}).courseType));
+  }
+  if (taskFilterKeyword.value) {
+    const kw = taskFilterKeyword.value.toLowerCase();
+    list = list.filter((t) => {
+      const course = t.course || {};
+      const teacher = t.primaryTeacher || {};
+      const groups = (t.classGroups || []).map((cg) => cg.name).join(" ");
+      const notes = t.notes || "";
+      return (
+        (course.name || "").toLowerCase().includes(kw) ||
+        (course.code || "").toLowerCase().includes(kw) ||
+        (course.courseType || "").toLowerCase().includes(kw) ||
+        (teacher.name || "").toLowerCase().includes(kw) ||
+        groups.toLowerCase().includes(kw) ||
+        notes.toLowerCase().includes(kw)
+      );
+    });
   }
   return list;
 });
@@ -378,7 +412,7 @@ const generationWeightFields = [
   ["earlyPeriodPenalty", "早课惩罚"],
   ["latePeriodPenalty", "晚课惩罚"],
   ["weekendPenalty", "周末惩罚"],
-  ["modelWeight", "LightGBM 权重 (α)"],
+  ["modelWeight", "教室排序权重 (α)"],
   ["llmWeight", "LLM 权重 (β)"],
   ["sameDayWeight", "同日重复惩罚"],
   ["capacityWastePenalty", "教室浪费惩罚"],
@@ -407,7 +441,6 @@ function openTaskDialog(row) {
     taskForm.value = {
       id: row.id,
       name: row.name || "",
-      description: row.description || "",
       teachingTaskIds: row.teachingTasks
         ? row.teachingTasks.map((tt) => tt.id)
         : [],
@@ -421,7 +454,6 @@ function openTaskDialog(row) {
     taskForm.value = {
       id: null,
       name: "",
-      description: "",
       teachingTaskIds: [],
       generationConfig: defaultGenerationConfig(),
     };
@@ -463,9 +495,30 @@ function selectAllTasks() {
 }
 
 function onTaskFilterChange() {
-  // 清除无效的已选 ID（选了但不在过滤结果中的）
+  // 只清除不可见的已选 ID（reserve-selection 自动保持可见行的选中状态）
   const visibleIds = new Set(filteredTeachingTasks.value.map((tt) => tt.id));
   taskForm.value.teachingTaskIds = taskForm.value.teachingTaskIds.filter((id) => visibleIds.has(id));
+}
+
+function clearAllTasks() {
+  taskForm.value.teachingTaskIds = [];
+  if (taskTableRef.value) {
+    taskTableRef.value.clearSelection();
+  }
+}
+
+function invertSelection() {
+  const visibleIds = new Set(filteredTeachingTasks.value.map((tt) => tt.id));
+  const currentSelected = new Set(taskForm.value.teachingTaskIds);
+  // 在可见结果中翻转：选→不选，不选→选
+  const newIds = taskForm.value.teachingTaskIds.filter((id) => !visibleIds.has(id));
+  filteredTeachingTasks.value.forEach((tt) => {
+    if (!currentSelected.has(tt.id)) {
+      newIds.push(tt.id);
+    }
+  });
+  taskForm.value.teachingTaskIds = newIds;
+  // 刷新表格勾选状态
   if (taskTableRef.value) {
     taskTableRef.value.clearSelection();
     filteredTeachingTasks.value.forEach((tt) => {
@@ -476,11 +529,10 @@ function onTaskFilterChange() {
   }
 }
 
-function clearAllTasks() {
-  taskForm.value.teachingTaskIds = [];
-  if (taskTableRef.value) {
-    taskTableRef.value.clearSelection();
-  }
+function toggleNormalOnly() {
+  taskShowNormalOnly.value = !taskShowNormalOnly.value;
+  taskFilterCourseType.value = [];
+  onTaskFilterChange();
 }
 
 async function saveTask() {
@@ -696,12 +748,19 @@ async function restoreRunningGeneration() {
       const status = await request.get(
         `/api/allocation-tasks/${task.id}/generation-status`,
       );
-      if (!isRunningGeneration(status)) continue;
-      currentTaskId.value = task.id;
-      generating.value = true;
-      applyGenerationStatus(task.id, status);
-      startSse(task.id);
-      return;
+      if (status?.status === "RUNNING") {
+        currentTaskId.value = task.id;
+        generating.value = true;
+        applyGenerationStatus(task.id, status);
+        startSse(task.id);
+        return;
+      }
+      if (status?.status === "COMPLETED") {
+        currentTaskId.value = task.id;
+        generating.value = false;
+        applyGenerationStatus(task.id, status);
+        return;
+      }
     } catch {
       // 单个任务状态恢复失败不影响列表展示
     }
@@ -856,8 +915,8 @@ const gaSummary = computed(() => schemeScores.value?.ga_summary || null);
 const teacherProfileAudit = computed(
   () => schemeScores.value?.teacher_profile_audit || gaSummary.value?.teacher_profile_audit || null,
 );
-const lightgbmStatus = computed(
-  () => schemeScores.value?.lightgbm || gaSummary.value?.lightgbm || null,
+const roomRankerStatus = computed(
+  () => schemeScores.value?.room_ranker || gaSummary.value?.room_ranker || schemeScores.value?.lightgbm || gaSummary.value?.lightgbm || null,
 );
 const reevaluationStatus = computed(() => schemeScores.value?.reevaluation || null);
 const gaParams = computed(
@@ -947,13 +1006,13 @@ function hardFilterSummary(audit) {
 
 function modelStatusText(status) {
   if (!status) return "未返回模型状态";
-  if (status.enabled) return `LightGBM 已启用，特征 ${status.feature_count || 0} 个`;
-  return `LightGBM 未启用：${status.disabled_reason || "未找到模型或特征 schema"}`;
+  if (status.enabled) return `Room Ranker 已启用，输出字段 ${status.score_field || "room_rank_score"}`;
+  return `Room Ranker 未启用：${status.disabled_reason || "未找到模型或特征 schema"}`;
 }
 
 function reevaluationStatusText(status) {
   if (!status?.model_score_stale) return null;
-  return "手动重评已刷新冲突/画像/均衡；模型分沿用生成时状态";
+  return "手动重评已刷新冲突/画像/均衡；教室排序分沿用生成时状态";
 }
 
 function gaParamsText(params) {
@@ -1462,8 +1521,6 @@ onUnmounted(() => {
           {{ row.teachingTasks?.length || 0 }}
         </template>
       </el-table-column>
-      <el-table-column prop="status" label="状态" width="100" />
-      <el-table-column prop="createdBy" label="创建人" width="100" />
       <el-table-column label="操作" width="340">
         <template #default="{ row }">
           <el-button type="primary" size="small" @click="openTaskDialog(row)"
@@ -1856,17 +1913,40 @@ onUnmounted(() => {
             <el-select v-model="taskFilterDept" placeholder="院系" clearable size="small" style="width: 160px" @change="onTaskFilterChange">
               <el-option v-for="o in taskFilterDeptOptions" :key="o.value" :label="o.label" :value="o.value" />
             </el-select>
-            <el-select v-model="taskFilterCourse" placeholder="课程" clearable size="small" style="width: 140px" @change="onTaskFilterChange">
+            <el-select v-model="taskFilterCourse" placeholder="课程" clearable size="small" style="width: 140px" filterable @change="onTaskFilterChange">
               <el-option v-for="o in taskFilterCourseOptions" :key="o.value" :label="o.label" :value="o.value" />
             </el-select>
-            <el-select v-model="taskFilterTeacher" placeholder="教师" clearable size="small" style="width: 120px" @change="onTaskFilterChange">
+            <el-select v-model="taskFilterTeacher" placeholder="教师" clearable size="small" style="width: 120px" filterable @change="onTaskFilterChange">
               <el-option v-for="o in taskFilterTeacherOptions" :key="o.value" :label="o.label" :value="o.value" />
             </el-select>
-            <el-select v-model="taskFilterClassGroup" placeholder="班级" clearable size="small" style="width: 160px" @change="onTaskFilterChange">
+            <el-select v-model="taskFilterClassGroup" placeholder="班级" clearable size="small" style="width: 160px" filterable @change="onTaskFilterChange">
               <el-option v-for="o in taskFilterClassGroupOptions" :key="o.value" :label="o.label" :value="o.value" />
             </el-select>
+            <el-select v-model="taskFilterCourseType" placeholder="课程类型" clearable size="small" style="width: 150px" multiple collapse-tags @change="onTaskFilterChange">
+              <el-option v-for="o in taskFilterCourseTypeOptions" :key="o.value" :label="o.label" :value="o.value" />
+            </el-select>
+            <el-input
+              v-model="taskFilterKeyword"
+              placeholder="搜索课程/教师/班级..."
+              clearable
+              size="small"
+              style="width: 200px"
+              @input="onTaskFilterChange"
+            >
+              <template #prefix>
+                <el-icon><Search /></el-icon>
+              </template>
+            </el-input>
             <el-button size="small" @click="selectAllTasks">全选</el-button>
+            <el-button size="small" @click="invertSelection">反选</el-button>
             <el-button size="small" @click="clearAllTasks">清空</el-button>
+            <el-button
+              size="small"
+              :type="taskShowNormalOnly ? 'primary' : 'default'"
+              @click="toggleNormalOnly"
+            >
+              {{ taskShowNormalOnly ? '✓ 理论+上机' : '理论+上机' }}
+            </el-button>
             <span style="font-size: 12px; color: #909399">
               已选 {{ taskForm.teachingTaskIds.length }} / {{ filteredTeachingTasks.length }} 个
             </span>
@@ -1874,14 +1954,23 @@ onUnmounted(() => {
           <el-table
             ref="taskTableRef"
             :data="filteredTeachingTasks"
+            row-key="id"
             border
             size="small"
             max-height="320"
             style="width: 100%"
             @selection-change="handleTaskSelectionChange"
           >
-            <el-table-column type="selection" width="40" />
+            <el-table-column type="selection" width="40" reserve-selection />
             <el-table-column prop="course.name" label="课程" width="130" />
+            <el-table-column label="类型" width="80">
+              <template #default="{ row }">
+                <el-tag v-if="(row.course || {}).courseType" size="small" :type="NORMAL_COURSE_TYPES.includes((row.course || {}).courseType) ? 'success' : 'warning'" effect="plain">
+                  {{ row.course.courseType }}
+                </el-tag>
+                <span v-else style="color: #909399">-</span>
+              </template>
+            </el-table-column>
             <el-table-column
               prop="primaryTeacher.name"
               label="教师"
@@ -1899,9 +1988,6 @@ onUnmounted(() => {
               </template>
             </el-table-column>
           </el-table>
-        </el-form-item>
-        <el-form-item label="描述">
-          <el-input v-model="taskForm.description" type="textarea" :rows="3" />
         </el-form-item>
       </el-form>
       <template #footer>
@@ -2013,7 +2099,7 @@ onUnmounted(() => {
 
         <!-- 模型验收面板 -->
         <div
-          v-if="schemeScores || teacherProfileAudit || lightgbmStatus"
+          v-if="schemeScores || teacherProfileAudit || roomRankerStatus"
           style="
             display: grid;
             grid-template-columns: repeat(4, minmax(150px, 1fr));
@@ -2049,14 +2135,14 @@ onUnmounted(() => {
             </div>
           </div>
           <div style="border: 1px solid #ebeef5; border-radius: 6px; padding: 10px 12px">
-            <div style="font-size: 12px; color: #909399">自训练模型</div>
+            <div style="font-size: 12px; color: #909399">教室排序模型</div>
             <div>
-              <el-tag :type="lightgbmStatus?.enabled ? 'success' : 'warning'" size="small">
-                {{ lightgbmStatus?.enabled ? "已启用" : "未启用" }}
+              <el-tag :type="roomRankerStatus?.enabled ? 'success' : 'warning'" size="small">
+                {{ roomRankerStatus?.enabled ? "已启用" : "未启用" }}
               </el-tag>
             </div>
             <div style="font-size: 12px; color: #606266; margin-top: 6px">
-              {{ modelStatusText(lightgbmStatus) }}
+              {{ modelStatusText(roomRankerStatus) }}
             </div>
             <div style="font-size: 12px; color: #909399; margin-top: 4px">
               {{ gaParamsText(gaParams) }}

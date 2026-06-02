@@ -18,7 +18,7 @@
             <el-table-column prop="name" label="姓名" width="100" />
             <el-table-column prop="department" label="部门" />
             <el-table-column prop="title" label="职称" width="100" />
-            <el-table-column prop="maxWeeklyHours" label="最大周课时" width="100" />
+            
             <el-table-column prop="role" label="角色" width="100" />
             <el-table-column label="状态" width="80">
                 <template #default="{ row }">

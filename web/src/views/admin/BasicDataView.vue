@@ -107,6 +107,8 @@ const loadingClassGroups = ref(false)
 const teachingTaskPage = ref(1)
 const teachingTaskPageSize = ref(20)
 const teachingTaskTotal = ref(0)
+const teachingTaskKeyword = ref('')
+const teachingTaskCourseType = ref('')
 const coursePage = ref(1)
 const coursePageSize = ref(20)
 const courseTotal = ref(0)
@@ -146,9 +148,8 @@ const teachingTaskRules = {
 
 const courseTypeOptions = [
     { value: '理论课', label: '理论课', room: '普通教室' },
-    { value: '上机实践', label: '上机实践', room: '机房' },
-    { value: '理论+上机', label: '理论+上机', room: '普通教室/机房' },
-    { value: '体育', label: '体育', room: '操场' },
+    { value: '上机课', label: '上机课', room: '机房' },
+    { value: '实践课', label: '实践课', room: '' },
 ]
 
 function onCourseChanged(courseId: any) {
@@ -157,12 +158,7 @@ function onCourseChanged(courseId: any) {
         teachingTaskForm.value.courseType = course.courseType
         const opt = courseTypeOptions.find(o => o.value === course.courseType)
         if (opt) teachingTaskForm.value.requiredRoomType = opt.room
-        if (course.courseType === '理论+上机') {
-            teachingTaskForm.value.theoryHours = Math.round(course.requiredHours * 0.6 / 2) * 2
-            teachingTaskForm.value.labHours = course.requiredHours - teachingTaskForm.value.theoryHours
-        } else {
-            teachingTaskForm.value.totalHours = course.requiredHours || 32
-        }
+        teachingTaskForm.value.totalHours = course.requiredHours || 32
     }
 }
 
@@ -175,14 +171,34 @@ function onCourseTypeChanged(type: string) {
 async function loadTeachingTasks() {
     loadingTeachingTasks.value = true
     try {
-        const res = await request.get('/api/teaching-tasks', {
-            params: { page: teachingTaskPage.value - 1, size: teachingTaskPageSize.value }
-        })
+        const params: Record<string, any> = {
+            page: teachingTaskPage.value - 1,
+            size: teachingTaskPageSize.value
+        }
+        if (teachingTaskKeyword.value.trim()) {
+            params.keyword = teachingTaskKeyword.value.trim()
+        }
+        if (teachingTaskCourseType.value) {
+            params.courseType = teachingTaskCourseType.value
+        }
+        const res = await request.get('/api/teaching-tasks', { params })
         teachingTasks.value = res.content || []
         teachingTaskTotal.value = res.total || 0
     } finally {
         loadingTeachingTasks.value = false
     }
+}
+
+function onTeachingTaskSearch() {
+    teachingTaskPage.value = 1
+    loadTeachingTasks()
+}
+
+function onTeachingTaskFilterClear() {
+    teachingTaskKeyword.value = ''
+    teachingTaskCourseType.value = ''
+    teachingTaskPage.value = 1
+    loadTeachingTasks()
 }
 function openTeachingTaskDialog(row: any) {
     if (row) {
@@ -246,25 +262,8 @@ async function saveTeachingTask() {
         const payload = { ...form, classroomId: optionalId(form.classroomId), assistantTeacherId: optionalId(form.assistantTeacherId) }
         await request.put(`/api/teaching-tasks/${form.id}`, payload)
         ElMessage.success('保存成功')
-    } else if (form.courseType === '理论+上机') {
-        // Split: create 2 linked tasks
-        const pairId = Date.now().toString(36)
-        await request.post('/api/teaching-tasks', {
-            ...base,
-            totalHours: form.theoryHours,
-            requiredRoomType: '普通教室',
-            notes: `pair:${pairId} | 理论${form.theoryHours}+上机${form.labHours} | ${form.notes}`,
-        })
-        await request.post('/api/teaching-tasks', {
-            ...base,
-            totalHours: form.labHours,
-            requiredRoomType: '机房',
-            notes: `pair:${pairId} | 理论${form.theoryHours}+上机${form.labHours} | ${form.notes}`,
-        })
-        ElMessage.success(`已创建 2 条任务（理论${form.theoryHours}+上机${form.labHours}）`)
     } else {
-        // Single: theory / lab / sports
-        const roomMap: Record<string, string> = { '理论课': '普通教室', '上机实践': '机房', '体育': '操场' }
+        const roomMap: Record<string, string> = { '理论课': '普通教室', '上机课': '机房', '实践课': '' }
         await request.post('/api/teaching-tasks', {
             ...base,
             totalHours: form.totalHours,
@@ -302,7 +301,6 @@ const teacherForm = ref({
     name: '',
     department: '',
     title: '',
-    maxWeeklyHours: 8,
     status: ActiveStatus.ACTIVE,
     password: '123456',
     role: 'TEACHER',
@@ -311,16 +309,6 @@ const teacherRules = {
     employeeNo: [{ required: true, message: '请输入工号', trigger: 'blur' }],
     name: [{ required: true, message: '请输入姓名', trigger: 'blur' }],
     department: [{ required: true, message: '请输入部门', trigger: 'blur' }],
-    maxWeeklyHours: [
-        { required: true, message: '请输入最大周课时', trigger: 'blur' },
-        {
-            type: 'number',
-            min: 1,
-            max: 40,
-            message: '最大周课时必须在 1 到 40 之间',
-            trigger: 'change',
-        },
-    ],
 }
 
 const filteredTeachers = computed(() => {
@@ -430,6 +418,7 @@ const courseForm = ref({
     id: null,
     name: '',
     courseType: '',
+    requiredRoomType: '',
     requiredHours: 32,
     description: '',
     status: ActiveStatus.ACTIVE,
@@ -489,9 +478,9 @@ const classGroupForm = ref({
     id: null,
     name: '',
     major: '',
+    department: '',
     grade: '',
     studentCount: 0,
-    description: '',
 })
 const classGroupRules = {
     name: [{ required: true, message: '请输入班级名称', trigger: 'blur' }],
@@ -515,9 +504,9 @@ function openClassGroupDialog(row: any) {
               id: null,
               name: '',
               major: '',
+              department: '',
               grade: '',
               studentCount: 0,
-              description: '',
           }
     classGroupDialog.value = true
 }
@@ -679,10 +668,33 @@ onMounted(() => {
         <el-tabs v-model="activeTab" style="margin-top: 16px">
             <!-- TeachingTask -->
             <el-tab-pane label="教学任务" name="teachingTask">
-                <div style="margin-bottom: 12px">
+                <div style="margin-bottom: 12px; display: flex; gap: 8px; align-items: center; flex-wrap: wrap">
                     <el-button type="primary" @click="openTeachingTaskDialog(undefined)"
                         >新增教学任务
                     </el-button>
+                    <el-select
+                        v-model="teachingTaskCourseType"
+                        placeholder="课程类型"
+                        clearable
+                        size="small"
+                        style="width: 120px"
+                        @change="onTeachingTaskSearch"
+                    >
+                        <el-option label="理论课" value="理论课" />
+                        <el-option label="上机课" value="上机课" />
+                        <el-option label="实践课" value="实践课" />
+                    </el-select>
+                    <el-input
+                        v-model="teachingTaskKeyword"
+                        placeholder="搜索课程/教师/班级..."
+                        clearable
+                        size="small"
+                        style="width: 240px"
+                        @keyup.enter="onTeachingTaskSearch"
+                        @clear="onTeachingTaskSearch"
+                    />
+                    <el-button size="small" @click="onTeachingTaskSearch">搜索</el-button>
+                    <el-button v-if="teachingTaskKeyword || teachingTaskCourseType" size="small" @click="onTeachingTaskFilterClear">清空</el-button>
                 </div>
                 <el-table :data="paginatedTeachingTasks" v-loading="loadingTeachingTasks" border size="small">
                     <el-table-column prop="id" label="ID" width="60" />
@@ -691,11 +703,10 @@ onMounted(() => {
                     <el-table-column prop="assistantTeacher.name" label="协作教师" show-overflow-tooltip />
                     <el-table-column label="类型" width="100">
                         <template #default="{ row }">
-                            <el-tag v-if="row.requiredRoomType === '机房'" type="success" size="small">上机</el-tag>
-                            <el-tag v-else-if="row.requiredRoomType === '普通教室'" type="primary" size="small">理论</el-tag>
-                            <el-tag v-else-if="row.requiredRoomType === '操场'" type="warning" size="small">体育</el-tag>
-                            <el-tag v-else-if="row.notes?.includes('理论+上机')" type="warning" size="small">混合</el-tag>
-                            <span v-else style="color: #909399; font-size: 12px">-</span>
+                            <el-tag v-if="(row.course || {}).courseType === '理论课'" type="primary" size="small" effect="plain">理论课</el-tag>
+                            <el-tag v-else-if="(row.course || {}).courseType === '上机课'" type="success" size="small" effect="plain">上机课</el-tag>
+                            <el-tag v-else-if="(row.course || {}).courseType === '实践课'" type="warning" size="small" effect="plain">实践课</el-tag>
+                            <span v-else style="color: #909399; font-size: 12px">{{ (row.course || {}).courseType || '-' }}</span>
                         </template>
                     </el-table-column>
                     <el-table-column prop="totalHours" label="总课时" width="80" />
@@ -754,6 +765,14 @@ onMounted(() => {
                     <el-table-column prop="code" label="课程代码" width="100" />
                     <el-table-column prop="credits" label="学分" width="70" />
                     <el-table-column prop="courseType" label="课程类型" width="120" />
+                    <el-table-column label="教室类型" width="100">
+                        <template #default="{ row }">
+                            <el-tag v-if="row.requiredRoomType === '机房'" type="success" size="small">上机</el-tag>
+                            <el-tag v-else-if="row.requiredRoomType === '普通教室'" type="primary" size="small">理论</el-tag>
+                            <el-tag v-else-if="row.requiredRoomType === '操场'" type="warning" size="small">体育</el-tag>
+                            <span v-else style="color: #909399">{{ row.requiredRoomType || '-' }}</span>
+                        </template>
+                    </el-table-column>
                     <el-table-column prop="requiredHours" label="学时" width="70" />
                     <el-table-column prop="description" label="描述" show-overflow-tooltip />
                     <el-table-column label="状态" width="80">
@@ -789,9 +808,10 @@ onMounted(() => {
                     >
                 </div>
                 <el-table :data="paginatedClassGroups" v-loading="loadingClassGroups" border size="small">
-                    <el-table-column prop="name" label="班级名称" show-overflow-tooltip />
-                    <el-table-column prop="major" label="专业" show-overflow-tooltip />
-                    <el-table-column prop="grade" label="年级" width="80" />
+                <el-table-column prop="name" label="班级名称" show-overflow-tooltip />
+                <el-table-column prop="major" label="专业" show-overflow-tooltip />
+                <el-table-column prop="department" label="院系" show-overflow-tooltip width="150" />
+                <el-table-column prop="grade" label="年级" width="80" />
                     <el-table-column prop="studentCount" label="人数" width="80" />
                     <el-table-column label="操作" width="140">
                         <template #default="{ row }">
@@ -892,9 +912,6 @@ onMounted(() => {
                 <el-form-item label="职称">
                     <el-input v-model="teacherForm.title" />
                 </el-form-item>
-                <el-form-item label="最大周课时" prop="maxWeeklyHours">
-                    <el-input-number v-model="teacherForm.maxWeeklyHours" :min="1" :max="40" />
-                </el-form-item>
                 <el-form-item label="角色">
                     <el-select v-model="teacherForm.role">
                         <el-option label="教师" value="TEACHER" />
@@ -937,6 +954,14 @@ onMounted(() => {
                 <el-form-item label="课程类型">
                     <el-input v-model="courseForm.courseType" />
                 </el-form-item>
+                <el-form-item label="教室类型">
+                    <el-select v-model="courseForm.requiredRoomType" clearable placeholder="选择教室类型">
+                        <el-option label="普通教室" value="普通教室" />
+                        <el-option label="机房" value="机房" />
+                        <el-option label="阶梯教室" value="阶梯教室" />
+                        <el-option label="操场" value="操场" />
+                    </el-select>
+                </el-form-item>
                 <el-form-item label="学时">
                     <el-input-number v-model="courseForm.requiredHours" :min="1" />
                 </el-form-item>
@@ -974,14 +999,14 @@ onMounted(() => {
                 <el-form-item label="专业">
                     <el-input v-model="classGroupForm.major" />
                 </el-form-item>
+                <el-form-item label="院系">
+                    <el-input v-model="classGroupForm.department" />
+                </el-form-item>
                 <el-form-item label="年级">
                     <el-input v-model="classGroupForm.grade" />
                 </el-form-item>
                 <el-form-item label="人数">
                     <el-input-number v-model="classGroupForm.studentCount" :min="0" />
-                </el-form-item>
-                <el-form-item label="描述">
-                    <el-input v-model="classGroupForm.description" type="textarea" :rows="2" />
                 </el-form-item>
             </el-form>
             <template #footer>
@@ -1082,30 +1107,10 @@ onMounted(() => {
                     </el-select>
                 </el-form-item>
 
-                <!-- 理论+上机 拆分开关 -->
-                <template v-if="teachingTaskForm.courseType === '理论+上机'">
-                    <el-divider content-position="left" style="margin: 12px 0">
-                        <el-tag type="warning" size="small">理论+上机 → 拆分为 2 条任务</el-tag>
-                    </el-divider>
-                    <el-form-item label="📖 理论学时" prop="theoryHours">
-                        <el-input-number v-model="teachingTaskForm.theoryHours" :min="2" :step="2" />
-                        <span style="color: #909399; font-size: 12px; margin-left: 8px">教室类型：普通教室</span>
-                    </el-form-item>
-                    <el-form-item label="💻 上机学时" prop="labHours">
-                        <el-input-number v-model="teachingTaskForm.labHours" :min="0" :step="2" />
-                        <span style="color: #909399; font-size: 12px; margin-left: 8px">教室类型：机房</span>
-                    </el-form-item>
-                    <el-form-item label="总学时">
-                        <span style="font-weight: 600">{{ teachingTaskForm.theoryHours + teachingTaskForm.labHours }}</span>
-                        <span style="color: #909399; font-size: 12px; margin-left: 8px">（理论{{ teachingTaskForm.theoryHours }} + 上机{{ teachingTaskForm.labHours }}）</span>
-                    </el-form-item>
-                </template>
-                <template v-else>
-                    <el-form-item label="总课时" prop="totalHours">
-                        <el-input-number v-model="teachingTaskForm.totalHours" :min="2" :step="2" />
-                        <span style="color: #909399; font-size: 12px; margin-left: 8px">必须是2的倍数</span>
-                    </el-form-item>
-                </template>
+                <el-form-item label="总课时" prop="totalHours">
+                    <el-input-number v-model="teachingTaskForm.totalHours" :min="2" :step="2" />
+                    <span style="color: #909399; font-size: 12px; margin-left: 8px">必须是2的倍数</span>
+                </el-form-item>
 
                 <el-form-item label="推荐教室">
                     <el-select
@@ -1145,3 +1150,4 @@ onMounted(() => {
         </el-dialog>
     </div>
 </template>
+template>

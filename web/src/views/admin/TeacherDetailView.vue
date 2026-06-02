@@ -62,9 +62,7 @@ watch(
                     teacher.department || '-'
                 }}</el-descriptions-item>
                 <el-descriptions-item label="职称">{{ teacher.title || '-' }}</el-descriptions-item>
-                <el-descriptions-item label="最大周课时">
-                    {{ teacher.maxWeeklyHours }}
-                </el-descriptions-item>
+                
                 <el-descriptions-item label="角色">
                     {{ teacher.role === 'ADMIN' ? '管理员' : '教师' }}
                 </el-descriptions-item>
