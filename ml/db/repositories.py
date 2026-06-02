@@ -2,13 +2,45 @@
 
 from __future__ import annotations
 
+import json
 from typing import Any
 
-from ml.scheduling.domain.teacher_profile import (
-    parse_availability_matrix_unavailable,
-    parse_optional_int,
-    parse_profile_preference,
-)
+
+def _parse_profile_preference(raw_json: str) -> dict[str, Any]:
+    if not raw_json or not raw_json.strip():
+        return {}
+    try:
+        payload = json.loads(raw_json)
+    except json.JSONDecodeError:
+        return {}
+    return payload if isinstance(payload, dict) else {}
+
+
+def _parse_availability_matrix_unavailable(raw_json: str) -> set[tuple[int, int]]:
+    """Parse 5×7 matrix[period-1][weekday-1]; -1 means fixed weekly unavailable."""
+    slots: set[tuple[int, int]] = set()
+    if not raw_json or not raw_json.strip():
+        return slots
+    try:
+        matrix = json.loads(raw_json)
+    except json.JSONDecodeError:
+        return slots
+    if not isinstance(matrix, list):
+        return slots
+    for period_index, row in enumerate(matrix[:5], start=1):
+        if not isinstance(row, list):
+            continue
+        for weekday_index, value in enumerate(row[:7], start=1):
+            if value == -1:
+                slots.add((weekday_index, period_index))
+    return slots
+
+
+def _parse_optional_int(value: Any) -> int | None:
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
 
 
 def fetch_all(connection, sql: str, params: tuple | None = None) -> list[dict[str, Any]]:
@@ -121,9 +153,9 @@ def fetch_teacher_profiles(connection) -> dict[int, dict[str, object]]:
     profiles: dict[int, dict[str, object]] = {}
     for row in rows:
         teacher_id = int(row["teacher_id"])
-        unavailable = parse_availability_matrix_unavailable(row.get("availability_matrix_json") or "")
-        parsed_preference = parse_profile_preference(row.get("profile_preference_json") or "")
-        max_hours = parse_optional_int(parsed_preference.get("preferredMaxWeeklyHours"))
+        unavailable = _parse_availability_matrix_unavailable(row.get("availability_matrix_json") or "")
+        parsed_preference = _parse_profile_preference(row.get("profile_preference_json") or "")
+        max_hours = _parse_optional_int(parsed_preference.get("preferredMaxWeeklyHours"))
         if max_hours is None:
             db_max = row.get("max_weekly_hours")
             max_hours = int(db_max) if db_max is not None else None
