@@ -34,7 +34,7 @@ from ml.scheduling_v3.class_conflict_resolver import resolve_class_conflicts
 DEFAULT_TOP_K = 10
 DEFAULT_PLAN_COUNT = 8
 DEFAULT_SEMESTER_WEEKS = 18
-OUTPUT_ROOT = Path(__file__).resolve().parents[1] / "data" / "generated" / "v3"
+OUTPUT_ROOT = Path(__file__).resolve().parents[2] / "data" / "generated" / "v3"
 
 
 def run_v3_pipeline(
