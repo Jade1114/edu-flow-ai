@@ -42,7 +42,7 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(
     title="Edu-Flow-AI ML Service",
-    description="Edu-Flow-AI V3 scheduling pipeline: Placement Model + Teacher Group Solver.",
+    description="Edu-Flow-AI V3 scheduling pipeline: Placement Model + CP-SAT Global Plan Selector.",
     version="1.0.0",
     lifespan=lifespan,
 )

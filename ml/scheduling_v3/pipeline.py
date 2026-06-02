@@ -4,9 +4,8 @@ Full pipeline for professional courses only (no public courses):
   1. Fetch teaching tasks from DB
   2. Placement Model → TopK resources per task (parallel)
   3. Template Generator → week distribution plans per task (parallel)
-  4. Teacher Group Solver → resolve within-teacher conflicts
-  5. Class Conflict Resolver → resolve cross-group class conflicts
-  6. Write final schedule JSONL
+  4. CP-SAT Global Plan Selector → choose one plan per task
+  5. Write final schedule JSONL
 """
 
 from __future__ import annotations
@@ -14,26 +13,39 @@ from __future__ import annotations
 import json
 import os
 import time
+from collections import Counter
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
 from pathlib import Path
 from typing import Any
 
 from ml.db.config import connect, load_db_config
-from ml.db.repositories import fetch_allocation_task, fetch_all
-from ml.scheduling_v3.placement_direct import DirectPlacementModel, direct_features
+from ml.db.repositories import (
+    ensure_default_time_slots,
+    fetch_allocation_task,
+    fetch_all,
+    fetch_generation_config,
+    fetch_time_slots,
+)
+from ml.scheduling_v3.cp_sat_selector import (
+    DEFAULT_TIME_LIMIT_SECONDS,
+    audit_scheme_items,
+    select_cp_sat_global_plans_jsonl,
+)
+from ml.scheduling_v3.placement_direct import DirectPlacementModel
 from ml.scheduling_v3.plan_templates import (
-    generate_task_plans_jsonl,
     _build_task_plan_row,
     _read_candidate_rows,
     WeekUsageAllocator,
 )
-from ml.scheduling_v3.teacher_group_solver import solve_teacher_groups
-from ml.scheduling_v3.class_conflict_resolver import resolve_class_conflicts
 
-DEFAULT_TOP_K = 10
-DEFAULT_PLAN_COUNT = 8
+DEFAULT_TOP_K = 50
+MAX_PLAN_COUNT = 120
+DEFAULT_PLAN_COUNT = 120
 DEFAULT_SEMESTER_WEEKS = 18
+DEFAULT_ALLOWED_WEEKS = set(range(1, DEFAULT_SEMESTER_WEEKS + 1))
+DEFAULT_ALLOWED_WEEKDAYS = set(range(1, 6))
+DEFAULT_ALLOWED_PERIODS = set(range(1, 6))
 OUTPUT_ROOT = Path(__file__).resolve().parents[2] / "data" / "generated" / "v3"
 
 
@@ -42,6 +54,8 @@ def run_v3_pipeline(
     *,
     top_k: int = DEFAULT_TOP_K,
     plan_count: int = DEFAULT_PLAN_COUNT,
+    scheme_count: int | None = None,
+    solver_time_limit_seconds: float = DEFAULT_TIME_LIMIT_SECONDS,
     output_dir: Path | str | None = None,
 ) -> dict[str, Any]:
     """Run the full V3 scheduling pipeline for professional courses.
@@ -51,7 +65,7 @@ def run_v3_pipeline(
     started = time.perf_counter()
 
     top_k = max(1, min(int(top_k), 50))
-    plan_count = max(1, min(int(plan_count), 50))
+    plan_count = max(1, min(int(plan_count), MAX_PLAN_COUNT))
 
     out_dir = _resolve_output_dir(allocation_task_id, output_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -64,6 +78,20 @@ def run_v3_pipeline(
         allocation_task = fetch_allocation_task(conn, allocation_task_id)
         if not allocation_task:
             raise ValueError(f"Allocation task {allocation_task_id} not found")
+        raw_config = fetch_generation_config(conn, allocation_task_id)
+        time_slots = fetch_time_slots(conn)
+        seeded_time_slots = 0
+        if not time_slots:
+            seeded_time_slots = ensure_default_time_slots(conn)
+            time_slots = fetch_time_slots(conn)
+        filtered_time_slots = _filter_time_slots(time_slots, raw_config)
+        if not filtered_time_slots:
+            raise ValueError(
+                "排课失败：生成配置过滤后没有可用时间段，"
+                f"time_slot_count={len(time_slots)}, raw_config={raw_config}"
+            )
+        time_slot_id_by_coord = _time_slot_id_by_coord(filtered_time_slots)
+        resolved_scheme_count = scheme_count if scheme_count is not None else _resolve_scheme_count(raw_config)
 
         teaching_tasks = list(fetch_all(conn,
             """SELECT tt.*, c.code AS course_code, c.name AS course_name,
@@ -100,7 +128,8 @@ def run_v3_pipeline(
 
     print(f"  Tasks: {len(teaching_tasks)}, Courses: {len(courses)}, "
           f"Classrooms: {len(classrooms)}, Classes: {len(class_groups)}, "
-          f"Teachers: {len(teachers)}")
+          f"Teachers: {len(teachers)}, TimeSlots: {len(time_slot_id_by_coord)}, "
+          f"Schemes: {resolved_scheme_count}, SeededTimeSlots: {seeded_time_slots}")
 
     # ── Step 2: Placement Model inference ───────────────────────────
     print("[V3] Step 2: Placement Model inference...")
@@ -117,6 +146,7 @@ def run_v3_pipeline(
         top_k=top_k,
         output_path=candidates_path,
         allocation_task_id=allocation_task_id,
+        raw_config=raw_config,
     )
     print(f"  {task_count} tasks → {candidates_path}")
 
@@ -130,47 +160,37 @@ def run_v3_pipeline(
     )
     print(f"  {task_plans_count} tasks → {task_plans_path}")
 
-    # ── Step 4: Teacher group solver ────────────────────────────────
-    print("[V3] Step 4: Teacher group solving...")
-    task_plans = _read_jsonl(task_plans_path)
-    group_assignments = solve_teacher_groups(
-        task_plans=task_plans,
-        semester_weeks=DEFAULT_SEMESTER_WEEKS,
+    # ── Step 4: CP-SAT global plan selection ─────────────────────────
+    print("[V3] Step 4: CP-SAT global plan selection...")
+    cp_sat_summary = select_cp_sat_global_plans_jsonl(
+        task_plans_path,
+        time_slot_id_by_coord=time_slot_id_by_coord,
+        scheme_count=resolved_scheme_count,
+        time_limit_seconds=solver_time_limit_seconds,
+        output_dir=out_dir,
     )
-    print(f"  {len(group_assignments)} tasks assigned across "
-          f"{len(set(a.get('teacher_name') for a in group_assignments))} teacher groups")
-
-    # ── Step 5: Class conflict resolution ───────────────────────────
-    print("[V3] Step 5: Class conflict resolution...")
-    resolved = resolve_class_conflicts(
-        assignments=group_assignments,
-        task_plans=task_plans,
-        class_groups=class_groups,
-    )
-    conflicts_after = _count_conflicts(resolved)
-    print(f"  Conflicts after: teacher={conflicts_after['teacher']}, "
-          f"class={conflicts_after['class']}, room={conflicts_after['room']}")
-
-    # ── Step 6: Write final schedule ────────────────────────────────
-    print("[V3] Step 6: Writing final schedule...")
-    schemes_path = out_dir / "schemes.jsonl"
-    scheme = _build_scheme(resolved)
-    with open(schemes_path, "w", encoding="utf-8") as f:
-        f.write(json.dumps(scheme, ensure_ascii=False, default=str) + "\n")
+    schemes_path = Path(cp_sat_summary["output_path"])
+    conflicts_after = _audit_schemes_jsonl(schemes_path)
+    print(f"  Schemes: {cp_sat_summary['scheme_count']}/{resolved_scheme_count}; "
+          f"Conflicts after: {conflicts_after}")
 
     runtime_s = round(time.perf_counter() - started, 2)
     summary = {
-        "architecture": "v3_teacher_group_decomposition",
+        "architecture": "v3_cp_sat_global_plan_selector",
         "allocation_task_id": allocation_task_id,
         "output_dir": str(out_dir),
         "schemes_path": str(schemes_path),
         "candidates_path": str(candidates_path),
         "task_plans_path": str(task_plans_path),
+        "cp_sat_summary_path": cp_sat_summary.get("summary_path"),
         "task_count": len(teaching_tasks),
-        "assigned_count": len(resolved),
+        "assigned_count": cp_sat_summary.get("task_count"),
         "placement_top_k": top_k,
         "plan_count": plan_count,
-        "teacher_groups": len(set(a.get("teacher_name") for a in resolved)),
+        "scheme_count": cp_sat_summary.get("scheme_count"),
+        "scheme_count_requested": resolved_scheme_count,
+        "solver_status": cp_sat_summary.get("solver_status"),
+        "seeded_time_slots": seeded_time_slots,
         "conflicts": conflicts_after,
         "runtime_s": runtime_s,
         "generated_at": datetime.now().astimezone().isoformat(timespec="seconds"),
@@ -206,6 +226,7 @@ def _run_placement_inference(
     top_k: int,
     output_path: Path,
     allocation_task_id: int,
+    raw_config: dict[str, Any] | None,
 ) -> int:
     """Run model inference on all tasks in parallel, write placement candidates JSONL."""
     workers = min(8, max(1, (os.cpu_count() or 4) - 1))
@@ -221,6 +242,7 @@ def _run_placement_inference(
             model=model,
             top_k=top_k,
             allocation_task_id=allocation_task_id,
+            raw_config=raw_config,
         )
         if row is None:
             return None
@@ -291,6 +313,7 @@ def _build_candidate_row(
     model: DirectPlacementModel,
     top_k: int,
     allocation_task_id: int,
+    raw_config: dict[str, Any] | None,
 ) -> dict | None:
     """Build one placement candidate row for a teaching task."""
     tid = task.get("id")
@@ -304,6 +327,7 @@ def _build_candidate_row(
 
     if not course_code or not class_name:
         return None
+    allowed_day_periods = _allowed_day_periods(raw_config)
 
     # Build feature dict for the model
     row_dict = {
@@ -327,12 +351,18 @@ def _build_candidate_row(
         return None
 
     resources = []
+    seen_resource_keys: set[str] = set()
     for resource_key, score in predictions:
         parsed = _parse_resource_key(resource_key)
         if parsed is None:
             continue
         classroom_name, day_of_week, period_index = parsed
+        if (day_of_week, period_index) not in allowed_day_periods:
+            continue
         room = classrooms.get(classroom_name, {})
+        if resource_key in seen_resource_keys:
+            continue
+        seen_resource_keys.add(resource_key)
         resources.append({
             "resource_key": resource_key,
             "slot": {
@@ -346,6 +376,17 @@ def _build_candidate_row(
             },
             "score": round(score, 6),
         })
+
+    _append_day_period_fallback_resources(
+        resources=resources,
+        seen_resource_keys=seen_resource_keys,
+        allowed_day_periods=allowed_day_periods,
+        classrooms=classrooms,
+        required_room_type=str(course.get("required_room_type") or ""),
+        student_count=int(task.get("student_count") or cg.get("student_count") or 0),
+        teaching_task_id=int(tid or 0),
+    )
+    resources = _prioritize_day_period_coverage(resources, allowed_day_periods)
 
     if not resources:
         return None
@@ -374,8 +415,125 @@ def _build_candidate_row(
             "model": "lightgbm_multiclass",
             "top_k": top_k,
             "num_classes": len(model.resource_by_label),
+            "allowed_weeks": _allowed_weeks(raw_config),
         },
     }
+
+
+def _append_day_period_fallback_resources(
+    *,
+    resources: list[dict[str, Any]],
+    seen_resource_keys: set[str],
+    allowed_day_periods: set[tuple[int, int]],
+    classrooms: dict[str, dict],
+    required_room_type: str,
+    student_count: int,
+    teaching_task_id: int,
+) -> None:
+    room_pool = _fallback_room_pool(classrooms, required_room_type, student_count)
+    if not room_pool:
+        return
+    counts_by_slot: Counter[tuple[int, int]] = Counter()
+    for resource in resources:
+        slot = resource.get("slot") or {}
+        key = (int(slot.get("day_of_week") or 0), int(slot.get("period_index") or 0))
+        if key in allowed_day_periods:
+            counts_by_slot[key] += 1
+
+    minimum_alternatives_per_slot = min(3, len(room_pool))
+    for day, period in sorted(allowed_day_periods):
+        offset = 0
+        while counts_by_slot[(day, period)] < minimum_alternatives_per_slot and offset < len(room_pool):
+            room = _pick_fallback_room(room_pool, teaching_task_id, day, period, offset=offset)
+            offset += 1
+            room_name = str(room.get("name") or "")
+            if not room_name:
+                continue
+            resource_key = f"{room_name}|{day}|{period}"
+            if resource_key in seen_resource_keys:
+                continue
+            seen_resource_keys.add(resource_key)
+            counts_by_slot[(day, period)] += 1
+            resources.append({
+                "resource_key": resource_key,
+                "slot": {
+                    "day_of_week": day,
+                    "period_index": period,
+                },
+                "classroom": {
+                    "id": room.get("id"),
+                    "name": room_name,
+                    "classroom_type": room.get("classroom_type", ""),
+                },
+                "score": 0.000001,
+                "source": "day_period_fallback",
+            })
+
+
+def _prioritize_day_period_coverage(
+    resources: list[dict[str, Any]],
+    allowed_day_periods: set[tuple[int, int]],
+) -> list[dict[str, Any]]:
+    """Spread early plan options across day/periods and room alternatives."""
+    by_slot: dict[tuple[int, int], list[dict[str, Any]]] = {key: [] for key in allowed_day_periods}
+    for resource in resources:
+        slot = resource.get("slot") or {}
+        key = (int(slot.get("day_of_week") or 0), int(slot.get("period_index") or 0))
+        if key not in allowed_day_periods:
+            continue
+        by_slot[key].append(resource)
+
+    for slot_resources in by_slot.values():
+        slot_resources.sort(
+            key=lambda resource: (
+                -float(resource.get("score") or 0.0),
+                str((resource.get("classroom") or {}).get("name") or ""),
+                int((resource.get("classroom") or {}).get("id") or 0),
+            )
+        )
+
+    ordered: list[dict[str, Any]] = []
+    used_ids: set[int] = set()
+    max_depth = max((len(slot_resources) for slot_resources in by_slot.values()), default=0)
+    for depth in range(max_depth):
+        for key in sorted(by_slot):
+            slot_resources = by_slot[key]
+            if depth >= len(slot_resources):
+                continue
+            resource = slot_resources[depth]
+            if id(resource) in used_ids:
+                continue
+            ordered.append(resource)
+            used_ids.add(id(resource))
+
+    ordered.extend(resource for resource in resources if id(resource) not in used_ids)
+    return ordered
+
+
+def _fallback_room_pool(classrooms: dict[str, dict], required_room_type: str, student_count: int) -> list[dict]:
+    required = required_room_type.strip()
+    rooms = [
+        room
+        for room in classrooms.values()
+        if int(room.get("capacity") or 0) >= max(0, student_count)
+    ]
+    if required:
+        exact = [room for room in rooms if str(room.get("classroom_type") or "").strip() == required]
+        if exact:
+            rooms = exact
+    return sorted(
+        rooms,
+        key=lambda room: (
+            int(room.get("capacity") or 0),
+            int(room.get("id") or 0),
+            str(room.get("name") or ""),
+        ),
+    )
+
+
+def _pick_fallback_room(room_pool: list[dict], teaching_task_id: int, day: int, period: int, *, offset: int = 0) -> dict:
+    index = (teaching_task_id * 31 + day * 7 + period + offset) % len(room_pool)
+    return room_pool[index]
 
 
 def _parse_resource_key(resource_key: str) -> tuple[str, int, int] | None:
@@ -399,74 +557,88 @@ def _read_jsonl(path: Path) -> list[dict]:
     return rows
 
 
-def _build_scheme(assignments: list[dict]) -> dict:
-    """Build final scheme dict from resolved assignments."""
-    items = []
-    total_score = 0.0
-    for a in assignments:
-        for item in a.get("items", []):
-            items.append(item)
-            total_score += float(item.get("placement_score", 0))
+def _resolve_scheme_count(raw_config: dict[str, Any] | None) -> int:
+    if not raw_config:
+        return 1
+    try:
+        value = int(raw_config.get("scheme_count") or 1)
+    except (TypeError, ValueError):
+        return 1
+    return max(1, min(value, 20))
 
-    items.sort(key=lambda x: (
-        int(x.get("teaching_task_id") or 0),
-        int(x.get("week_number") or 0),
-        int(x.get("day_of_week") or 0),
-        int(x.get("period_index") or 0),
-    ))
 
-    conflicts = _count_conflicts(assignments)
+def _filter_time_slots(time_slots: list[dict[str, Any]], raw_config: dict[str, Any] | None) -> list[dict[str, Any]]:
+    allowed_weeks = _parse_int_set(raw_config.get("allowed_weeks") if raw_config else None) or DEFAULT_ALLOWED_WEEKS
+    allowed_weekdays = (
+        _parse_int_set(raw_config.get("allowed_weekdays") if raw_config else None)
+        or DEFAULT_ALLOWED_WEEKDAYS
+    )
+    allowed_periods = (
+        _parse_int_set(raw_config.get("allowed_periods") if raw_config else None)
+        or DEFAULT_ALLOWED_PERIODS
+    )
+    result = []
+    for slot in time_slots:
+        week = int(slot.get("week_number") or 0)
+        day = int(slot.get("day_of_week") or 0)
+        period = int(slot.get("period_index") or 0)
+        if week not in allowed_weeks:
+            continue
+        if day not in allowed_weekdays:
+            continue
+        if period not in allowed_periods:
+            continue
+        result.append(slot)
+    return result
 
+
+def _time_slot_id_by_coord(time_slots: list[dict[str, Any]]) -> dict[tuple[int, int, int], int]:
     return {
-        "scheme_index": 1,
-        "items": items,
-        "hard_conflicts": conflicts["teacher"] + conflicts["class"] + conflicts["room"],
-        "quality_score": round(total_score, 4),
-        "conflict_summary": conflicts,
-        "assignment_count": len(items),
+        (int(slot["week_number"]), int(slot["day_of_week"]), int(slot["period_index"])): int(slot["id"])
+        for slot in time_slots
     }
 
 
-def _count_conflicts(assignments: list[dict]) -> dict[str, int]:
-    """Count teacher, class, and room conflicts in assignments."""
-    teacher_slots: dict[tuple[int, int, int, int], int] = {}
-    class_slots: dict[tuple[int, int, int, int], int] = {}
-    room_slots: dict[tuple[int, int, int, int], int] = {}
+def _allowed_day_periods(raw_config: dict[str, Any] | None) -> set[tuple[int, int]]:
+    allowed_days = (
+        _parse_int_set(raw_config.get("allowed_weekdays") if raw_config else None)
+        or DEFAULT_ALLOWED_WEEKDAYS
+    )
+    allowed_periods = (
+        _parse_int_set(raw_config.get("allowed_periods") if raw_config else None)
+        or DEFAULT_ALLOWED_PERIODS
+    )
+    days = sorted(allowed_days)
+    periods = sorted(allowed_periods)
+    return {(day, period) for day in days for period in periods}
 
-    teacher_conflicts = 0
-    class_conflicts = 0
-    room_conflicts = 0
 
-    for a in assignments:
-        for item in a.get("items", []):
-            tid = item.get("teacher_id", 0)
-            cids = item.get("class_group_ids", [])
-            rid = item.get("classroom_id", 0)
-            week = item.get("week_number", 0)
-            day = item.get("day_of_week", 0)
-            period = item.get("period_index", 0)
+def _allowed_weeks(raw_config: dict[str, Any] | None) -> list[int]:
+    allowed = _parse_int_set(raw_config.get("allowed_weeks") if raw_config else None) or DEFAULT_ALLOWED_WEEKS
+    return sorted(allowed)
 
-            if tid and week and day and period:
-                key = (tid, week, day, period)
-                teacher_slots[key] = teacher_slots.get(key, 0) + 1
-                if teacher_slots[key] > 1:
-                    teacher_conflicts += 1
 
-            if rid and week and day and period:
-                key = (rid, week, day, period)
-                room_slots[key] = room_slots.get(key, 0) + 1
-                if room_slots[key] > 1:
-                    room_conflicts += 1
+def _parse_int_set(value: Any) -> set[int] | None:
+    if value is None:
+        return None
+    raw = str(value).strip().strip("[]").replace(" ", "")
+    if not raw:
+        return None
+    result: set[int] = set()
+    for part in raw.split(","):
+        if not part:
+            continue
+        try:
+            result.add(int(part))
+        except ValueError:
+            pass
+    return result or None
 
-            for cid in cids:
-                if cid and week and day and period:
-                    key = (cid, week, day, period)
-                    class_slots[key] = class_slots.get(key, 0) + 1
-                    if class_slots[key] > 1:
-                        class_conflicts += 1
 
-    return {
-        "teacher": teacher_conflicts,
-        "class": class_conflicts,
-        "room": room_conflicts,
-    }
+def _audit_schemes_jsonl(path: Path) -> dict[str, int]:
+    total = {"teacher": 0, "class": 0, "room": 0, "time_slot_mapping": 0, "hour_mismatch": 0}
+    for scheme in _read_jsonl(path):
+        conflicts = audit_scheme_items(list(scheme.get("items") or []))
+        for key, value in conflicts.items():
+            total[key] = total.get(key, 0) + int(value)
+    return total

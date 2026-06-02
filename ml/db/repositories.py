@@ -136,6 +136,44 @@ def fetch_time_slots(connection) -> list[dict[str, Any]]:
     )
 
 
+def ensure_default_time_slots(connection, *, weeks: int = 20, weekdays: int = 7, periods: int = 5) -> int:
+    """Seed default time slots only when the table is empty.
+
+    Returns the number of inserted rows. Existing time_slot data is never
+    modified because these IDs are part of the Java persistence contract.
+    """
+
+    rows = fetch_all(connection, "SELECT COUNT(*) AS cnt FROM time_slot")
+    existing = int(rows[0]["cnt"] or 0) if rows else 0
+    if existing > 0:
+        return 0
+
+    labels = {
+        1: "1-2节",
+        2: "3-4节",
+        3: "5-6节",
+        4: "7-8节",
+        5: "9-11节",
+    }
+    inserted = 0
+    with connection.cursor() as cursor:
+        for week in range(1, weeks + 1):
+            for day in range(1, weekdays + 1):
+                for period in range(1, periods + 1):
+                    label = f"第{week}周 周{day} {labels.get(period, f'第{period}节')}"
+                    cursor.execute(
+                        """
+                        INSERT IGNORE INTO time_slot
+                            (week_number, day_of_week, period_index, label)
+                        VALUES (%s, %s, %s, %s)
+                        """,
+                        (week, day, period, label),
+                    )
+                    inserted += int(cursor.rowcount or 0)
+    connection.commit()
+    return inserted
+
+
 def fetch_teacher_profiles(connection) -> dict[int, dict[str, object]]:
     """Return {teacher_id: {unavailable_slots, max_weekly_hours, profile_preference, ...}}."""
     rows = fetch_all(

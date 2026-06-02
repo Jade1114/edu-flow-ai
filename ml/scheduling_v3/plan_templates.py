@@ -15,6 +15,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
+MAX_PLAN_COUNT = 120
 DEFAULT_PLAN_COUNT = 8
 WEEK_USAGE_SCORE_SCALE = 0.0005
 
@@ -31,7 +32,7 @@ def generate_task_plans_jsonl(
     if not source_path.exists():
         raise FileNotFoundError(f"candidates file not found: {source_path}")
 
-    plan_count = max(1, min(int(plan_count), 50))
+    plan_count = max(1, min(int(plan_count), MAX_PLAN_COUNT))
     out_dir = Path(output_dir) if output_dir else source_path.parent
     out_dir.mkdir(parents=True, exist_ok=True)
     output_path = out_dir / "task_plans.jsonl"
@@ -135,7 +136,7 @@ def _build_plans(
     allocator: "WeekUsageAllocator",
 ) -> list[dict[str, Any]]:
     plans: list[dict[str, Any]] = []
-    max_distinct_plans = min(plan_count, max(1, len(resources) * 2))
+    max_distinct_plans = plan_count
     for plan_index in range(max_distinct_plans):
         segments = _build_segments(
             resources=resources,
@@ -174,7 +175,7 @@ def _build_segments(
     segments: list[dict[str, Any]] = []
     used_slots: set[tuple[int, int]] = set()
     segment_index = 0
-    main_resource_index = plan_index // 2
+    main_resource_index = plan_index
 
     while remaining > 0 and segment_index < len(resources):
         if segment_index == 0:
@@ -241,7 +242,13 @@ class WeekUsageAllocator:
             front_penalty = sum(max(0, midpoint - week) for week in weeks) * 0.001
             return (usage_cost + balance_penalty + front_penalty, usage_cost, _gap_penalty(weeks), tuple(weeks))
 
-        selected = min(candidates, key=key) if candidates else []
+        ranked = sorted(candidates, key=key)
+        diversity_window = min(len(ranked), 12)
+        selected = (
+            ranked[(plan_index + segment_index * 3) % diversity_window]
+            if diversity_window
+            else []
+        )
         return selected, round(key(selected)[0], 6)
 
     def reserve(self, resource_key: str, weeks: list[int]) -> None:
