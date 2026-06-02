@@ -40,11 +40,13 @@ def fetch_tasks(connection) -> list[dict[str, Any]]:
             tt.classroom_id AS bound_classroom_id,
             tt.total_hours,
             tt.required_room_type,
+            c.name AS course_name,
+            c.code AS course_code,
             c.course_type,
             c.required_hours AS course_required_hours,
             t.department AS teacher_department,
             t.title AS teacher_title,
-            t.max_weekly_hours AS teacher_max_weekly_hours,
+            NULL AS teacher_max_weekly_hours,
             bound_cr.classroom_type AS bound_classroom_type,
             COUNT(cg.id) AS class_group_count,
             COALESCE(SUM(cg.student_count), 0) AS total_student_count,
@@ -67,11 +69,12 @@ def fetch_tasks(connection) -> list[dict[str, Any]]:
             tt.total_hours,
             tt.required_room_type,
             t.name,
+            c.name,
+            c.code,
             c.course_type,
             c.required_hours,
             t.department,
             t.title,
-            t.max_weekly_hours,
             bound_cr.classroom_type
         ORDER BY tt.id
         """,
@@ -108,7 +111,7 @@ def fetch_teacher_profiles(connection) -> dict[int, dict[str, object]]:
         """
         SELECT p.teacher_id, p.availability_matrix_json,
                p.profile_preference_json,
-               t.max_weekly_hours, t.name AS teacher_name,
+               NULL AS max_weekly_hours, t.name AS teacher_name,
                t.department
         FROM teacher_profile p
         JOIN teacher t ON t.id = p.teacher_id
@@ -138,7 +141,7 @@ def fetch_allocation_task(connection, task_id: int) -> dict[str, Any] | None:
     """Get allocation task by id. Returns None if not found."""
     rows = fetch_all(
         connection,
-        "SELECT id, name, status FROM allocation_task WHERE id = %s",
+        "SELECT id, name FROM allocation_task WHERE id = %s",
         (task_id,),
     )
     for row in rows:

@@ -25,7 +25,7 @@ try:
 except ImportError:
     pass
 
-from ml.api.routers import ga, health, training
+from ml.api.routers import ga, health, training, v3
 
 ML_DIR = Path(__file__).resolve().parents[1]
 
@@ -98,3 +98,4 @@ async def log_requests(request: Request, call_next):
 app.include_router(health.router, prefix="/api/ml", tags=["health"])
 app.include_router(ga.router, prefix="/api/ml", tags=["ga"])
 app.include_router(training.router, prefix="/api/ml", tags=["training"])
+app.include_router(v3.router, prefix="/api/ml", tags=["v3"])

@@ -8,6 +8,7 @@
 
 from __future__ import annotations
 import logging
+import time
 from itertools import product
 from functools import lru_cache
 from ml.scheduling.types import Template, TemplateSet, weeks_to_mask
@@ -29,10 +30,19 @@ def enumerate_template_sets(
     所有模板的 len(weeks_list) 之和 = total_lessons。
     """
     pool = tuple(sorted(set(available_weeks))) if available_weeks is not None else tuple(range(1, 19))
+    started_at = time.perf_counter()
+    before = _enumerate_template_sets_cached.cache_info()
     results = list(_enumerate_template_sets_cached(total_lessons, pool))
+    after = _enumerate_template_sets_cached.cache_info()
+    cache_state = "hit" if after.hits > before.hits else "miss"
     logger.info(
-        "Enumerated template sets: total_lessons=%s available_weeks=%s..%s count=%s",
-        total_lessons, pool[0] if pool else "?", pool[-1] if pool else "?", len(results),
+        "Enumerated template sets: total_lessons=%s available_weeks=%s..%s count=%s cache=%s elapsed_ms=%.1f",
+        total_lessons,
+        pool[0] if pool else "?",
+        pool[-1] if pool else "?",
+        len(results),
+        cache_state,
+        (time.perf_counter() - started_at) * 1000,
     )
     return results
 
@@ -60,7 +70,7 @@ def _enumerate_template_sets_cached(
         _enum_for_count(t_count, total_lessons, pool_list, min_template_weeks, seen, results)
 
     results.sort(key=lambda ts: ts.penalty)
-    logger.info(
+    logger.debug(
         "Template enumeration summary: total_lessons=%s t_range=%s..%s combos_before_cap=%s",
         total_lessons, min_t, max_t, len(results),
     )

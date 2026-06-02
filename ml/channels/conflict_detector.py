@@ -78,6 +78,31 @@ def detect_conflicts(assignments: list[dict]) -> dict:
 
     total_conflicts = len(teacher_conflicts) + len(class_conflicts) + len(room_conflicts)
 
+    # 日志：汇总 + 详细样本
+    _log.info("冲突检测: 总数=%d (教师=%d, 班级=%d, 教室=%d), 总安排=%d",
+              total_conflicts, len(teacher_conflicts), len(class_conflicts),
+              len(room_conflicts), len(assignments))
+
+    if total_conflicts > 0:
+        _log.info("冲突详情:")
+
+        for label, conflicts in [("教师", teacher_conflicts), ("班级", class_conflicts), ("教室", room_conflicts)]:
+            if not conflicts:
+                continue
+            _log.info("  %s冲突: %d 处", label, len(conflicts))
+            # 最多打印 10 个冲突样本
+            for i, (key, items) in enumerate(conflicts[:10]):
+                slot = key[1:]  # (week, day, period)
+                teacher_ids = [a.get("teacher_id", "?") for a in items]
+                task_ids = [a.get("task_id", "?") for a in items]
+                conflict_detail = [f"task={a.get('task_id','?')} teacher={a.get('teacher_name','?')} room={a.get('room_name','?')}" for a in items]
+                _log.info("    冲突#%d: slot=周%s 周%s 第%s节 resource=%s → %s",
+                          i + 1, slot[0], slot[1], slot[2], key[0], " | ".join(conflict_detail))
+            if len(conflicts) > 10:
+                _log.info("    ... 还有 %d 处 %s冲突未展示", len(conflicts) - 10, label)
+    else:
+        _log.info("  无冲突")
+
     # 3. 构建冲突图
     # 节点 = assignment 的 task_id
     # 边 = 两个 assignment 在同一 slot 冲突
@@ -131,10 +156,8 @@ def detect_conflicts(assignments: list[dict]) -> dict:
         if component:
             clusters.append(list(component))
 
-    _log.info("冲突检测: 总数=%d (教师=%d, 班级=%d, 教室=%d), "
-              "冲突图: 节点=%d, 边=%d, 连通分量=%d",
-              total_conflicts, len(teacher_conflicts), len(class_conflicts),
-              len(room_conflicts), len(nodes), len(edges), len(clusters))
+    _log.info("冲突图: 节点=%d, 边=%d, 连通分量=%d",
+              len(nodes), len(edges), len(clusters))
 
     return {
         "total_assignments": len(assignments),

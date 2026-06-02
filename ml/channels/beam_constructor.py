@@ -36,13 +36,19 @@ except ImportError:
 class BeamState:
     """Beam search 的局部课表状态。"""
 
-    def __init__(self):
+    def __init__(self, locked_slots: dict | None = None):
         self.assignments: list[dict] = []  # 已放置的任务
         self.teacher_slots: set[str] = set()
         self.class_slots: set[str] = set()
         self.room_slots: set[str] = set()
         self.room_usage: dict[int, int] = defaultdict(int)
         self.total_score: float = 0.0
+
+        # 双通道支持：通道A需避开通道B已锁定资源
+        if locked_slots:
+            self.teacher_slots.update(locked_slots.get("teacher_slots", set()))
+            self.class_slots.update(locked_slots.get("class_slots", set()))
+            self.room_slots.update(locked_slots.get("room_slots", set()))
 
     def clone(self) -> BeamState:
         s = BeamState()
@@ -55,14 +61,18 @@ class BeamState:
         return s
 
     def add(self, task: dict, template: dict, room: dict | None,
-            slot: tuple, score: float):
+            slot: tuple, score: float, slot_index: dict | None = None):
         """放置一个任务到课表。"""
         week, day, period = slot
         teacher_id = task.get("teacher_id", 0)
         room_id = (room.get("room_id") or room.get("id")) if room else None
 
-        # 构造 Java 持久层需要的 time_slot_id（匹配 DB 自增规则）
-        time_slot_id_val = 1001 + (week - 1) * 25 + (day - 1) * 5 + (period - 1)
+        # 用 slot_index 查实际 time_slot_id（DB 自增 ID，非公式计算）
+        if slot_index:
+            time_slot_id_val = slot_index.get((week, day, period))
+        if not slot_index or time_slot_id_val is None:
+            # 兜底：退回到公式计算（仅在 slot_index 不可用时）
+            time_slot_id_val = 1001 + (week - 1) * 25 + (day - 1) * 5 + (period - 1)
 
         self.assignments.append({
             "task_id": task.get("id"),
@@ -104,6 +114,7 @@ def construct_timetable(
     beam_width: int = 3,
     teacher_priority: list[str] | None = None,
     max_iterations: int | None = None,
+    locked_slots: dict | None = None,
 ) -> dict:
     """Beam Search 构造全校课表。
 
@@ -143,108 +154,151 @@ def construct_timetable(
     week_list = sorted(set(int(s["week_number"]) for s in time_slots))
     day_period_list = sorted(day_period_set)
 
-    # 3. Beam Search
-    beam: list[BeamState] = [BeamState()]
+    # 3. Beam Search (支持双通道：锁定资源在前)
+    beam: list[BeamState] = [BeamState(locked_slots=locked_slots)]
     unassigned = []
     stats = {"total": len(sorted_tasks), "assigned": 0, "failed": 0}
 
+    # 预先为每个 task 生成最佳模板（仅用来获取评分参考，周次覆盖被覆盖）
+    task_templates: dict[int, dict | None] = {}
     for task in sorted_tasks:
-        candidates = []
-        iter_counts: dict[str, int] = {"state_skip": 0, "template": 0, "slot": 0, "hard_tc": 0, "room_loop": 0, "hard_rc": 0, "placed": 0}
+        total_lessons = task.get("total_lessons", 4)
+        tmpls = generate_templates(total_lessons, top_k=1)
+        task_templates[task.get("id", 0)] = tmpls[0] if tmpls else None
 
-        # 为每个 beam 中的局部课表生成候选
+    for task in sorted_tasks:
+        total_lessons = task.get("total_lessons", 4)
+        tmpl = task_templates.get(task.get("id", 0))
+        if tmpl is None:
+            _log.warning(f"无法安排: {task.get('teacher_name','?')} — 无可用模板")
+            unassigned.append(task)
+            stats["failed"] += 1
+            continue
+
+        # 周次分配：显式打包，保证每个 session 有周次，覆盖学期全程
+        total_sessions_needed: int = total_lessons
+        semester_weeks_count: int = len(week_list)
+        max_per_week = tmpl.get("lessons_per_week", 2)
+
+        # 计算各周应放 session 数：先给每周 1 个，余数从学期末尾开始加
+        weekly_counts: list[int] = [1] * semester_weeks_count
+        total_base = semester_weeks_count
+        extra = total_sessions_needed - total_base
+        if extra > 0:
+            # 从末尾开始每追加一个 session 到已有 max_per_week 的周
+            for w_idx in range(semester_weeks_count - 1, -1, -1):
+                if extra <= 0:
+                    break
+                addable = max_per_week - weekly_counts[w_idx]
+                if addable > 0:
+                    delta = min(extra, addable)
+                    weekly_counts[w_idx] += delta
+                    extra -= delta
+        elif extra < 0:
+            # session 少于学期周数：从学期末尾去掉多余的
+            for w_idx in range(semester_weeks_count - 1, -1, -1):
+                if extra >= 0:
+                    break
+                weekly_counts[w_idx] = 0
+                extra += 1
+
+        # 展开为候选列表
+        candidate_weeks: list[int] = []
+        for w_idx, cnt in enumerate(weekly_counts):
+            for _ in range(cnt):
+                candidate_weeks.append(week_list[w_idx])
+
+        _log.debug("  %s: %d sessions → %d weeks, weekly_counts=%s",
+                   task.get('teacher_name', '?'), total_sessions_needed,
+                   sum(1 for c in weekly_counts if c > 0), weekly_counts[:10])
+
+        candidate_states: list[tuple[float, BeamState]] = []
+
+        # 为每个 beam state 生成候选：柔性周次分配
         for state in beam:
-            # 过滤硬约束索引
             hard_state = {
                 "teacher_slots": state.teacher_slots,
                 "class_slots": state.class_slots,
                 "room_slots": state.room_slots,
             }
 
-            # 检查是否已排（用 task_id + total_lessons 联合校验，同教师不同课时不会误判）
-            tid = task.get("id", 0)
-            tlessons = task.get("total_lessons", 0)
-            if any(a.get("task_id") == tid and a.get("total_lessons") == tlessons for a in state.assignments):
-                iter_counts["state_skip"] += 1
-                continue
-
-            # 生成模板
-            total_lessons = task.get("total_lessons", 4)
-            templates = generate_templates(total_lessons, top_k=3)
-
-            # 生成推荐教室
+            # 生成推荐教室（复用一次）
             rooms = rank_rooms(task, classrooms, dict(state.room_usage), top_k=3,
                                 diversity_seed=task.get("id", 0))
+            if not rooms:
+                continue
 
-            # 生成候选 (week, day, period, room)
-            for tmpl in templates:
-                iter_counts["template"] += 1
-                for w in tmpl["weeks"]:
-                    for d, p in day_period_list:
-                        iter_counts["slot"] += 1
-                        slot = (w, d, p)
+            all_placements: list[tuple] = []  # [(week, slot, room, score), ...]
+            placed_count = 0
 
-                        # 硬约束过滤（教师+班级）
-                        conflict = has_hard_conflict(task, None, slot, hard_state)
+            # 按 candidate_weeks 顺序逐周放置，每轮放 1 个 session
+            # candidate_weeks 已包含每个 session 的独立周次分配
+            for w in candidate_weeks:
+                if placed_count >= total_sessions_needed:
+                    break
+
+                best_for_slot = None
+                best_score = -99999
+
+                for d, p in day_period_list:
+                    slot = (w, d, p)
+                    conflict = has_hard_conflict(task, None, slot, hard_state)
+                    if conflict:
+                        continue
+
+                    for room in rooms:
+                        conflict = has_hard_conflict(task, room["room_id"], slot, hard_state)
                         if conflict:
-                            iter_counts["hard_tc"] += 1
                             continue
 
-                        # 对每个推荐教室评分
-                        for room in rooms:
-                            iter_counts["room_loop"] += 1
-                            conflict = has_hard_conflict(task, room["room_id"], slot, hard_state)
-                            if conflict:
-                                iter_counts["hard_rc"] += 1
-                                continue
+                        result = score_placement(task, tmpl, room, slot, hard_state)
+                        score = result["score"]
+                        if score > best_score:
+                            best_score = score
+                            best_for_slot = (w, slot, room)
 
-                            # Placement Scorer
-                            result = score_placement(
-                                task, tmpl, room, slot, hard_state
-                            )
+                if best_for_slot:
+                    all_placements.append((*best_for_slot, best_score))
+                    placed_count += 1
+                    # 标记这个 slot 已占用，防止同周其他 session 冲突
+                    _, slot, room = best_for_slot
+                    w_used, d_used, p_used = slot
+                    key = f"T:{task.get('teacher_id',0)}:{w_used}:{d_used}:{p_used}"
+                    if key not in hard_state["teacher_slots"]:
+                        hard_state["teacher_slots"].add(key)
+                    for cg in (task.get("class_group_ids", []) if isinstance(task.get("class_group_ids", []), list) else []):
+                        hard_state["class_slots"].add(f"CG:{cg}:{w_used}:{d_used}:{p_used}")
+                    if room:
+                        hard_state["room_slots"].add(f"R:{room['room_id']}:{w_used}:{d_used}:{p_used}")
+                # 当前周没空位 → 跳过这个 session（后续 candidate_weeks 可能有同周的其他条目）
 
-                            candidates.append({
-                                "state": state,
-                                "task": task,
-                                "template": tmpl,
-                                "room": room,
-                                "slot": slot,
-                                "score": result["score"],
-                                "breakdown": result.get("breakdown", {}),
-                            })
-                            iter_counts["placed"] += 1
+            total_needed = total_sessions_needed
+            avg_score = sum(p[3] for p in all_placements) / max(len(all_placements), 1)
 
-        if not candidates:
-            teacher_name = task.get("teacher_name", "?")
-            _log.warning(f"无法安排: {teacher_name} — 迭代追踪: {iter_counts}")
+            # 每个 beam state 扩展为一个新 state
+            new_state = state.clone()
+            for w, slot, room, score in all_placements:
+                new_state.add(task, tmpl, room, slot, score, slot_index=slot_index)
+
+            # 用平均分 + 完成率加权作为这个扩展的总分
+            completion_ratio = len(all_placements) / max(total_needed, 1)
+            state_total = new_state.total_score - state.total_score  # 增量
+            composite_score = state_total * completion_ratio
+
+            # 把 new_state 加入候选列表供 beam 选取
+            candidate_states.append((composite_score, new_state))
+
+        # 已遍历完全部 beam state，从候选列表中取 TopB
+
+        if not candidate_states:
+            _log.warning(f"无法安排: {task.get('teacher_name','?')} — 无法在任何 beam state 中放置")
             unassigned.append(task)
             stats["failed"] += 1
             continue
 
-        # 按评分降序取 TopB 个扩展
-        # 每个 beam state 独立贡献候选，不跨 beam 去重
-        candidates.sort(key=lambda c: -c["score"])
-        best_states: list[BeamState] = []
-        seen_beam_ids: set[int] = set()
-
-        for cand in candidates:
-            bid = id(cand["state"])
-            # 已经从这个 beam state 选了一个扩展，跳过后续同 beam 的候选
-            if bid in seen_beam_ids:
-                continue
-
-            new_state = cand["state"].clone()
-            new_state.add(
-                cand["task"], cand["template"],
-                cand["room"], cand["slot"], cand["score"],
-            )
-            best_states.append(new_state)
-            seen_beam_ids.add(bid)
-
-            if len(best_states) >= beam_width:
-                break
-
-        beam = best_states[:beam_width]
+        # 按 composite_score 排序取 TopB
+        candidate_states.sort(key=lambda x: -x[0])
+        beam = [cs[1] for cs in candidate_states[:beam_width]]
         stats["assigned"] += 1
 
     # 4. 返回最优完整课表

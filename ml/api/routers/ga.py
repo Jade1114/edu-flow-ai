@@ -21,9 +21,7 @@ from ml.scheduling.pipeline import generate_scheme
 from ml.scheduling.scoring import build_scoring_config
 from ml.scheduling.infra.constants import PROJECT_LOG_DIR
 from ml.scheduling.teacher_profiles import load_teacher_profiles_jsonl
-from ml.channels.integration import generate_v2
-
-V2_ENABLED = True  # Toggle V2 engine
+from ml.channels.integration import generate_v2_from_db
 
 router = APIRouter(tags=["ga"])
 
@@ -293,104 +291,12 @@ def _run_batch_generation(
 
 def _run_generation(task_id: int, teacher_profiles_jsonl: str | None = None) -> dict[str, Any]:
     _setup_logger()
-    db = load_db_config()
-    with connect(db) as conn:
-        at = fetch_allocation_task(conn, task_id)
-        if not at:
-            raise ValueError(f"task {task_id} not found")
-        teaching_task_ids = fetch_task_teaching_task_ids(conn, task_id)
-        raw_config = fetch_generation_config(conn, task_id)
-        tasks = fetch_tasks(conn)
-        classrooms = fetch_classrooms(conn)
-        time_slots = fetch_time_slots(conn)
-        teacher_profiles = fetch_teacher_profiles(conn)
-
-    if raw_config:
-        aw = raw_config.get("allowed_weeks", "")
-        aw_set = _parse_int_set(str(aw)) if aw else None
-        ad = _parse_int_set(str(raw_config.get("allowed_weekdays", "")))
-        ap = _parse_int_set(str(raw_config.get("allowed_periods", "")))
-        if aw_set:
-            time_slots = [s for s in time_slots if int(s["week_number"]) in aw_set]
-        if ad:
-            time_slots = [s for s in time_slots if int(s["day_of_week"]) in ad]
-        if ap:
-            time_slots = [s for s in time_slots if int(s["period_index"]) in ap]
-
-    scoring_config = build_scoring_config(raw_config)
-    _log.info("Scoring config: early=%s late=%s profile_scale=%s",
-                scoring_config.get("early_period_penalty"),
-                scoring_config.get("late_period_penalty"),
-                scoring_config.get("profile_penalty_scale"))
-
-    tid_set = set(teaching_task_ids)
-    tasks = [t for t in tasks if int(t.get("teaching_task_id") or 0) in tid_set]
-
-    # ── V2 engine (Beam Search) or legacy GA batch ──
-    if V2_ENABLED:
-        # 字段名称归一化：DB 返回 teaching_task_id，V2 内部用 id
-        for t in tasks:
-            t["id"] = t.get("teaching_task_id")
-        _log.info("✅ V2 engine: %d tasks → Beam Search", len(tasks))
-        v2_result = generate_v2(tasks, classrooms, time_slots, beam_width=3)
-        if v2_result.get("success"):
-            # Wrap V2 result into expected scheme format
-            out_dir = _write_v2_output(task_id, v2_result)
-            return {"output_dir": str(out_dir), "scheme_count": 1, "timings_ms": {}}
-        else:
-            _log.warning("V2 failed: %s, falling back to GA", v2_result.get("error"))
-    
-    # Legacy batch GA fallback (split by class_group if tasks > 30)
-    BATCH_THRESHOLD = 30
-    if len(tasks) > BATCH_THRESHOLD:
-        _log.info("Batch mode: %d tasks > %d → splitting by class_group", len(tasks), BATCH_THRESHOLD)
-        return _run_batch_generation(tasks, classrooms, time_slots, teacher_profiles,
-                                     task_id, raw_config, teacher_profiles_jsonl)
-    
-    scheme_count = _resolve_scheme_count(raw_config)
-    ga_params = resolve_ga_params(_log)
-    profile_jsonl_path = teacher_profiles_jsonl or os.environ.get("TEACHER_PROFILES_JSONL")
-    if profile_jsonl_path:
-        teacher_profiles = load_teacher_profiles_jsonl(profile_jsonl_path)
-
-    schemes = []
-    summaries = []
-    _log.info(
-        "GA effective params for allocation_task_id=%s: profile=%s pop=%s generations=%s elite=%s tournament=%s mutation=%s",
-        task_id,
-        ga_params.get("profile"),
-        ga_params["population_size"],
-        ga_params["generations"],
-        ga_params["elite_size"],
-        ga_params["tournament_size"],
-        ga_params["mutation_rate"],
-    )
-    for index in range(scheme_count):
-        _log.info("Generating GA scheme %s/%s for allocation_task_id=%s", index + 1, scheme_count, task_id)
-        rng = random.Random((task_id * 1_000_003 + index * 9_176 + 17) % 2_147_483_647)
-        rows, metrics = generate_scheme(
-            tasks, classrooms, time_slots, teacher_profiles,
-            rng=rng,
-            population_size=int(ga_params["population_size"]),
-            generations=int(ga_params["generations"]),
-            elite_size=int(ga_params["elite_size"]),
-            tournament_size=int(ga_params["tournament_size"]),
-            mutation_rate=float(ga_params["mutation_rate"]),
-            init_candidate_top_n=int(ga_params["candidate_top_n"]),
-            scoring_config=scoring_config,
-        )
-        schemes.append({"items": rows})
-        summaries.append({"scheme_index": index + 1, "ga_profile": ga_params.get("profile"), **metrics})
-
-    ts = dt.now().strftime("%Y%m%d%H%M%S%f")[:-3]
-    out = Path(__file__).resolve().parents[1] / "data" / "generated" / f"task_{task_id}_{ts}"
-    out.mkdir(parents=True, exist_ok=True)
-    (out / "schemes.jsonl").write_text(
-        "\n".join(json.dumps(s, ensure_ascii=False, default=str) for s in schemes)
-    )
-    (out / "ga_summary.json").write_text(json.dumps(summaries, ensure_ascii=False, indent=2))
-    _log.info("Wrote %s schemes to %s/schemes.jsonl", len(schemes), out)
-    return {"output_dir": str(out), "scheme_count": len(schemes), "timings_ms": {}}
+    result = generate_v2_from_db(task_id, beam_width=3, high_cross_threshold=12)
+    # 写输出文件 + 补 Java 端期待的字段
+    out_path = _write_v2_output(task_id, result)
+    result["output_dir"] = str(out_path)
+    result["scheme_count"] = 1
+    return result
 
 
 def _resolve_scheme_count(raw_config: dict | None) -> int:
