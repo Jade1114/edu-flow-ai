@@ -51,6 +51,11 @@ const router = createRouter({
                     component: () => import('@/views/admin/ModelTrainingView.vue'),
                 },
                 {
+                    path: 'teacher-profiles',
+                    name: 'AdminTeacherProfiles',
+                    component: () => import('@/views/admin/TeacherProfileAnalyticsView.vue'),
+                },
+                {
                     path: 'timetable',
                     name: 'AdminTimetable',
                     component: () => import('@/views/admin/TimetableView.vue'),

@@ -10,6 +10,7 @@ import {
     SwitchButton,
     Cpu,
     Operation,
+    UserFilled,
 } from '@element-plus/icons-vue'
 
 const route = useRoute()
@@ -21,6 +22,7 @@ const menus = [
     { path: '/admin/basic-data', label: '基础数据', icon: Collection },
     { path: '/admin/allocation', label: '分课任务', icon: MagicStick },
     { path: '/admin/model-training', label: '模型训练', icon: Cpu },
+    { path: '/admin/teacher-profiles', label: '教师画像', icon: UserFilled },
     { path: '/admin/timetable', label: '课表查询', icon: Calendar },
     { path: '/admin/adjustment', label: '调课处理', icon: Edit },
     { path: '/admin/constraint-editor', label: '约束干预', icon: Operation },

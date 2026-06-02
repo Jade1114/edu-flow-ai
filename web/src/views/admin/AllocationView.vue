@@ -901,6 +901,11 @@ async function reevaluateCurrentScheme() {
 const detailVisible = ref(false);
 const schemeDetail = ref(null);
 const conflictDiagnosis = ref(null);
+const schemeSatisfactionReport = ref(null);
+
+const latestSatisfactionScheme = computed(() => schemeSatisfactionReport.value?.schemes?.[0] || null);
+const satisfactionSummary = computed(() => latestSatisfactionScheme.value?.summary || null);
+const lowSatisfactionTeachers = computed(() => latestSatisfactionScheme.value?.low_satisfaction_teachers || []);
 
 const schemeScores = computed(() => {
   if (!schemeDetail.value?.evaluationSummary) return null;
@@ -1002,6 +1007,45 @@ function hardFilterSummary(audit) {
   const taskCount = audit.tasks_with_hard_unavailable || 0;
   if (removed === 0) return "本方案生成时未命中教师硬不可排过滤";
   return `${taskCount} 个教学任务启用硬不可排，共过滤 ${removed} 个候选星期/节次`;
+}
+
+async function loadSchemeSatisfactionReport() {
+  try {
+    schemeSatisfactionReport.value = await request.get("/api/ml/teacher-profiles/v3/satisfaction/latest");
+  } catch (e) {
+    schemeSatisfactionReport.value = null;
+  }
+}
+
+function percentText(value) {
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric)) return "-";
+  return `${Math.round(numeric * 100)}%`;
+}
+
+function satisfactionScoreType(score) {
+  if (Number(score) >= 0.85) return "success";
+  if (Number(score) >= 0.7) return "warning";
+  return "danger";
+}
+
+function satisfactionComponentLabel(key) {
+  const map = {
+    early_period: "第1节避让",
+    late_period: "晚课避让",
+    preferred_weekday: "偏好星期",
+    preferred_period: "常见节次",
+    daily_load: "单日负载",
+    room_type: "教室类型",
+  };
+  return map[key] || key;
+}
+
+function lowSatisfactionReasons(row) {
+  return Object.entries(row.components || {})
+    .filter(([, value]) => Number(value) < 0.7)
+    .map(([key, value]) => `${satisfactionComponentLabel(key)} ${percentText(value)}`)
+    .join("；") || "整体满足度较低";
 }
 
 function solverStatusText(summary) {
@@ -1487,6 +1531,7 @@ async function viewSchemeDetail(schemeId) {
   };
   currentWeek.value = 1;
   resetTimetableFilters();
+  await loadSchemeSatisfactionReport();
   detailVisible.value = true;
 }
 
@@ -2168,6 +2213,62 @@ onUnmounted(() => {
               {{ reevaluationStatusText(reevaluationStatus) }}
             </div>
           </div>
+        </div>
+
+        <div
+          v-if="satisfactionSummary"
+          style="border: 1px solid #e4ecff; border-radius: 8px; padding: 12px; margin-bottom: 12px; background: #f8fbff"
+        >
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px">
+            <div>
+              <div style="font-weight: 700; color: #303133">教师画像满足度分析</div>
+              <div style="font-size: 12px; color: #909399; margin-top: 3px">
+                基于 V3 教师画像分析层，对当前生成方案做偏好满足度评价
+              </div>
+            </div>
+            <el-tag :type="satisfactionScoreType(satisfactionSummary.avg_satisfaction_score)" effect="dark">
+              平均 {{ percentText(satisfactionSummary.avg_satisfaction_score) }}
+            </el-tag>
+          </div>
+          <div style="display: grid; grid-template-columns: repeat(4, minmax(120px, 1fr)); gap: 10px; margin-bottom: 10px">
+            <div style="background: #fff; border-radius: 6px; padding: 10px">
+              <div style="font-size: 12px; color: #909399">覆盖教师</div>
+              <div style="font-size: 20px; font-weight: 700">{{ satisfactionSummary.teacher_count }} 人</div>
+            </div>
+            <div style="background: #fff; border-radius: 6px; padding: 10px">
+              <div style="font-size: 12px; color: #909399">低满足教师</div>
+              <div style="font-size: 20px; font-weight: 700; color: #f56c6c">{{ satisfactionSummary.low_satisfaction_count }} 人</div>
+            </div>
+            <div style="background: #fff; border-radius: 6px; padding: 10px">
+              <div style="font-size: 12px; color: #909399">硬约束冲突</div>
+              <div style="font-size: 20px; font-weight: 700">{{ satisfactionSummary.hard_unavailable_violation_count }}</div>
+            </div>
+            <div style="background: #fff; border-radius: 6px; padding: 10px">
+              <div style="font-size: 12px; color: #909399">课表条目</div>
+              <div style="font-size: 20px; font-weight: 700">{{ latestSatisfactionScheme?.item_count || '-' }}</div>
+            </div>
+          </div>
+          <el-collapse>
+            <el-collapse-item name="low-satisfaction">
+              <template #title>
+                <span style="font-size: 13px; font-weight: 600">低满足教师 Top 10</span>
+              </template>
+              <el-table :data="lowSatisfactionTeachers" size="small" border>
+                <el-table-column prop="teacher_name" label="教师" width="110" />
+                <el-table-column prop="item_count" label="课时" width="70" />
+                <el-table-column label="满足度" width="100">
+                  <template #default="{ row }">
+                    <el-tag :type="satisfactionScoreType(row.satisfaction_score)" size="small">
+                      {{ percentText(row.satisfaction_score) }}
+                    </el-tag>
+                  </template>
+                </el-table-column>
+                <el-table-column label="主要短板" show-overflow-tooltip>
+                  <template #default="{ row }">{{ lowSatisfactionReasons(row) }}</template>
+                </el-table-column>
+              </el-table>
+            </el-collapse-item>
+          </el-collapse>
         </div>
 
         <el-collapse
