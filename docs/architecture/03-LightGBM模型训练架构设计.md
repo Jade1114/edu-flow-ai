@@ -1,8 +1,7 @@
 # LightGBM 模型训练架构设计
 
-> 更新时间：2026-05-25
-> 当前目标：建立“规则冷启动 + 教务反馈重训 + 评估发布 + GA 自动加载”的 LightGBM 训练闭环。
-> 当前实现状态：base 模型、反馈训练服务、模型发布目录、GA 推理加载均已接入；教师画像同时进入规则 penalty 与 LightGBM 特征。
+> ⚠️ **V3 更新 (2026-06-02)**: 本文档描述的 LightGBM 作为"GA 局部评分器"的角色已被 V3 的 **Placement Model** (多分类) 取代。训练闭环方法论（冷启动→反馈重训→评估发布）仍然适用，但模型角色从 `score(task, slot, room) → [0,1]` 变为 `predict(task) → TopK resource_key`。详见 [17-V3-CP-SAT排课架构设计](./17-V3-CP-SAT排课架构设计.md)。
+>
 
 ---
 
