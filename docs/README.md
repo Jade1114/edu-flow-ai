@@ -9,7 +9,7 @@
 docs/
 ├── README.md
 ├── architecture/            ← 架构设计
-│   ├── 15-基于候选空间压缩与学习评分引导的智能排课架构.md  ← V2 核心架构 ★
+│   ├── 15-基于候选空间压缩与学习评分引导的智能排课架构.md  ← 最终排课架构 ★
 │   ├── 02-教师画像作用路径设计.md
 │   ├── 03-LightGBM模型训练架构设计.md
 │   ├── 04-训练样本事件采集架构设计.md
@@ -25,7 +25,7 @@ docs/
 │   ├── 03-排课链路验证与排障说明.md
 │   ├── 04-scoring-config-fields-migration.sql
 │   └── 05-真实课表数据导入流程.md
-├── archive/                 ← 历史存档（GA 主线时期，已过时）
+├── archive/                 ← 历史存档（旧 GA / Beam Search 方案，已过时）
 │   ├── README.md
 │   ├── 01-排课架构设计.md
 │   ├── 09-GA编码与适应度函数设计.md
@@ -48,7 +48,7 @@ docs/
 
 | 文档 | 职责 |
 |------|------|
-| **architecture/15-基于候选空间压缩...md** | ★ V2 核心架构：候选空间压缩 + 学习评分引导的智能排课 |
+| **architecture/15-基于候选空间压缩...md** | ★ 最终排课架构：学习引导候选集生成 + GA 全局组合优化 |
 | architecture/02-教师画像作用路径设计.md | 教师自然语言画像、LLM 结构化、JSONL 快照、Python 排课消费路径 |
 | architecture/03-LightGBM模型训练架构设计.md | 规则冷启动、反馈样本、模型训练、评估发布 |
 | architecture/04-训练样本事件采集架构设计.md | 事件表、行为快照、调整相消、人工标注和样本构建边界 |
@@ -70,16 +70,18 @@ docs/
 | feedback/01-排课真实数据验收反馈.md | 真实任务验收中的非阻塞问题、判断和后续优化项 |
 | roadmap/01-训练样本收集优先路线.md | 训练样本事件采集、样本构建和重训准备的后续建设顺序 |
 
-## 当前架构边界（V2）
+## 当前架构边界
 
 ```text
-核心思路：规则保证不冲突，模型引导选择
-候选生成：Template Generator + Room Ranker (LightGBM) → 压缩候选空间
-构造引擎：Beam Search / 贪心构造器（每步评分选最优 k 个）
-GA 角色：局部修复工具（小规模冲突簇修复）
-LightGBM：双角色 — Placement Scorer（构造引导）+ 综合评价（方案选优）
+核心思路：模型生成高质量候选集，GA 组合全校无冲突课表
+输入接口：Java 仅传 allocation_task_id
+候选生成：Template Generator + Room Ranker + Placement Scorer
+候选粒度：每个 teaching_task 的完整排课候选，不是单个 slot
+GA 编码：gene = candidate_index，chromosome = 全校 teaching_task 候选索引
+Fitness：硬约束 O(n) 检测 + 教师画像 + 影响因子 + Scorer 预评分
 ```
 
-正式链路：教学任务 → 交叉度分层 → 模板+教室预排序 → Beam Search 构造 → 合并 → 冲突修复 → 方案选优。
+正式链路：`allocation_task_id` → Python 加载数据 → 候选池构建 → GA 初始化 →
+GA 搜索 → fitness 评估 → TopK 方案 → Java 入库 → 人工调课反馈。
 
 实现细节优先看 `docs/architecture/15-*`，`docs/archive/` 为历史参考。

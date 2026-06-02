@@ -154,8 +154,9 @@ def collect_all():
     all_courses = {}        # code -> {name, credits, hours, teachers, rooms, classes}
     all_class_groups = []   # list of {grade, major, class_no, department}
     all_teaching_tasks = []  # list of {course, teacher, class, hours, rooms, semester}
-    all_timetables = []     # list of {class, course, week, day, period, room}
-    
+    _seen_tt = set()          # dedup: (course_code, class_group)
+    all_timetables = []      # list of {class, course, week, day, period, room}
+
     semester = "2025-2026-1"  # 当前总课表学期
     
     warnings = []  # Data quality warnings
@@ -210,9 +211,8 @@ def collect_all():
                     "rooms": set(),
                     "classes": [],
                 }
-            # Update to max values if this semester has different values
-            all_courses[code]["credits"] = max(all_courses[code]["credits"], c["credits"])
-            all_courses[code]["hours"] = max(all_courses[code]["hours"], c["hours"])
+            # 一个课程在不同班级的学分/学时应该一致，保留首次出现的值
+            # （如果出现不一致说明数据有问题，首次值至少可溯源）
             
             for t in c["teachers"]:
                 if t not in all_teachers:
@@ -233,19 +233,15 @@ def collect_all():
             if class_key not in all_courses[code]["classes"]:
                 all_courses[code]["classes"].append(class_key)
             
-            # 教学任务
-            for t in c["teachers"]:
+            # 教学任务：每门课+班级只一条，取第一位教师（教室由模型推荐）
+            if (code, class_key) not in _seen_tt:
+                _seen_tt.add((code, class_key))
+                first_teacher = c["teachers"][0] if c["teachers"] else ""
                 all_teaching_tasks.append({
                     "course_code": code,
-                    "course_name": c["name"],
-                    "teacher": t,
+                    "teacher": first_teacher,
                     "class_group": class_key,
-                    "grade": meta["grade"],
-                    "major": meta["major"],
-                    "class_no": meta["class_no"],
                     "total_hours": c["hours"],
-                    "rooms": c["rooms"],
-                    "semester": semester,
                 })
         
         # 排课明细
@@ -270,7 +266,13 @@ def collect_all():
     # 转换 set → list
     for code, info in all_courses.items():
         info["rooms"] = list(info["rooms"])
-    
+
+    # 对 classrooms 做类型推断，用于后续 course_type 打标
+    _infer_classroom_types(all_classrooms)
+
+    # 对 courses 做类型推断
+    _infer_course_types(all_courses, all_classrooms, all_teaching_tasks)
+
     print(f"\n✅ 解析完成！")
     if warnings:
         print(f"\n⚠️  数据校验告警（{len(warnings)} 条）：")
@@ -298,35 +300,128 @@ def extract_student_count(title: str) -> int:
     return int(m.group(1)) if m else 0
 
 
+# ── 类型推断（parse 阶段完成，不让脏数据流到 import） ──
+
+def _classroom_type_from_name(name: str) -> str:
+    """从房间号推断教室类型"""
+    if not name:
+        return "普通教室"
+    if name[0].isdigit():
+        if name.startswith("9"):
+            return "机房"
+        if name.startswith("0"):
+            return "普通教室"
+    if name.startswith("xn"):
+        return "虚拟教室"
+    if name.startswith("jjx"):
+        return "阶梯教室"
+    if any(kw in name for kw in ["操场", "球场", "攀岩", "轮滑", "乒乓"]):
+        return "操场"
+    if "形体" in name:
+        return "形体教室"
+    return "普通教室"
+
+
+def _infer_classroom_types(classrooms: dict):
+    """给所有教室打上类型标签"""
+    for info in classrooms.values():
+        info["classroom_type"] = _classroom_type_from_name(info["name"])
+
+
+def _infer_course_types(courses: dict, classrooms: dict, teaching_tasks: list):
+    """根据教学任务使用的教室类型推断课程类型"""
+    # 统计每个 course 用到的 classroom_type
+    course_room_map = {}  # course_code -> set of classroom_type
+    for tt in teaching_tasks:
+        code = tt["course_code"]
+        if code not in course_room_map:
+            course_room_map[code] = set()
+        for room_name in (tt.get("rooms") or []):
+            cr = classrooms.get(room_name)
+            if cr:
+                course_room_map[code].add(cr.get("classroom_type", "普通教室"))
+
+    for code, info in courses.items():
+        types = course_room_map.get(code, set())
+        has_lab = "机房" in types
+        has_regular = "普通教室" in types
+        has_special = bool(types - {"机房", "普通教室"})
+
+        if has_lab and not has_regular and not has_special:
+            info["course_type"] = "上机课"
+            info["required_room_type"] = "机房"
+        elif has_regular and not has_lab and not has_special:
+            info["course_type"] = "理论课"
+            info["required_room_type"] = "普通教室"
+        elif not types:
+            # 没用到任何教室 → 按名称关键词补漏
+            name = info.get("name", "")
+            if any(kw in name for kw in ["上机", "实验", "实训"]):
+                info["course_type"] = "上机课"
+                info["required_room_type"] = "机房"
+            elif any(kw in name for kw in ["实习", "实践", "军事", "校企", "工程素质"]):
+                info["course_type"] = "实践课"
+                info["required_room_type"] = None
+            else:
+                info["course_type"] = "理论课"
+                info["required_room_type"] = "普通教室"
+        else:
+            # 混合/特殊 → 实践课
+            info["course_type"] = "实践课"
+            info["required_room_type"] = None
+
+
 # ── 输出 ──────────────────────────────────────────────
 def write_outputs(data: dict):
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
     
-    # 1. teachers.jsonl
+    # 1. teachers.jsonl — 只保留下游消费的字段
     teachers_list = sorted(data["teachers"].values(), key=lambda x: x["name"])
     with open(OUTPUT_DIR / "teachers.jsonl", "w", encoding="utf-8") as f:
         for t in teachers_list:
-            f.write(json.dumps(t, ensure_ascii=False) + "\n")
+            f.write(json.dumps({
+                "name": t["name"],
+                "departments": t["departments"],
+            }, ensure_ascii=False) + "\n")
     print(f"  📄 teachers.jsonl — {len(teachers_list)} 人")
 
-    # 2. classrooms.jsonl
+    # 2. classrooms.jsonl — 带上类型 + 容量（按类型固定）
     classrooms_list = sorted(data["classrooms"].values(), key=lambda x: x["name"])
     with open(OUTPUT_DIR / "classrooms.jsonl", "w", encoding="utf-8") as f:
         for r in classrooms_list:
-            f.write(json.dumps(r, ensure_ascii=False) + "\n")
+            ctype = r.get("classroom_type", "普通教室")
+            cap = {"普通教室": 80, "机房": 120, "阶梯教室": 200, "虚拟教室": 1200, "操场": 1000, "形体教室": 1000}
+            f.write(json.dumps({
+                "name": r["name"],
+                "classroom_type": ctype,
+                "capacity": cap.get(ctype, 80),
+            }, ensure_ascii=False) + "\n")
     print(f"  📄 classrooms.jsonl — {len(classrooms_list)} 间")
 
-    # 3. courses.jsonl
+    # 3. courses.jsonl — 带上课程类型 + 所需教室类型
     courses_list = sorted(data["courses"].values(), key=lambda x: x["code"])
     with open(OUTPUT_DIR / "courses.jsonl", "w", encoding="utf-8") as f:
         for c in courses_list:
-            f.write(json.dumps(c, ensure_ascii=False) + "\n")
+            f.write(json.dumps({
+                "name": c["name"],
+                "code": c["code"],
+                "credits": c["credits"],
+                "hours": c["hours"],
+                "course_type": c.get("course_type"),
+                "required_room_type": c.get("required_room_type"),
+            }, ensure_ascii=False) + "\n")
     print(f"  📄 courses.jsonl — {len(courses_list)} 门")
 
-    # 4. class_groups.jsonl
+    # 4. class_groups.jsonl — 对齐 DB 字段
     with open(OUTPUT_DIR / "class_groups.jsonl", "w", encoding="utf-8") as f:
         for g in data["class_groups"]:
-            f.write(json.dumps(g, ensure_ascii=False) + "\n")
+            f.write(json.dumps({
+                "name": g["key"],
+                "major": g.get("major", ""),
+                "department": g.get("department", ""),
+                "grade": str(g.get("grade", "")),
+                "student_count": g.get("student_count", 0),
+            }, ensure_ascii=False) + "\n")
     print(f"  📄 class_groups.jsonl — {len(data['class_groups'])} 个")
 
     # 5. teaching_tasks.jsonl
@@ -360,8 +455,8 @@ def write_outputs(data: dict):
             ck = cg["key"]
             stats = tasks_by_class.get(ck, {"courses": set(), "teachers": set()})
             writer.writerow([
-                ck, cg["grade"], cg["major"], cg["class_no"],
-                cg["student_count"], cg["department"],
+                ck, cg["grade"], cg["major"], cg.get("class_no", ""),
+                cg.get("student_count", 0), cg.get("department", ""),
                 len(stats["courses"]), len(stats["teachers"]),
             ])
     print(f"  📄 summary.csv — 汇总统计")

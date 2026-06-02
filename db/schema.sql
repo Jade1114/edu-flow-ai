@@ -12,7 +12,6 @@ CREATE TABLE IF NOT EXISTS teacher (
     name VARCHAR(50) NOT NULL,
     department VARCHAR(100) NOT NULL,
     title VARCHAR(50) NULL,
-    max_weekly_hours INT NULL,
     status VARCHAR(20) NOT NULL DEFAULT 'ACTIVE',
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
@@ -39,8 +38,8 @@ CREATE TABLE IF NOT EXISTS course (
     name VARCHAR(100) NOT NULL,
     code VARCHAR(32) NULL COMMENT '课程代码（如软184、云126）',
     credits DECIMAL(4,1) NULL COMMENT '学分',
-    course_type VARCHAR(50) NULL,
-    required_room_type VARCHAR(50) NULL COMMENT '课程所需教室类型 普通教室/阶梯教室/机房实验室',
+    course_type ENUM('理论课','上机课','实践课') NULL COMMENT '课程分类',
+    required_room_type ENUM('普通教室','机房') NULL COMMENT '所需教室类型：普通教室 / 机房（实践课为NULL）',
     required_hours INT NULL,
     description TEXT NULL,
     status VARCHAR(20) NOT NULL DEFAULT 'ACTIVE',
@@ -49,7 +48,8 @@ CREATE TABLE IF NOT EXISTS course (
     UNIQUE KEY uk_course_name_code (name, code),
     INDEX idx_course_code (code),
     INDEX idx_course_status (status),
-    INDEX idx_course_name (name)
+    INDEX idx_course_name (name),
+    INDEX idx_course_type (course_type)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE IF NOT EXISTS class_group (
@@ -59,7 +59,6 @@ CREATE TABLE IF NOT EXISTS class_group (
     department VARCHAR(100) NULL COMMENT '所属院系',
     grade VARCHAR(20) NULL,
     student_count INT NULL,
-    description TEXT NULL,
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     UNIQUE KEY uk_class_group_name (name),
@@ -70,9 +69,9 @@ CREATE TABLE IF NOT EXISTS class_group (
 CREATE TABLE IF NOT EXISTS classroom (
     id BIGINT PRIMARY KEY AUTO_INCREMENT,
     name VARCHAR(100) NOT NULL,
-    building VARCHAR(100) NULL,
-    capacity INT NULL,
-    classroom_type VARCHAR(50) NULL,
+    building VARCHAR(100) DEFAULT NULL,
+    capacity INT NULL COMMENT '按类型固定：普通80 / 机房120 / 虚拟1200 / 操场1000 / 形体1000',
+    classroom_type ENUM('普通教室','机房','阶梯教室','操场','虚拟教室','形体教室') NULL COMMENT '教室物理类型',
     status VARCHAR(20) NOT NULL DEFAULT 'ACTIVE',
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
@@ -101,7 +100,7 @@ CREATE TABLE IF NOT EXISTS teaching_task (
     assistant_teacher_id BIGINT NULL,
     classroom_id BIGINT NULL,
     total_hours INT NOT NULL,
-    required_room_type VARCHAR(50) NULL,
+    required_room_type ENUM('普通教室','机房') NULL COMMENT '教学任务所需教室类型，从 course.required_room_type 继承或覆写',
     notes TEXT NULL,
     status VARCHAR(30) NOT NULL DEFAULT 'ACTIVE',
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -142,17 +141,13 @@ CREATE TABLE IF NOT EXISTS teaching_task_classroom (
     CONSTRAINT fk_ttc_classroom FOREIGN KEY (classroom_id) REFERENCES classroom (id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
--- v2: 排课任务（增加 startWeek/endWeek，移除 priorityRule）
+-- v9: 排课任务主表只保存任务身份；时间域、方案数和影响因子进入 allocation_task_generation_config
 CREATE TABLE IF NOT EXISTS allocation_task (
     id BIGINT PRIMARY KEY AUTO_INCREMENT,
     name VARCHAR(100) NOT NULL,
-    description TEXT NULL,
-    status VARCHAR(30) NOT NULL DEFAULT 'DRAFT',
-    created_by VARCHAR(50) NULL,
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-    UNIQUE KEY uk_allocation_task_name (name),
-    INDEX idx_allocation_task_status (status)
+    UNIQUE KEY uk_allocation_task_name (name)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- v8: 排课任务生成配置快照（教务可配置 HARD 时间片裁剪 + SOFT 偏好权重；GA 内部参数不入库）
