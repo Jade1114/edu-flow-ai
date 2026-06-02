@@ -9,7 +9,7 @@ from typing import Any
 import lightgbm as lgb
 import pandas as pd
 
-MODEL_DIR = Path(__file__).resolve().parents[1] / "models" / "v3"
+MODEL_DIR = Path(__file__).resolve().parents[2] / "models" / "v3"
 DIRECT_MODEL_PATH = MODEL_DIR / "placement_direct_model.txt"
 DIRECT_SCHEMA_PATH = MODEL_DIR / "placement_direct_schema.json"
 DIRECT_LABELS_PATH = MODEL_DIR / "placement_direct_labels.json"

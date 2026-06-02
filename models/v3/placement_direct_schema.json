@@ -1,0 +1,49 @@
+{
+  "model_type": "lightgbm_multiclass_v3_placement_direct_model",
+  "model_path": "/Users/yuy/workspaces/projects/edu-flow-ai/ml/models/v3/placement_direct_model.txt",
+  "labels_path": "/Users/yuy/workspaces/projects/edu-flow-ai/ml/models/v3/placement_direct_labels.json",
+  "training_data": "/Users/yuy/workspaces/projects/edu-flow-ai/data/real-dataset/v3_placement_direct_training_samples_clean.csv",
+  "label": "label_id",
+  "features": [
+    "course_name_code",
+    "course_code_code",
+    "teacher_no_code",
+    "teacher_name_code",
+    "class_name_code",
+    "class_major_code",
+    "class_department_code",
+    "class_grade",
+    "class_no",
+    "student_count",
+    "total_hours",
+    "course_type_code",
+    "required_room_type_code"
+  ],
+  "contract": {
+    "input": [
+      "course_name",
+      "course_code",
+      "teacher_no",
+      "teacher_name",
+      "class_name",
+      "course_type",
+      "required_room_type",
+      "student_count"
+    ],
+    "output": [
+      "classroom_name",
+      "day_of_week",
+      "period_index"
+    ]
+  },
+  "metrics": {
+    "hit@1": 0.1906,
+    "hit@5": 0.4067,
+    "hit@10": 0.4695,
+    "hit@30": 0.5147
+  },
+  "training_samples": 11443,
+  "source_key_count": 2544,
+  "resource_key_count": 3953,
+  "notes": "Direct placement model predicts resource_key without enumerating rooms x slots."
+}

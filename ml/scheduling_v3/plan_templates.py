@@ -356,7 +356,10 @@ def _read_candidate_rows(source_path: Path) -> list[tuple[int, dict[str, Any]]]:
 def _resource_key(resource: dict[str, Any]) -> str:
     slot = resource.get("slot") or {}
     classroom = resource.get("classroom") or {}
-    classroom_id = int(classroom.get("id") or 0)
+    cid = classroom.get("id")
+    if cid is None:
+        cid = hash(classroom.get("name", "")) % 100000 + 1
+    classroom_id = int(cid or 0)
     day = int(slot.get("day_of_week") or 0)
     period = int(slot.get("period_index") or 0)
     return f"{classroom_id}|{day}|{period}"

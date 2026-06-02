@@ -7,6 +7,7 @@ from pydantic import BaseModel, Field
 
 from ml.scheduling_v3.placement_candidates import generate_placement_candidates_jsonl
 from ml.scheduling_v3.plan_templates import generate_task_plans_jsonl
+from ml.scheduling_v3.pipeline import run_v3_pipeline
 
 router = APIRouter(tags=["v3"])
 
@@ -59,3 +60,29 @@ async def generate_task_plans(request: TaskPlansRequest):
         )
     except (FileNotFoundError, ValueError) as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+class GenerateV3Request(BaseModel):
+    allocation_task_id: int
+    top_k: int = Field(default=10, ge=1, le=50)
+    plan_count: int = Field(default=8, ge=1, le=50)
+    output_dir: str | None = None
+
+
+@router.post("/v3/generate")
+async def generate_v3(request: GenerateV3Request):
+    """Run full V3 pipeline: placement → templates → teacher groups → schedule.
+
+    Professional courses only (pre-filtered teaching tasks required).
+    """
+    try:
+        return run_v3_pipeline(
+            allocation_task_id=request.allocation_task_id,
+            top_k=request.top_k,
+            plan_count=request.plan_count,
+            output_dir=request.output_dir,
+        )
+    except (ValueError, FileNotFoundError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc

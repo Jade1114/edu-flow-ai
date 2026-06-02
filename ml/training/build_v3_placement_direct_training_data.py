@@ -18,7 +18,7 @@ from pathlib import Path
 from typing import Any
 
 DATA_DIR = Path(__file__).resolve().parents[2] / "data" / "real-dataset"
-OUTPUT_PATH = DATA_DIR / "v3_placement_direct_training_samples.csv"
+OUTPUT_PATH = DATA_DIR / "v3_placement_direct_training_samples_clean.csv"
 ALLOWED_COURSE_TYPES = frozenset({"理论课", "上机课"})
 ALLOWED_CLASSROOM_TYPES = frozenset({"普通教室", "机房"})
 
@@ -50,12 +50,12 @@ FIELDS = [
 
 
 def build(*, data_dir: Path = DATA_DIR, output_path: Path = OUTPUT_PATH) -> Path:
-    courses = _by_key(_read_jsonl(data_dir / "courses.jsonl"), "code")
+    courses = _by_key(_read_jsonl(data_dir / "courses_clean.jsonl"), "code")
     teachers = _by_key(_read_jsonl(data_dir / "teachers.jsonl"), "name")
     class_groups = _by_key(_read_jsonl(data_dir / "class_groups.jsonl"), "name")
-    classrooms = _by_key(_read_jsonl(data_dir / "classrooms.jsonl"), "name")
-    teaching_tasks = _index_teaching_tasks(_read_jsonl(data_dir / "teaching_tasks.jsonl"))
-    timetables = _read_jsonl(data_dir / "timetables.jsonl")
+    classrooms = _by_key(_read_jsonl(data_dir / "classrooms_clean.jsonl"), "name")
+    teaching_tasks = _index_teaching_tasks(_read_jsonl(data_dir / "teaching_tasks_clean.jsonl"))
+    timetables = _read_jsonl(data_dir / "timetables_clean.jsonl")
 
     grouped: dict[tuple[str, str], dict[str, Any]] = {}
     skip_counts: Counter[str] = Counter()

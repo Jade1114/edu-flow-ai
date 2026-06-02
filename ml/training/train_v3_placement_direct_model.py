@@ -15,8 +15,8 @@ import lightgbm as lgb
 import pandas as pd
 from sklearn.model_selection import GroupShuffleSplit
 
-DATA_PATH = Path(__file__).resolve().parents[2] / "data" / "real-dataset" / "v3_placement_direct_training_samples.csv"
-OUTPUT_DIR = Path(__file__).resolve().parents[1] / "models" / "v3"
+DATA_PATH = Path(__file__).resolve().parents[2] / "data" / "real-dataset" / "v3_placement_direct_training_samples_clean.csv"
+OUTPUT_DIR = Path(__file__).resolve().parents[2] / "models" / "v3"
 OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 LABEL = "label_id"
 RESOURCE_KEY = "resource_key"
