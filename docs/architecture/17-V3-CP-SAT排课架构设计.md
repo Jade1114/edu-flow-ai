@@ -264,7 +264,7 @@ data/generated/v3/task_{id}_{timestamp}/
 ## 当前局限与后续方向
 
 ### 已确认问题
-- 教师画像尚未进入 V3 pipeline (placement model 用 course/class/teacher 静态特征替代)
+- 教师画像已落地为独立分析层，但尚未进入 Placement Model 特征或 CP-SAT 目标函数
 - 当前只排专业课（2615 tasks），公共课（620 tasks）未接入
 - 反馈闭环尚未建成：人工调课记录未回写训练数据
 

@@ -12,6 +12,7 @@ docs/
 ├── README.md                                    ← 本文件
 ├── architecture/                                ← 架构设计
 │   ├── 17-V3-CP-SAT排课架构设计.md               ← ★ 当前排课架构 (V3)
+│   ├── 18-V3-教师画像MVP设计.md                  ← 教师画像分析层 ★
 │   ├── 03-LightGBM模型训练架构设计.md
 │   ├── 04-训练样本事件采集架构设计.md
 │   ├── 05-模型训练数据链路设计.md
@@ -57,6 +58,7 @@ docs/
 | 文档 | 职责 | 状态 |
 |------|------|------|
 | **architecture/17-V3-CP-SAT排课架构设计.md** | ★ 当前架构：Placement Model + CP-SAT 全局方案选择 | ✅ 生产 |
+| **architecture/18-V3-教师画像MVP设计.md** | ★ V3 教师画像：历史课表画像提取 + 课表满足度分析 | ✅ MVP |
 | architecture/03-LightGBM模型训练架构设计.md | 训练闭环设计（规则冷启动→反馈重训），V3 placement model 的训练方法论 | ⚠️ 需更新 |
 | architecture/04-训练样本事件采集架构设计.md | 事件表、行为快照、调整相消、人工标注 | ⚠️ 需更新 |
 | architecture/05-模型训练数据链路设计.md | 真实课表→片段级样本→标签权重→sigmoid归一化 | ⚠️ 需更新 |
