@@ -81,9 +81,6 @@ public class TeacherService {
 		if (!StringUtils.hasText(request.department())) {
 			throw new ValidationException("所属部门不能为空");
 		}
-		if (request.maxWeeklyHours() != null && request.maxWeeklyHours() <= 0) {
-			throw new ValidationException("每周最大课时必须大于0");
-		}
 		teacher.setEmployeeNo(request.employeeNo().trim());
 		if (StringUtils.hasText(request.password())) {
 			teacher.setPassword(request.password().trim());
@@ -95,7 +92,6 @@ public class TeacherService {
 		teacher.setName(request.name().trim());
 		teacher.setDepartment(request.department().trim());
 		teacher.setTitle(StringUtils.hasText(request.title()) ? request.title().trim() : null);
-		teacher.setMaxWeeklyHours(request.maxWeeklyHours());
 		teacher.setStatus(StringUtils.hasText(request.status()) ? ActiveStatus.from(request.status().trim()) : ActiveStatus.ACTIVE);
 		return teacher;
 	}

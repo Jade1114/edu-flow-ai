@@ -10,8 +10,10 @@ import java.util.List;
 import java.util.Map;
 import java.util.function.Function;
 import java.util.stream.Collectors;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 
+@Slf4j
 @Component
 public class AllocationSchemeConflictDetector {
 	static final String TEACHER_TIME = "TEACHER_TIME";
@@ -42,20 +44,39 @@ public class AllocationSchemeConflictDetector {
 	}
 
 	public List<AllocationConflictViolation> detect(List<AllocationItem> items, Long allocationTaskId) {
+		long startedAt = System.nanoTime();
 		if ((items == null || items.isEmpty()) && allocationTaskId == null) {
 			return List.of();
 		}
 		List<AllocationItem> safeItems = items == null ? List.of() : items;
 		// 预加载所有教学任务 + 时间段
+		long preloadStartedAt = System.nanoTime();
 		Map<Long, TeachingTaskDetail> taskDetails = loadTaskDetails(safeItems, allocationTaskId);
 		Map<Long, Integer> timeSlotWeekMap = loadTimeSlotWeekMap();
+		log.info("Conflict detector preload: items={} allocationTaskId={} taskDetails={} timeSlots={} elapsedMs={}",
+			safeItems.size(), allocationTaskId, taskDetails.size(), timeSlotWeekMap.size(), elapsedMs(preloadStartedAt));
 		List<AllocationConflictViolation> violations = new ArrayList<>();
 
-		detectConflicts(safeItems, item -> teacherKey(item, taskDetails), (item, group) -> teacherViolation(item, group, taskDetails), violations);
-		detectClassGroupConflicts(safeItems, taskDetails, violations);
-		detectConflicts(safeItems, item -> classroomKey(item), this::classroomViolation, violations);
-		detectWorkloadViolations(safeItems, taskDetails, timeSlotWeekMap, violations);
-		detectTeachingTaskHourViolations(safeItems, taskDetails, violations);
+		long teacherStartedAt = System.nanoTime();
+		int teacherViolations = detectConflicts(safeItems, item -> teacherKey(item, taskDetails), (item, group) -> teacherViolation(item, group, taskDetails), violations);
+		log.info("Conflict detector teacher-time: violations={} elapsedMs={}", teacherViolations, elapsedMs(teacherStartedAt));
+		long classStartedAt = System.nanoTime();
+		int classViolations = detectClassGroupConflicts(safeItems, taskDetails, violations);
+		log.info("Conflict detector class-time: violations={} elapsedMs={}", classViolations, elapsedMs(classStartedAt));
+		long classroomStartedAt = System.nanoTime();
+		int classroomViolations = detectConflicts(safeItems, item -> classroomKey(item), this::classroomViolation, violations);
+		log.info("Conflict detector classroom-time: violations={} elapsedMs={}", classroomViolations, elapsedMs(classroomStartedAt));
+		long workloadStartedAt = System.nanoTime();
+		int workloadViolations = detectWorkloadViolations(safeItems, taskDetails, timeSlotWeekMap, violations);
+		log.info("Conflict detector workload: violations={} elapsedMs={}", workloadViolations, elapsedMs(workloadStartedAt));
+		long hoursStartedAt = System.nanoTime();
+		int hourViolations = detectTeachingTaskHourViolations(safeItems, taskDetails, violations);
+		log.info("Conflict detector task-hours: violations={} elapsedMs={}", hourViolations, elapsedMs(hoursStartedAt));
+		log.info(
+			"Conflict detector done: items={} taskDetails={} totalViolations={} elapsedMs={} breakdown={teacher:{},class:{},classroom:{},workload:{},hours:{}}",
+			safeItems.size(), taskDetails.size(), violations.size(), elapsedMs(startedAt),
+			teacherViolations, classViolations, classroomViolations, workloadViolations, hourViolations
+		);
 
 		return violations;
 	}
@@ -106,66 +127,43 @@ public class AllocationSchemeConflictDetector {
 			.collect(Collectors.toMap(TimeSlot::getId, TimeSlot::getWeekNumber));
 	}
 
-	private void detectWorkloadViolations(
+	private int detectWorkloadViolations(
 		List<AllocationItem> items,
 		Map<Long, TeachingTaskDetail> taskDetails,
 		Map<Long, Integer> timeSlotWeekMap,
 		List<AllocationConflictViolation> violations
 	) {
-		// 按 (teacherId, weekNumber) 分组，统计每周总课时
-		Map<String, List<AllocationItem>> workloadGroups = new LinkedHashMap<>();
-		for (AllocationItem item : items) {
-			TeachingTaskDetail detail = taskDetails.get(item.getTeachingTaskId());
-			if (detail == null || detail.task().getPrimaryTeacherId() == null) continue;
-			Integer weekNumber = timeSlotWeekMap.get(item.getTimeSlotId());
-			if (weekNumber == null) continue;
-			String workloadKey = detail.task().getPrimaryTeacherId() + ":" + weekNumber;
-			workloadGroups.computeIfAbsent(workloadKey, ignored -> new ArrayList<>()).add(item);
-		}
+		log.info("  [workload] start: items={} taskDetails={}" , items.size(), taskDetails.size());
+		log.info("  [workload] skipped: max_weekly_hours 字段已移除，暂不检测教师工作量");
+		int before = violations.size();
 
-		// 检测每周课时是否超过教师上限
-		for (Map.Entry<String, List<AllocationItem>> entry : workloadGroups.entrySet()) {
-			List<AllocationItem> group = entry.getValue();
-			AllocationItem firstItem = group.get(0);
-			TeachingTaskDetail detail = taskDetails.get(firstItem.getTeachingTaskId());
-			if (detail == null) continue;
-			Teacher teacher = detail.task().getPrimaryTeacher();
-			if (teacher == null || teacher.getMaxWeeklyHours() == null) continue;
-
-			int totalHours = group.size() * 2; // 每个 timeSlot = 2 课时
-			if (totalHours <= teacher.getMaxWeeklyHours()) continue;
-
-			int weekNumber = timeSlotWeekMap.get(firstItem.getTimeSlotId());
-			String teacherName = teacher.getName();
-			for (AllocationItem item : group) {
-				violations.add(new AllocationConflictViolation(
-					item.getId(),
-					TEACHER_WORKLOAD,
-					"教师工作量冲突：" + teacherName + " 第 " + weekNumber + " 周共 " + totalHours
-						+ " 课时，超过最大周课时 " + teacher.getMaxWeeklyHours() + " 课时",
-					teacher.getId(), null, null, item.getTimeSlotId(),
-					item.getTeachingTaskId(), null, teacher.getMaxWeeklyHours(), totalHours
-				));
-			}
-		}
+		// max_weekly_hours 字段已移除（2026-06-01 schema 清理）
+		// 工作量冲突检测暂时跳过，后续在 teacher_profile 中重新实现
+		return violations.size() - before;
 	}
 
-	private void detectTeachingTaskHourViolations(
+	private int detectTeachingTaskHourViolations(
 		List<AllocationItem> items,
 		Map<Long, TeachingTaskDetail> taskDetails,
 		List<AllocationConflictViolation> violations
 	) {
+		log.info("  [task-hours] start: items={} taskDetails={}", items.size(), taskDetails.size());
+		int before = violations.size();
 		Map<Long, List<AllocationItem>> itemsByTaskId = items.stream()
 			.filter(item -> item.getTeachingTaskId() != null)
 			.collect(Collectors.groupingBy(AllocationItem::getTeachingTaskId, LinkedHashMap::new, Collectors.toList()));
+		log.info("  [task-hours] grouped: uniqueTasks={}", itemsByTaskId.size());
 
+		int checked = 0, matched = 0, mismatched = 0;
 		for (TeachingTaskDetail detail : taskDetails.values()) {
 			TeachingTask task = detail.task();
 			if (task.getId() == null || task.getTotalHours() == null) continue;
 			List<AllocationItem> taskItems = itemsByTaskId.getOrDefault(task.getId(), List.of());
 			int actualHours = taskItems.size() * 2;
 			int expectedHours = task.getTotalHours();
-			if (actualHours == expectedHours) continue;
+			checked++;
+			if (actualHours == expectedHours) { matched++; continue; }
+			mismatched++;
 
 			String courseName = task.getCourse() != null && task.getCourse().getName() != null
 				? task.getCourse().getName()
@@ -187,14 +185,18 @@ public class AllocationSchemeConflictDetector {
 				}
 			}
 		}
+		log.info("  [task-hours] done: checked={} matched={} mismatched={} violations={}",
+			checked, matched, mismatched, violations.size() - before);
+		return violations.size() - before;
 	}
 
-	private void detectConflicts(
+	private int detectConflicts(
 		List<AllocationItem> items,
 		Function<AllocationItem, ConflictKey> keyExtractor,
 		ConflictViolationFactory violationFactory,
 		List<AllocationConflictViolation> violations
 	) {
+		int before = violations.size();
 		Map<ConflictKey, List<AllocationItem>> groupedItems = new LinkedHashMap<>();
 		for (AllocationItem item : items) {
 			ConflictKey key = keyExtractor.apply(item);
@@ -206,6 +208,7 @@ public class AllocationSchemeConflictDetector {
 		groupedItems.values().stream()
 			.filter(group -> group.size() > 1)
 			.forEach(group -> group.forEach(item -> violations.add(violationFactory.create(item, group))));
+		return violations.size() - before;
 	}
 
 	private ConflictKey teacherKey(AllocationItem item, Map<Long, TeachingTaskDetail> taskDetails) {
@@ -214,11 +217,22 @@ public class AllocationSchemeConflictDetector {
 		return new ConflictKey(detail.task().getPrimaryTeacherId(), item.getTimeSlotId());
 	}
 
-	private void detectClassGroupConflicts(
+	private int detectClassGroupConflicts(
 		List<AllocationItem> items,
 		Map<Long, TeachingTaskDetail> taskDetails,
 		List<AllocationConflictViolation> violations
 	) {
+		int before = violations.size();
+		Map<Long, String> classGroupNames = taskDetails.values().stream()
+			.filter(detail -> detail.task().getClassGroups() != null)
+			.flatMap(detail -> detail.task().getClassGroups().stream())
+			.filter(classGroup -> classGroup.getId() != null)
+			.collect(Collectors.toMap(
+				classGroup -> classGroup.getId(),
+				classGroup -> classGroup.getName() != null ? classGroup.getName() : "班级" + classGroup.getId(),
+				(existing, replacement) -> existing,
+				LinkedHashMap::new
+			));
 		Map<ConflictKey, List<AllocationItem>> groupedItems = new LinkedHashMap<>();
 		for (AllocationItem item : items) {
 			TeachingTaskDetail detail = taskDetails.get(item.getTeachingTaskId());
@@ -231,7 +245,8 @@ public class AllocationSchemeConflictDetector {
 		}
 		groupedItems.entrySet().stream()
 			.filter(entry -> entry.getValue().size() > 1)
-			.forEach(entry -> entry.getValue().forEach(item -> violations.add(classGroupViolation(item, entry.getValue(), entry.getKey().resourceId(), taskDetails))));
+			.forEach(entry -> entry.getValue().forEach(item -> violations.add(classGroupViolation(item, entry.getValue(), entry.getKey().resourceId(), classGroupNames))));
+		return violations.size() - before;
 	}
 
 	private ConflictKey classroomKey(AllocationItem item) {
@@ -254,14 +269,8 @@ public class AllocationSchemeConflictDetector {
 		);
 	}
 
-	private AllocationConflictViolation classGroupViolation(AllocationItem item, List<AllocationItem> group, Long classGroupId, Map<Long, TeachingTaskDetail> taskDetails) {
-		String className = taskDetails.values().stream()
-			.filter(detail -> detail.task().getClassGroups() != null)
-			.flatMap(detail -> detail.task().getClassGroups().stream())
-			.filter(classGroup -> classGroupId.equals(classGroup.getId()))
-			.map(classGroup -> classGroup.getName())
-			.findFirst()
-			.orElse("班级" + classGroupId);
+	private AllocationConflictViolation classGroupViolation(AllocationItem item, List<AllocationItem> group, Long classGroupId, Map<Long, String> classGroupNames) {
+		String className = classGroupNames.getOrDefault(classGroupId, "班级" + classGroupId);
 		return new AllocationConflictViolation(
 			item.getId(),
 			CLASS_GROUP_TIME,
@@ -287,6 +296,10 @@ public class AllocationSchemeConflictDetector {
 		return items.stream()
 			.map(item -> item.getId() == null ? "未落库" : item.getId().toString())
 			.collect(Collectors.joining(", "));
+	}
+
+	private long elapsedMs(long startedAtNanos) {
+		return Math.round((System.nanoTime() - startedAtNanos) / 1_000_000.0);
 	}
 
 	private void appendSummary(List<String> parts, Map<String, Long> counts, String type, String label) {

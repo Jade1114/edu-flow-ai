@@ -15,6 +15,8 @@
         <!-- course -->
         <result property="course.id" column="course_id2"/>
         <result property="course.name" column="course_name"/>
+        <result property="course.courseType" column="course_type"/>
+        <result property="course.requiredRoomType" column="course_required_room_type"/>
         <!-- primaryTeacher -->
         <result property="primaryTeacher.id" column="pt_id"/>
         <result property="primaryTeacher.name" column="pt_name"/>
@@ -44,6 +46,7 @@
                t.total_hours, t.required_room_type, t.notes, t.status,
                t.created_at, t.updated_at,
                c.id AS course_id2, c.name AS course_name,
+               c.course_type, c.required_room_type AS course_required_room_type,
                pt.id AS pt_id, pt.name AS pt_name, pt.employee_no AS pt_employee_no, pt.department AS pt_dept,
                at.id AS at_id, at.name AS at_name,
                cr.id AS cr_id, cr.name AS cr_name, cr.building AS cr_building, cr.capacity AS cr_capacity, cr.classroom_type AS cr_classroom_type
@@ -54,8 +57,7 @@
         LEFT JOIN classroom cr ON t.classroom_id = cr.id
     </sql>
 
-    <select id="findAll" resultMap="teachingTaskDetailMap">
-        <include refid="teachingTaskJoin"/>
+    <sql id="teachingTaskFilters">
         WHERE 1 = 1
         <if test='status != null and status != ""'>
             AND t.status = #{status}
@@ -66,35 +68,42 @@
         <if test='teacherId != null'>
             AND (t.primary_teacher_id = #{teacherId} OR t.assistant_teacher_id = #{teacherId})
         </if>
+        <if test='courseType != null and courseType != ""'>
+            AND c.course_type = #{courseType}
+        </if>
+        <if test='keyword != null and keyword != ""'>
+            AND (
+                c.name LIKE CONCAT('%', #{keyword}, '%')
+                OR c.code LIKE CONCAT('%', #{keyword}, '%')
+                OR pt.name LIKE CONCAT('%', #{keyword}, '%')
+                OR at.name LIKE CONCAT('%', #{keyword}, '%')
+                OR t.id IN (
+                    SELECT ttcg.teaching_task_id
+                    FROM teaching_task_class_group ttcg
+                    JOIN class_group cg ON cg.id = ttcg.class_group_id
+                    WHERE cg.name LIKE CONCAT('%', #{keyword}, '%')
+                )
+            )
+        </if>
+    </sql>
+
+    <select id="findAll" resultMap="teachingTaskDetailMap">
+        <include refid="teachingTaskJoin"/>
+        <include refid="teachingTaskFilters"/>
         ORDER BY t.id DESC
     </select>
 
     <select id="findAllCount" resultType="long">
         SELECT COUNT(*) FROM teaching_task t
-        WHERE 1 = 1
-        <if test='status != null and status != ""'>
-            AND t.status = #{status}
-        </if>
-        <if test='courseId != null'>
-            AND t.course_id = #{courseId}
-        </if>
-        <if test='teacherId != null'>
-            AND (t.primary_teacher_id = #{teacherId} OR t.assistant_teacher_id = #{teacherId})
-        </if>
+        LEFT JOIN course c ON t.course_id = c.id
+        LEFT JOIN teacher pt ON t.primary_teacher_id = pt.id
+        LEFT JOIN teacher at ON t.assistant_teacher_id = at.id
+        <include refid="teachingTaskFilters"/>
     </select>
 
     <select id="findAllPaged" resultMap="teachingTaskDetailMap">
         <include refid="teachingTaskJoin"/>
-        WHERE 1 = 1
-        <if test='status != null and status != ""'>
-            AND t.status = #{status}
-        </if>
-        <if test='courseId != null'>
-            AND t.course_id = #{courseId}
-        </if>
-        <if test='teacherId != null'>
-            AND (t.primary_teacher_id = #{teacherId} OR t.assistant_teacher_id = #{teacherId})
-        </if>
+        <include refid="teachingTaskFilters"/>
         ORDER BY t.id DESC
         LIMIT #{limit} OFFSET #{offset}
     </select>

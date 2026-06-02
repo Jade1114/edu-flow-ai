@@ -27,7 +27,7 @@ public interface TeacherMapper {
 
 	@Select("""
 		<script>
-		SELECT id, employee_no, password, role, name, department, title, max_weekly_hours, status, created_at, updated_at
+		SELECT id, employee_no, password, role, name, department, title, status, created_at, updated_at
 		FROM teacher
 		WHERE 1 = 1
 		<if test='keyword != null and keyword != ""'>
@@ -45,7 +45,7 @@ public interface TeacherMapper {
 
 	@Select("""
 		<script>
-		SELECT id, employee_no, password, role, name, department, title, max_weekly_hours, status, created_at, updated_at
+		SELECT id, employee_no, password, role, name, department, title, status, created_at, updated_at
 		FROM teacher
 		WHERE 1 = 1
 		<if test='keyword != null and keyword != ""'>
@@ -60,22 +60,22 @@ public interface TeacherMapper {
 	List<Teacher> findAll(@Param("keyword") String keyword, @Param("status") String status);
 
 	@Select("""
-		SELECT id, employee_no, password, role, name, department, title, max_weekly_hours, status, created_at, updated_at
+		SELECT id, employee_no, password, role, name, department, title, status, created_at, updated_at
 		FROM teacher
 		WHERE id = #{id}
 		""")
 	Teacher findById(Long id);
 
 	@Select("""
-		SELECT id, employee_no, password, role, name, department, title, max_weekly_hours, status, created_at, updated_at
+		SELECT id, employee_no, password, role, name, department, title, status, created_at, updated_at
 		FROM teacher
 		WHERE employee_no = #{employeeNo}
 		""")
 	Teacher findByEmployeeNo(@Param("employeeNo") String employeeNo);
 
 	@Insert("""
-		INSERT INTO teacher (employee_no, password, role, name, department, title, max_weekly_hours, status)
-		VALUES (#{employeeNo}, #{password}, #{role}, #{name}, #{department}, #{title}, #{maxWeeklyHours}, #{status})
+		INSERT INTO teacher (employee_no, password, role, name, department, title, status)
+		VALUES (#{employeeNo}, #{password}, #{role}, #{name}, #{department}, #{title}, #{status})
 		""")
 	@Options(useGeneratedKeys = true, keyProperty = "id")
 	int insert(Teacher teacher);
@@ -88,7 +88,6 @@ public interface TeacherMapper {
 		    name = #{name},
 		    department = #{department},
 		    title = #{title},
-		    max_weekly_hours = #{maxWeeklyHours},
 		    status = #{status}
 		WHERE id = #{id}
 		""")

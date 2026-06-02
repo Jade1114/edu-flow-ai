@@ -12,8 +12,7 @@ public class Teacher {
 	private String role;
 	private String name;
 	private String department;
-	private String title;
-	private Integer maxWeeklyHours;
+    private String title;
     private ActiveStatus status;
 	private LocalDateTime createdAt;
 	private LocalDateTime updatedAt;

@@ -133,7 +133,9 @@ public class AllocationTaskController {
 	) {
 		String text = body.get("text");
 		if (text == null || text.isBlank()) {
-			return ApiResponse.error(400, "text is required");
+			@SuppressWarnings("unchecked")
+			var err = (ApiResponse<Map<String, Object>>) (ApiResponse<?>) ApiResponse.error(400, "text is required");
+			return err;
 		}
 		Map<String, Object> result = mlApiClient.translateConstraint(text);
 		return ApiResponse.success(result);

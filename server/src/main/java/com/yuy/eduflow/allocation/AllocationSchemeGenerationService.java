@@ -68,16 +68,28 @@ public class AllocationSchemeGenerationService {
 			List<AllocationItem> items = persistItems(scheme.getId(), parsedScheme.items());
 			log.info("Persisted {} items for scheme id={}", items.size(), scheme.getId());
 			progressReporter.accept(running("conflict", "检测方案冲突 " + (i + 1) + "/" + parsedSchemes.size() + "...", Math.min(baseProgress + 5, 95)));
+			long conflictStartedAt = System.nanoTime();
 			List<AllocationConflictViolation> violations = conflictDetector.detect(items, taskId);
-			log.info("Conflict detection: {} violations found", violations.size());
+			log.info("Conflict detection: schemeId={} items={} violations={} elapsedMs={}",
+				scheme.getId(), items.size(), violations.size(), elapsedMs(conflictStartedAt));
+			progressReporter.accept(running("conflict", "标记冲突明细 " + (i + 1) + "/" + parsedSchemes.size() + "...", Math.min(baseProgress + 7, 96)));
+			long applyStartedAt = System.nanoTime();
 			applyItemConflictState(items, violations);
+			log.info("Conflict item state applied: schemeId={} elapsedMs={}", scheme.getId(), elapsedMs(applyStartedAt));
+			progressReporter.accept(running("conflict", "保存冲突记录 " + (i + 1) + "/" + parsedSchemes.size() + "...", Math.min(baseProgress + 9, 97)));
+			long persistConflictStartedAt = System.nanoTime();
 			persistConflictResults(scheme.getId(), violations);
+			log.info("Conflict results persisted: schemeId={} rows={} elapsedMs={}",
+				scheme.getId(), violations.size(), elapsedMs(persistConflictStartedAt));
 			String conflictSummary = conflictDetector.summarize(violations);
 			boolean valid = violations.isEmpty();
+			long schemeStateStartedAt = System.nanoTime();
 			allocationSchemeMapper.updateConflictState(scheme.getId(), valid, conflictSummary);
+			log.info("Scheme conflict state updated: schemeId={} valid={} elapsedMs={}",
+				scheme.getId(), valid, elapsedMs(schemeStateStartedAt));
 			log.info("Scheme id={}: valid={}, conflictSummary=[{}]", scheme.getId(), valid, conflictSummary);
 			generatedSchemes.add(allocationSchemeMapper.findById(scheme.getId()));
-		}
+			}
 
 		log.info("=== SchemeGeneration generateSchemes() end === totalSchemes={}", generatedSchemes.size());
 		return new AllocationGenerateResult(generationPreview.taskId(), generatedSchemes.size(), generatedSchemes);
@@ -85,6 +97,10 @@ public class AllocationSchemeGenerationService {
 
 	private GenerationStatus running(String stage, String message, Integer progress) {
 		return new GenerationStatus("RUNNING", stage, message, progress, null, 0, null);
+	}
+
+	private long elapsedMs(long startedAtNanos) {
+		return Math.round((System.nanoTime() - startedAtNanos) / 1_000_000.0);
 	}
 
 	private List<AllocationParsedScheme> safeSchemes(AllocationGenerationPreview generationPreview) {

@@ -10,9 +10,10 @@ public class Course {
 	private String name;
 	private String code;
 	private Double credits;
-	private String courseType;
-	private Integer requiredHours;
-	private String description;
+    private String courseType;
+    private String requiredRoomType;
+    private Integer requiredHours;
+    private String description;
     private ActiveStatus status;
 	private LocalDateTime createdAt;
 	private LocalDateTime updatedAt;

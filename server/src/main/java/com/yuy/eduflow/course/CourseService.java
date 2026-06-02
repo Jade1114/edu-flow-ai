@@ -70,6 +70,7 @@ public class CourseService {
 		}
 		course.setName(request.name().trim());
 		course.setCourseType(clean(request.courseType()));
+		course.setRequiredRoomType(clean(request.requiredRoomType()));
 		course.setRequiredHours(request.requiredHours());
 		course.setDescription(clean(request.description()));
 		course.setStatus(StringUtils.hasText(request.status()) ? ActiveStatus.from(request.status().trim()) : ActiveStatus.ACTIVE);

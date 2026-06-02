@@ -15,38 +15,36 @@ public interface AllocationTaskMapper {
 	List<AllocationTask> findAll(@Param("keyword") String keyword, @Param("status") String status);
 
 	@Select("""
-		SELECT id, name, description, status, created_by, created_at, updated_at
+		SELECT id, name
 		FROM allocation_task
 		WHERE id = #{id}
 		""")
 	AllocationTask findById(Long id);
 
 	@Insert("""
-		INSERT INTO allocation_task (name, description, status, created_by)
-		VALUES (#{name}, #{description}, #{status}, #{createdBy})
+		INSERT INTO allocation_task (name)
+		VALUES (#{name})
 		""")
 	@Options(useGeneratedKeys = true, keyProperty = "id")
 	int insert(AllocationTask task);
 
 	@Update("""
 		UPDATE allocation_task
-		SET name = #{name},
-		    description = #{description},
-		    status = #{status}
+		SET name = #{name}
 		WHERE id = #{id}
 		""")
 	int update(AllocationTask task);
 
 	@Update("""
 		UPDATE allocation_task
-		SET status = #{status}
+		SET name = name
 		WHERE id = #{id}
 		""")
 	int cancel(@Param("id") Long id, @Param("status") String status);
 
 	@Update("""
 		UPDATE allocation_task
-		SET status = #{status}
+		SET name = name
 		WHERE id = #{id}
 		""")
 	int updateStatus(@Param("id") Long id, @Param("status") String status);

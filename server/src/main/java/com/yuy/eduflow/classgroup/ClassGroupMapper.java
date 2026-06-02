@@ -25,7 +25,7 @@ public interface ClassGroupMapper {
 
 	@Select("""
 		<script>
-		SELECT id, name, major, grade, student_count, description, created_at, updated_at
+		SELECT id, name, major, department, grade, student_count, created_at, updated_at
 		FROM class_group
 		WHERE 1 = 1
 		<if test='keyword != null and keyword != ""'>
@@ -40,7 +40,7 @@ public interface ClassGroupMapper {
 
 	@Select("""
 		<script>
-		SELECT id, name, major, grade, student_count, description, created_at, updated_at
+		SELECT id, name, major, department, grade, student_count, created_at, updated_at
 		FROM class_group
 		WHERE 1 = 1
 		<if test='keyword != null and keyword != ""'>
@@ -52,15 +52,15 @@ public interface ClassGroupMapper {
 	List<ClassGroup> findAll(@Param("keyword") String keyword);
 
 	@Select("""
-		SELECT id, name, major, grade, student_count, description, created_at, updated_at
+		SELECT id, name, major, department, grade, student_count, created_at, updated_at
 		FROM class_group
 		WHERE id = #{id}
 		""")
 	ClassGroup findById(Long id);
 
 	@Insert("""
-		INSERT INTO class_group (name, major, grade, student_count, description)
-		VALUES (#{name}, #{major}, #{grade}, #{studentCount}, #{description})
+		INSERT INTO class_group (name, major, department, grade, student_count)
+		VALUES (#{name}, #{major}, #{department}, #{grade}, #{studentCount})
 		""")
 	@Options(useGeneratedKeys = true, keyProperty = "id")
 	int insert(ClassGroup classGroup);
@@ -69,9 +69,9 @@ public interface ClassGroupMapper {
 		UPDATE class_group
 		SET name = #{name},
 		    major = #{major},
+		    department = #{department},
 		    grade = #{grade},
-		    student_count = #{studentCount},
-		    description = #{description}
+		    student_count = #{studentCount}
 		WHERE id = #{id}
 		""")
 	int update(ClassGroup classGroup);

@@ -17,17 +17,23 @@ public interface TeachingTaskMapper {
     List<TeachingTask> findAll(
             @Param("status") String status,
             @Param("courseId") Long courseId,
-            @Param("teacherId") Long teacherId);
+            @Param("teacherId") Long teacherId,
+            @Param("courseType") String courseType,
+            @Param("keyword") String keyword);
 
     long findAllCount(
             @Param("status") String status,
             @Param("courseId") Long courseId,
-            @Param("teacherId") Long teacherId);
+            @Param("teacherId") Long teacherId,
+            @Param("courseType") String courseType,
+            @Param("keyword") String keyword);
 
     List<TeachingTask> findAllPaged(
             @Param("status") String status,
             @Param("courseId") Long courseId,
             @Param("teacherId") Long teacherId,
+            @Param("courseType") String courseType,
+            @Param("keyword") String keyword,
             @Param("limit") int limit,
             @Param("offset") int offset);
 
@@ -80,7 +86,7 @@ public interface TeachingTaskMapper {
     int deleteClassGroups(Long teachingTaskId);
 
     @Select("""
-            SELECT cg.id, cg.name, cg.major, cg.department, cg.grade, cg.student_count, cg.description
+            SELECT cg.id, cg.name, cg.major, cg.department, cg.grade, cg.student_count
             FROM class_group cg
             JOIN teaching_task_class_group ttcg ON cg.id = ttcg.class_group_id
             WHERE ttcg.teaching_task_id = #{teachingTaskId}

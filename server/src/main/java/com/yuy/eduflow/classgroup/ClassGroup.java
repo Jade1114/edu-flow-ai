@@ -11,7 +11,6 @@ public class ClassGroup {
 	private String department;
 	private String grade;
 	private Integer studentCount;
-	private String description;
 	private LocalDateTime createdAt;
 	private LocalDateTime updatedAt;
 }

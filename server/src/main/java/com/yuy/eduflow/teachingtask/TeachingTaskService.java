@@ -47,19 +47,23 @@ public class TeachingTaskService {
     /**
      * 多条件查询教学任务
      * 
-     * @param status    任务状态
-     * @param courseId  课程ID
-     * @param teacherId 教师ID
+     * @param status     任务状态
+     * @param courseId   课程ID
+     * @param teacherId  教师ID
+     * @param courseType 课程类型（理论课/上机课/实践课）
+     * @param keyword    关键词（模糊搜索课程名、教师名、班级名）
      * @return 教学任务列表
      */
-    public List<TeachingTask> findAll(String status, Long courseId, Long teacherId) {
-        return teachingTaskMapper.findAll(status, courseId, teacherId);
+    public List<TeachingTask> findAll(String status, Long courseId, Long teacherId,
+                                      String courseType, String keyword) {
+        return teachingTaskMapper.findAll(status, courseId, teacherId, courseType, keyword);
     }
 
-    public Map<String, Object> findAllPaged(String status, Long courseId, Long teacherId, int page, int size) {
+    public Map<String, Object> findAllPaged(String status, Long courseId, Long teacherId,
+                                            String courseType, String keyword, int page, int size) {
         int offset = page * size;
-        List<TeachingTask> content = teachingTaskMapper.findAllPaged(status, courseId, teacherId, size, offset);
-        long total = teachingTaskMapper.findAllCount(status, courseId, teacherId);
+        List<TeachingTask> content = teachingTaskMapper.findAllPaged(status, courseId, teacherId, courseType, keyword, size, offset);
+        long total = teachingTaskMapper.findAllCount(status, courseId, teacherId, courseType, keyword);
         Map<String, Object> result = new LinkedHashMap<>();
         result.put("content", content);
         result.put("total", total);

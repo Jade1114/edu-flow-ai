@@ -7,7 +7,6 @@ public record TeacherRequest(
 	String name,
 	String department,
 	String title,
-	Integer maxWeeklyHours,
 	String status
 ) {
 }

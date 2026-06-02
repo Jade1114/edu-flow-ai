@@ -68,9 +68,9 @@ public class ClassGroupService {
 		}
 		classGroup.setName(request.name().trim());
 		classGroup.setMajor(clean(request.major()));
+		classGroup.setDepartment(clean(request.department()));
 		classGroup.setGrade(clean(request.grade()));
 		classGroup.setStudentCount(request.studentCount());
-		classGroup.setDescription(clean(request.description()));
 		return classGroup;
 	}
 

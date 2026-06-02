@@ -27,13 +27,15 @@ public class TeachingTaskController {
             @RequestParam(required = false) String status,
             @RequestParam(required = false) Long courseId,
             @RequestParam(required = false) Long teacherId,
+            @RequestParam(required = false) String courseType,
+            @RequestParam(required = false) String keyword,
             @RequestParam(defaultValue = "-1") int page,
             @RequestParam(defaultValue = "20") int size) {
         if (page < 0) {
-            List<TeachingTask> all = teachingTaskService.findAll(status, courseId, teacherId);
+            List<TeachingTask> all = teachingTaskService.findAll(status, courseId, teacherId, courseType, keyword);
             return ApiResponse.success(Map.of("content", all, "total", all.size(), "page", 0, "size", all.size()));
         }
-        return ApiResponse.success(teachingTaskService.findAllPaged(status, courseId, teacherId, page, size));
+        return ApiResponse.success(teachingTaskService.findAllPaged(status, courseId, teacherId, courseType, keyword, page, size));
     }
 
     @GetMapping("/{id}")

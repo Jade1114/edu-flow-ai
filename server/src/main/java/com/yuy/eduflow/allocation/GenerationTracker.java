@@ -3,10 +3,12 @@ package com.yuy.eduflow.allocation;
 import java.io.IOException;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
@@ -105,9 +107,17 @@ public class GenerationTracker {
 
 	private void sendStatus(Long taskId, SseEmitter emitter, GenerationStatus status) {
 		try {
-			emitter.send(SseEmitter.event().name("status").data(status));
-		} catch (IOException | IllegalStateException e) {
-			log.debug("SSE send failed for taskId={}", taskId, e);
+			CompletableFuture<Void> future = CompletableFuture.runAsync(() -> {
+				try {
+					emitter.send(SseEmitter.event().name("status").data(status));
+				} catch (IOException | IllegalStateException e) {
+					throw new RuntimeException(e);
+				}
+			});
+			// 5秒超时：避免前端SSE buffer满了导致生成线程阻塞
+			future.get(5, TimeUnit.SECONDS);
+		} catch (Exception e) {
+			log.warn("SSE send failed/timed out for taskId={}: {}", taskId, e.getMessage());
 			removeEmitter(taskId, emitter);
 		}
 	}

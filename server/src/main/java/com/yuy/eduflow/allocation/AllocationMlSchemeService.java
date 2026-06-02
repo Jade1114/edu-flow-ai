@@ -129,7 +129,7 @@ public class AllocationMlSchemeService {
 		}
 	}
 
-	private record GaSummaryData(String rawJson, String teacherProfileAuditJson, String lightgbmJson, Double qualityScore) {}
+	private record GaSummaryData(String rawJson, String teacherProfileAuditJson, String roomRankerJson, String lightgbmJson, Double qualityScore) {}
 
 	private List<GaSummaryData> loadGaSummaries(Path outputDir) {
 		Path jsonPath = outputDir.resolve("ga_summary.json");
@@ -138,16 +138,31 @@ public class AllocationMlSchemeService {
 		}
 		try {
 			String rawJson = Files.readString(jsonPath, StandardCharsets.UTF_8);
-			List<String> rawSummaries = splitTopLevelJsonObjects(rawJson);
 			List<GaSummaryData> summaries = new ArrayList<>();
-			for (String rawSummary : rawSummaries) {
-				@SuppressWarnings("unchecked")
-				Map<String, Object> summaryMap = objectMapper.readValue(rawSummary, Map.class);
-				Double qualityScore = summaryMap.get("quality_score") instanceof Number n ? n.doubleValue() : null;
+			@SuppressWarnings("unchecked")
+			Map<String, Object> summaryMap = objectMapper.readValue(rawJson, Map.class);
+			String roomRankerJson = extractJsonField(rawJson, "room_ranker");
+			String lightgbmJson = extractJsonField(rawJson, "lightgbm");
+			String teacherProfileAuditJson = extractJsonField(rawJson, "teacher_profile_audit");
+			@SuppressWarnings("unchecked")
+			List<Map<String, Object>> schemeSummaries = (List<Map<String, Object>>) summaryMap.getOrDefault("schemes", List.of());
+			if (schemeSummaries.isEmpty()) {
 				summaries.add(new GaSummaryData(
-					rawSummary,
-					extractJsonField(rawSummary, "teacher_profile_audit"),
-					extractJsonField(rawSummary, "lightgbm"),
+					rawJson,
+					teacherProfileAuditJson,
+					roomRankerJson,
+					lightgbmJson,
+					summaryMap.get("quality_score") instanceof Number n ? n.doubleValue() : null
+				));
+				return summaries;
+			}
+			for (Map<String, Object> schemeSummary : schemeSummaries) {
+				Double qualityScore = schemeSummary.get("quality_score") instanceof Number n ? n.doubleValue() : null;
+				summaries.add(new GaSummaryData(
+					rawJson,
+					teacherProfileAuditJson,
+					roomRankerJson,
+					lightgbmJson,
 					qualityScore
 				));
 			}
@@ -167,6 +182,9 @@ public class AllocationMlSchemeService {
 		extraFields.add("\"ga_summary\":" + gaSummary.rawJson());
 		if (gaSummary.teacherProfileAuditJson() != null) {
 			extraFields.add("\"teacher_profile_audit\":" + gaSummary.teacherProfileAuditJson());
+		}
+		if (gaSummary.roomRankerJson() != null) {
+			extraFields.add("\"room_ranker\":" + gaSummary.roomRankerJson());
 		}
 		if (gaSummary.lightgbmJson() != null) {
 			extraFields.add("\"lightgbm\":" + gaSummary.lightgbmJson());
@@ -350,24 +368,24 @@ public class AllocationMlSchemeService {
 		for (int day = 1; day <= 7; day++) {
 			loadByDay.put(day, 0L);
 		}
-		BigDecimal totalPredictedScore = BigDecimal.ZERO;
-		int dayPredictCount = 0;
+		BigDecimal totalRoomRankScore = BigDecimal.ZERO;
+		int roomRankCount = 0;
 		for (Map<String, Object> itemData : itemsData) {
 			Object dayObj = itemData.get("day_of_week");
 			if (dayObj instanceof Number dayNum) {
 				int day = dayNum.intValue();
 				loadByDay.computeIfPresent(day, (ignored, count) -> count + 1);
 			}
-			Object scoreObj = itemData.get("predicted_score");
+			Object scoreObj = itemData.getOrDefault("room_rank_score", itemData.get("predicted_score"));
 			if (scoreObj instanceof Number scoreNum) {
-				totalPredictedScore = totalPredictedScore.add(BigDecimal.valueOf(scoreNum.doubleValue()));
-				dayPredictCount++;
+				totalRoomRankScore = totalRoomRankScore.add(BigDecimal.valueOf(scoreNum.doubleValue()));
+				roomRankCount++;
 			}
 		}
-		BigDecimal avgPredictedScore = dayPredictCount == 0
+		BigDecimal avgRoomRankScore = roomRankCount == 0
 			? BigDecimal.ZERO
-			: totalPredictedScore.divide(BigDecimal.valueOf(dayPredictCount), 4, java.math.RoundingMode.HALF_UP);
-		return "片段 " + items.size() + "，平均模型分 " + avgPredictedScore + "，星期分布 " + loadByDay;
+			: totalRoomRankScore.divide(BigDecimal.valueOf(roomRankCount), 4, java.math.RoundingMode.HALF_UP);
+		return "片段 " + items.size() + "，平均教室排序分 " + avgRoomRankScore + "，星期分布 " + loadByDay;
 	}
 
 	private GenerationStatus running(String stage, String message, Integer progress) {

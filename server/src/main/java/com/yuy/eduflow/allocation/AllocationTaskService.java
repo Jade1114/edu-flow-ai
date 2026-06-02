@@ -3,7 +3,6 @@ package com.yuy.eduflow.allocation;
 import com.yuy.eduflow.common.exception.ResourceNotFoundException;
 import com.yuy.eduflow.common.exception.ValidationException;
 import com.yuy.eduflow.course.Course;
-import com.yuy.eduflow.enums.TaskStatus;
 import com.yuy.eduflow.teacher.Teacher;
 import com.yuy.eduflow.teachingtask.TeachingTask;
 import com.fasterxml.jackson.core.JsonProcessingException;
@@ -235,12 +234,7 @@ public class AllocationTaskService {
 	}
 
 	private AllocationTask toTask(AllocationTask task, AllocationTaskRequest request) {
-        task.setName(request.name());
-        task.setDescription(request.description());
-
-        task.setStatus(
-                request.status() != null && !request.status().isBlank() ? TaskStatus.from(request.status().trim()) : TaskStatus.DRAFT);
-        task.setCreatedBy(request.createdBy());
+		task.setName(request.name());
 		return task;
 	}
 
