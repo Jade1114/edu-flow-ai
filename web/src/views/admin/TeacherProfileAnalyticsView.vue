@@ -10,6 +10,12 @@ interface TeacherProfile {
   teacher_id: number | null
   teacher_name: string
   observation_count: number
+  declared_profile?: {
+    profile_note?: string
+    availability_matrix_json?: string
+    summary?: string
+    preference?: Record<string, unknown>
+  }
   derived_from_data: {
     early_period_rate: number
     late_period_rate: number
@@ -40,6 +46,8 @@ interface TeacherProfileDoc {
   profile_version: string
   generated_at: string
   teacher_count: number
+  declared_profile_count?: number
+  merge_strategy?: string
   profiles: TeacherProfile[]
 }
 
@@ -110,6 +118,7 @@ const summaryCards = computed(() => {
   const avgCompact = avg(rows.map((p) => p.derived_from_data.compactness_score))
   return [
     { label: '画像教师数', value: rows.length, suffix: '人' },
+    { label: '教师声明画像', value: profileDoc.value?.declared_profile_count || 0, suffix: '人' },
     { label: '低早课倾向', value: avoidEarly, suffix: '人' },
     { label: '偏好紧凑排课', value: compact, suffix: '人' },
     { label: '平均第1节占比', value: percent(avgEarlyRate), suffix: '' },
@@ -339,7 +348,10 @@ onMounted(() => {
                 <div class="teacher-name">{{ profile.teacher_name }}</div>
                 <div class="teacher-id">ID: {{ profile.teacher_id || '-' }}</div>
               </div>
-              <el-tag size="small">{{ profile.observation_count }} 条</el-tag>
+              <div class="profile-badges">
+                <el-tag v-if="profile.declared_profile" size="small" type="success">有声明</el-tag>
+                <el-tag size="small">{{ profile.observation_count }} 条</el-tag>
+              </div>
             </div>
 
             <div class="mini-stats">
@@ -406,6 +418,14 @@ onMounted(() => {
           <el-tag v-for="room in selectedProfile.final_profile.preferred_room_types" :key="room" type="info">
             {{ room }}
           </el-tag>
+        </div>
+
+        <div v-if="selectedProfile.declared_profile" class="declared-box">
+          <div class="section-title">教师声明画像</div>
+          <div class="declared-summary">{{ selectedProfile.declared_profile.summary || '教师声明偏好已合并进最终画像' }}</div>
+          <div v-if="selectedProfile.declared_profile.profile_note" class="declared-note">
+            {{ selectedProfile.declared_profile.profile_note }}
+          </div>
         </div>
 
         <div class="section-title">星期分布</div>
@@ -495,7 +515,7 @@ onMounted(() => {
 
 .summary-grid {
   display: grid;
-  grid-template-columns: repeat(5, minmax(120px, 1fr));
+  grid-template-columns: repeat(6, minmax(120px, 1fr));
   gap: 12px;
   margin-bottom: 18px;
 }
@@ -633,6 +653,13 @@ onMounted(() => {
   font-size: 12px;
 }
 
+.profile-badges {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 6px;
+}
+
 .mini-stats {
   display: grid;
   grid-template-columns: 1fr 1fr;
@@ -681,6 +708,26 @@ onMounted(() => {
   margin: 18px 0 10px;
   font-weight: 700;
   color: #303133;
+}
+
+.declared-box {
+  margin-top: 16px;
+  padding: 12px;
+  border-radius: 10px;
+  background: #f0f9eb;
+  border: 1px solid #d9ecff;
+}
+
+.declared-summary {
+  color: #303133;
+  font-weight: 600;
+  margin-bottom: 8px;
+}
+
+.declared-note {
+  color: #606266;
+  line-height: 1.6;
+  white-space: pre-wrap;
 }
 
 .bar-list {

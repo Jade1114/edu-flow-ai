@@ -7,6 +7,8 @@ import com.yuy.eduflow.allocation.AllocationItemView;
 import com.yuy.eduflow.allocation.AllocationSchemeService;
 import com.yuy.eduflow.common.ApiResponse;
 import com.yuy.eduflow.common.exception.ResourceNotFoundException;
+import com.yuy.eduflow.teacher.TeacherProfile;
+import com.yuy.eduflow.teacher.TeacherProfileMapper;
 
 import java.io.IOException;
 import java.nio.file.Files;
@@ -31,22 +33,21 @@ public class MlTeacherProfileController {
     private final ObjectMapper objectMapper = new ObjectMapper();
     private final AllocationSchemeService allocationSchemeService;
     private final AllocationItemService allocationItemService;
+    private final TeacherProfileMapper teacherProfileMapper;
 
     public MlTeacherProfileController(
         AllocationSchemeService allocationSchemeService,
-        AllocationItemService allocationItemService
+        AllocationItemService allocationItemService,
+        TeacherProfileMapper teacherProfileMapper
     ) {
         this.allocationSchemeService = allocationSchemeService;
         this.allocationItemService = allocationItemService;
+        this.teacherProfileMapper = teacherProfileMapper;
     }
 
     @GetMapping("/v3")
     public ApiResponse<Map<String, Object>> getV3Profiles() {
-        return ApiResponse.success(readJsonFile(
-            "data/profiles/v3/teacher_profiles_v3.json",
-            "V3 教师画像文件不存在，请先运行画像生成脚本",
-            "读取 V3 教师画像文件失败"
-        ));
+        return ApiResponse.success(getProfilesDocument());
     }
 
     @GetMapping("/v3/satisfaction")
@@ -200,11 +201,103 @@ public class MlTeacherProfileController {
     }
 
     private Map<String, Object> getProfilesDocument() {
-        return readJsonFile(
+        Map<String, Object> doc = readJsonFile(
             "data/profiles/v3/teacher_profiles_v3.json",
             "V3 教师画像文件不存在，请先运行画像生成脚本",
             "读取 V3 教师画像文件失败"
         );
+        return mergeDeclaredProfiles(doc);
+    }
+
+    @SuppressWarnings("unchecked")
+    private Map<String, Object> mergeDeclaredProfiles(Map<String, Object> doc) {
+        Object profilesValue = doc.get("profiles");
+        if (!(profilesValue instanceof List<?> profiles)) {
+            return doc;
+        }
+        int declaredCount = 0;
+        for (Object value : profiles) {
+            if (!(value instanceof Map<?, ?> rawProfile)) {
+                continue;
+            }
+            Map<String, Object> profile = (Map<String, Object>) rawProfile;
+            long teacherId = (long) number(profile.get("teacher_id"));
+            if (teacherId <= 0) {
+                continue;
+            }
+            TeacherProfile declared = teacherProfileMapper.findByTeacherId(teacherId);
+            if (declared == null) {
+                continue;
+            }
+            Map<String, Object> declaredProfile = declaredProfilePayload(declared);
+            if (declaredProfile.isEmpty()) {
+                continue;
+            }
+            profile.put("declared_profile", declaredProfile);
+            profile.put("final_profile", mergeFinalProfile(map(profile.get("final_profile")), declaredProfile));
+            declaredCount += 1;
+        }
+        doc.put("declared_profile_count", declaredCount);
+        doc.put("merge_strategy", "teacher_declared_overrides_derived_baseline");
+        return doc;
+    }
+
+    private Map<String, Object> declaredProfilePayload(TeacherProfile declared) {
+        Map<String, Object> payload = new LinkedHashMap<>();
+        Map<String, Object> preference = parseJsonObject(declared.getProfilePreferenceJson());
+        if (declared.getProfileNote() != null && !declared.getProfileNote().isBlank()) {
+            payload.put("profile_note", declared.getProfileNote());
+        }
+        if (declared.getAvailabilityMatrixJson() != null && !declared.getAvailabilityMatrixJson().isBlank()) {
+            payload.put("availability_matrix_json", declared.getAvailabilityMatrixJson());
+        }
+        if (!preference.isEmpty()) {
+            payload.put("preference", preference);
+            payload.put("summary", preference.getOrDefault("summary", "教师声明画像已解析"));
+        }
+        return payload;
+    }
+
+    private Map<String, Object> mergeFinalProfile(Map<String, Object> derivedFinal, Map<String, Object> declaredProfile) {
+        Map<String, Object> result = new LinkedHashMap<>(derivedFinal);
+        Map<String, Object> preference = map(declaredProfile.get("preference"));
+        if (preference.isEmpty()) {
+            return result;
+        }
+        if (bool(preference.get("avoidFirstPeriod"))) {
+            result.put("avoid_early_period", true);
+        }
+        if (bool(preference.get("avoidLastPeriod"))) {
+            result.put("avoid_late_period", true);
+        }
+        if (bool(preference.get("preferCompactSchedule"))) {
+            result.put("prefer_compact_schedule", true);
+        }
+        List<Integer> preferredWeekdays = intList(preference.get("preferredWeekdays"));
+        if (!preferredWeekdays.isEmpty()) {
+            result.put("preferred_weekdays", preferredWeekdays);
+        }
+        int preferredMaxDaily = (int) number(preference.get("preferredMaxDailyHours"));
+        if (preferredMaxDaily > 0) {
+            result.put("max_daily_lessons", preferredMaxDaily);
+        }
+        Object avoidSlots = preference.get("avoidSlots");
+        if (avoidSlots instanceof List<?> list && !list.isEmpty()) {
+            result.put("declared_avoid_slots", avoidSlots);
+        }
+        result.put("source", "derived_plus_declared");
+        return result;
+    }
+
+    private Map<String, Object> parseJsonObject(String json) {
+        if (json == null || json.isBlank()) {
+            return Map.of();
+        }
+        try {
+            return objectMapper.readValue(json, new TypeReference<>() {});
+        } catch (IOException e) {
+            return Map.of();
+        }
     }
 
     private Path latestSatisfactionReportPath() {

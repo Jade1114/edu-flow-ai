@@ -48,8 +48,9 @@ Placement Model → Task Plans → CP-SAT 全局方案选择
 |------|------|
 | 历史课表画像提取 | 从 `timetables_clean.jsonl` + `teaching_tasks_clean.jsonl` 按教师聚合行为模式 |
 | 结构化画像输出 | 输出 `teacher_profiles_v3.json` |
-| 后端读取接口 | `GET /api/ml/teacher-profiles/v3` 读取画像 JSON |
+| 后端读取接口 | `GET /api/ml/teacher-profiles/v3` 读取画像 JSON，并合并教师声明画像 |
 | 方案满足度接口 | `GET /api/ml/teacher-profiles/v3/satisfaction?schemeId={id}` 按方案实时分析 |
+| 教师声明画像合并 | 合并 `teacher_profile.profile_preference_json`，教师声明优先于历史推断 |
 | 前端画像页面 | `/admin/teacher-profiles` 可视化每位教师画像 |
 | 课表满足度分析 | 用生成的 `schemes.jsonl` 或 Java 方案明细对比画像，输出每位教师满足度 |
 | 全校汇总报告 | 平均满足度、低满足教师数量、Top10 低满足教师 |
@@ -105,6 +106,51 @@ Placement Model → Task Plans → CP-SAT 全局方案选择
 ```
 
 `derived_from_data` 是统计事实，`final_profile` 是当前用于分析的结构化画像。
+
+---
+
+## 教师声明画像合并
+
+后端读取画像时会实时合并 Java 侧已有的 `teacher_profile` 表：
+
+```text
+teacher_profiles_v3.json (历史统计画像)
+  + teacher_profile.profile_preference_json (教师声明 / LLM 解析)
+  ↓
+final_profile (教师声明优先)
+```
+
+当前合并字段：
+
+| Java LLM 字段 | V3 final_profile 字段 | 说明 |
+|---------------|-----------------------|------|
+| `avoidFirstPeriod` | `avoid_early_period` | 教师声明避开第 1 节则覆盖为 true |
+| `avoidLastPeriod` | `avoid_late_period` | 教师声明避开晚课则覆盖为 true |
+| `preferCompactSchedule` | `prefer_compact_schedule` | 教师声明偏好紧凑则覆盖为 true |
+| `preferredWeekdays` | `preferred_weekdays` | 教师声明优先于历史常见星期 |
+| `preferredMaxDailyHours` | `max_daily_lessons` | 教师声明优先于历史 p90 日课时 |
+| `avoidSlots` | `declared_avoid_slots` | 当前仅展示/记录，后续进入硬确认或软约束 |
+
+API 响应会额外包含：
+
+```json
+{
+  "declared_profile_count": 12,
+  "merge_strategy": "teacher_declared_overrides_derived_baseline"
+}
+```
+
+每个教师若有声明画像，会出现：
+
+```json
+{
+  "declared_profile": {
+    "profile_note": "不太希望早八，课程尽量集中",
+    "summary": "已解析教师排课偏好",
+    "preference": {...}
+  }
+}
+```
 
 ---
 
@@ -179,10 +225,10 @@ python3 -m ml.scheduling_v3.teacher_profiles analyze \
 
 页面能力：
 
-- 顶部统计：画像教师数、低早课倾向人数、偏好紧凑排课人数、平均第 1 节占比、平均紧凑度
-- 教师卡片：姓名、ID、历史样本数、第 1 节占比、紧凑度、常见星期、常见节次、画像标签
+- 顶部统计：画像教师数、教师声明画像数、低早课倾向人数、偏好紧凑排课人数、平均第 1 节占比、平均紧凑度
+- 教师卡片：姓名、ID、历史样本数、第 1 节占比、紧凑度、常见星期、常见节次、画像标签、声明标记
 - 搜索过滤：按教师姓名或 ID 搜索
-- 详情弹窗：最终画像、星期分布、节次分布、日课时统计
+- 详情弹窗：最终画像、教师声明画像、星期分布、节次分布、日课时统计
 - 课表满足度区块：平均满足度、覆盖教师数、低满足教师数、低满足 Top10
 - 满足度详情弹窗：每位低满足教师的分项短板与证据统计
 - 方案详情页：打开候选方案时同步展示该课表的教师画像满足度摘要与低满足 Top10
