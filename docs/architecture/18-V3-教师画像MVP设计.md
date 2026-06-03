@@ -49,8 +49,9 @@ Placement Model → Task Plans → CP-SAT 全局方案选择
 | 历史课表画像提取 | 从 `timetables_clean.jsonl` + `teaching_tasks_clean.jsonl` 按教师聚合行为模式 |
 | 结构化画像输出 | 输出 `teacher_profiles_v3.json` |
 | 后端读取接口 | `GET /api/ml/teacher-profiles/v3` 读取画像 JSON |
+| 方案满足度接口 | `GET /api/ml/teacher-profiles/v3/satisfaction?schemeId={id}` 按方案实时分析 |
 | 前端画像页面 | `/admin/teacher-profiles` 可视化每位教师画像 |
-| 课表满足度分析 | 用生成的 `schemes.jsonl` 对比画像，输出每位教师满足度 |
+| 课表满足度分析 | 用生成的 `schemes.jsonl` 或 Java 方案明细对比画像，输出每位教师满足度 |
 | 全校汇总报告 | 平均满足度、低满足教师数量、Top10 低满足教师 |
 | 独立 CLI | 不影响 V3 pipeline / CP-SAT |
 
@@ -190,8 +191,14 @@ python3 -m ml.scheduling_v3.teacher_profiles analyze \
 
 ```text
 GET /api/ml/teacher-profiles/v3
+GET /api/ml/teacher-profiles/v3/satisfaction?schemeId={schemeId}
 GET /api/ml/teacher-profiles/v3/satisfaction/latest
 ```
+
+其中：
+
+- `satisfaction?schemeId=`：方案详情页使用，按当前方案实时计算，避免串报告
+- `satisfaction/latest`：教师画像总览页使用，读取最近生成的离线报告文件
 
 ---
 

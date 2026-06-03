@@ -1009,9 +1009,13 @@ function hardFilterSummary(audit) {
   return `${taskCount} 个教学任务启用硬不可排，共过滤 ${removed} 个候选星期/节次`;
 }
 
-async function loadSchemeSatisfactionReport() {
+async function loadSchemeSatisfactionReport(schemeId) {
+  if (!schemeId) {
+    schemeSatisfactionReport.value = null;
+    return;
+  }
   try {
-    schemeSatisfactionReport.value = await request.get("/api/ml/teacher-profiles/v3/satisfaction/latest");
+    schemeSatisfactionReport.value = await request.get(`/api/ml/teacher-profiles/v3/satisfaction?schemeId=${schemeId}`);
   } catch (e) {
     schemeSatisfactionReport.value = null;
   }
@@ -1531,7 +1535,7 @@ async function viewSchemeDetail(schemeId) {
   };
   currentWeek.value = 1;
   resetTimetableFilters();
-  await loadSchemeSatisfactionReport();
+  await loadSchemeSatisfactionReport(schemeId);
   detailVisible.value = true;
 }
 
