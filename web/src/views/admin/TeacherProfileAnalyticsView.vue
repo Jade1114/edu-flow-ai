@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
+import { useRouter } from 'vue-router'
 import request from '@/api/request'
 import { ElMessage } from 'element-plus'
 import { Refresh, Search } from '@element-plus/icons-vue'
@@ -83,6 +84,7 @@ interface TeacherSatisfactionRow {
   profile_used: Record<string, unknown>
 }
 
+const router = useRouter()
 const loading = ref(false)
 const reportLoading = ref(false)
 const profileDoc = ref<TeacherProfileDoc | null>(null)
@@ -173,6 +175,17 @@ function openDetail(profile: TeacherProfile) {
 function openReportDetail(report: TeacherSatisfactionRow) {
   selectedTeacherReport.value = report
   reportDetailVisible.value = true
+}
+
+function editTeacherProfile(profile: TeacherProfile) {
+  if (!profile.teacher_id) {
+    ElMessage.warning('该教师没有可跳转的 ID')
+    return
+  }
+  router.push({
+    path: `/admin/teachers/${profile.teacher_id}`,
+    query: { from: '/admin/teacher-profiles', section: 'profile' },
+  })
 }
 
 function avg(values: number[]) {
@@ -423,6 +436,7 @@ onMounted(() => {
         <div class="detail-title">
           <span>{{ selectedProfile.teacher_name }}</span>
           <el-tag>ID: {{ selectedProfile.teacher_id || '-' }}</el-tag>
+          <el-button size="small" type="primary" plain @click="editTeacherProfile(selectedProfile)">编辑画像</el-button>
         </div>
 
         <el-descriptions :column="2" border>
