@@ -88,6 +88,9 @@ const reportLoading = ref(false)
 const profileDoc = ref<TeacherProfileDoc | null>(null)
 const satisfactionReport = ref<TeacherSatisfactionReport | null>(null)
 const keyword = ref('')
+const declaredFilter = ref('all')
+const satisfactionFilter = ref('all')
+const tagFilter = ref('all')
 const selectedProfile = ref<TeacherProfile | null>(null)
 const selectedTeacherReport = ref<TeacherSatisfactionRow | null>(null)
 const detailVisible = ref(false)
@@ -97,15 +100,25 @@ const profiles = computed(() => profileDoc.value?.profiles || [])
 const latestSchemeReport = computed(() => satisfactionReport.value?.schemes?.[0] || null)
 const satisfactionSummary = computed(() => latestSchemeReport.value?.summary || null)
 const lowSatisfactionTeachers = computed(() => latestSchemeReport.value?.low_satisfaction_teachers || [])
+const lowSatisfactionTeacherNames = computed(() => new Set(lowSatisfactionTeachers.value.map((item) => item.teacher_name)))
 
 const filteredProfiles = computed(() => {
   const text = keyword.value.trim().toLowerCase()
-  if (!text) return profiles.value
   return profiles.value.filter((profile) => {
-    return (
-      String(profile.teacher_id || '').includes(text) ||
-      profile.teacher_name.toLowerCase().includes(text)
-    )
+    const matchText = !text || String(profile.teacher_id || '').includes(text) || profile.teacher_name.toLowerCase().includes(text)
+    const matchDeclared =
+      declaredFilter.value === 'all' ||
+      (declaredFilter.value === 'declared' && !!profile.declared_profile) ||
+      (declaredFilter.value === 'derived' && !profile.declared_profile)
+    const matchSatisfaction =
+      satisfactionFilter.value === 'all' ||
+      (satisfactionFilter.value === 'low' && lowSatisfactionTeacherNames.value.has(profile.teacher_name))
+    const matchTag =
+      tagFilter.value === 'all' ||
+      (tagFilter.value === 'avoid_early' && profile.final_profile.avoid_early_period) ||
+      (tagFilter.value === 'compact' && profile.final_profile.prefer_compact_schedule) ||
+      (tagFilter.value === 'avoid_late' && profile.final_profile.avoid_late_period)
+    return matchText && matchDeclared && matchSatisfaction && matchTag
   })
 })
 
@@ -325,13 +338,30 @@ onMounted(() => {
         </el-card>
 
         <div class="toolbar">
-          <el-input
-            v-model="keyword"
-            class="search-input"
-            :prefix-icon="Search"
-            placeholder="按教师姓名或 ID 搜索"
-            clearable
-          />
+          <div class="filter-row">
+            <el-input
+              v-model="keyword"
+              class="search-input"
+              :prefix-icon="Search"
+              placeholder="按教师姓名或 ID 搜索"
+              clearable
+            />
+            <el-select v-model="declaredFilter" class="filter-select" placeholder="声明状态">
+              <el-option label="全部画像" value="all" />
+              <el-option label="有教师声明" value="declared" />
+              <el-option label="仅历史推断" value="derived" />
+            </el-select>
+            <el-select v-model="satisfactionFilter" class="filter-select" placeholder="满足度">
+              <el-option label="全部满足度" value="all" />
+              <el-option label="低满足教师" value="low" />
+            </el-select>
+            <el-select v-model="tagFilter" class="filter-select" placeholder="画像标签">
+              <el-option label="全部标签" value="all" />
+              <el-option label="避开第1节" value="avoid_early" />
+              <el-option label="避开晚课" value="avoid_late" />
+              <el-option label="偏好紧凑" value="compact" />
+            </el-select>
+          </div>
           <span class="result-count">当前 {{ filteredProfiles.length }} / {{ profiles.length }} 人</span>
         </div>
 
@@ -612,11 +642,23 @@ onMounted(() => {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  gap: 12px;
   margin-bottom: 16px;
 }
 
+.filter-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
 .search-input {
-  width: 320px;
+  width: 280px;
+}
+
+.filter-select {
+  width: 140px;
 }
 
 .result-count {
