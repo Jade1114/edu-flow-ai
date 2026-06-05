@@ -55,6 +55,8 @@ const route = useRoute()
 const router = useRouter()
 
 const loadedTabs = ref(new Set())
+const importingRealData = ref(false)
+const teacherPanelKey = ref(0)
 
 const validTabs = ['teachingTask', 'teacher', 'course', 'classGroup', 'classroom']
 const initialTab = validTabs.includes(route.query.tab as string)
@@ -636,6 +638,29 @@ async function deleteClassroom(id: any) {
     }
 }
 
+async function importRealDataset() {
+    await ElMessageBox.confirm(
+        '将从 data/real-dataset 导入清洗后的真实课表基础数据。请确认已完成删库重建或当前库可接受覆盖更新。',
+        '导入真实数据',
+        { type: 'warning', confirmButtonText: '开始导入', cancelButtonText: '取消' },
+    )
+    importingRealData.value = true
+    try {
+        const result = await request.post('/api/data-import/real-dataset')
+        loadedTabs.value.clear()
+        teacherPanelKey.value += 1
+        await loadTabData(activeTab.value)
+        ElMessage.success('真实数据导入完成')
+        await ElMessageBox.alert(
+            result?.output || '导入脚本已执行完成',
+            '导入结果',
+            { confirmButtonText: '知道了', dangerouslyUseHTMLString: false },
+        )
+    } finally {
+        importingRealData.value = false
+    }
+}
+
 watch(
     () => route.query,
     () => {
@@ -664,7 +689,15 @@ onMounted(() => {
 
 <template>
     <div>
-        <h2>基础数据管理</h2>
+        <div style="display: flex; align-items: center; justify-content: space-between; gap: 12px">
+            <div>
+                <h2 style="margin-bottom: 4px">基础数据管理</h2>
+                <div style="font-size: 12px; color: #909399">管理教师、课程、班级、教室和教学任务；支持一键导入真实课表清洗数据</div>
+            </div>
+            <el-button type="success" :loading="importingRealData" @click="importRealDataset">
+                导入真实数据
+            </el-button>
+        </div>
         <el-tabs v-model="activeTab" style="margin-top: 16px">
             <!-- TeachingTask -->
             <el-tab-pane label="教学任务" name="teachingTask">
@@ -750,7 +783,7 @@ onMounted(() => {
             </el-tab-pane>
 
             <KeepAlive>
-                <TeacherPanel v-if="activeTab === 'teacher'" />
+                <TeacherPanel v-if="activeTab === 'teacher'" :key="teacherPanelKey" />
             </KeepAlive>
 
             <!-- Course -->

@@ -10,9 +10,13 @@ import json
 import sys
 from pathlib import Path
 
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
+
 from ml.db.config import connect, load_db_config
 
-DATA_DIR = Path(__file__).resolve().parents[1] / "data" / "real-dataset"
+DATA_DIR = PROJECT_ROOT / "data" / "real-dataset"
 
 
 def import_all() -> None:
@@ -22,7 +26,7 @@ def import_all() -> None:
 
     try:
         # ── 1. Teachers ──────────────────────────────────────────
-        print("[1/5] Importing teachers...")
+        print("[1/6] Importing teachers...")
         teachers = _read_jsonl(DATA_DIR / "teachers.jsonl")
         teacher_ids: dict[str, int] = {}
         for i, t in enumerate(teachers, start=1):
@@ -44,7 +48,7 @@ def import_all() -> None:
         print(f"  {len(teachers)} teachers imported")
 
         # ── 2. Courses ───────────────────────────────────────────
-        print("[2/5] Importing courses...")
+        print("[2/6] Importing courses...")
         courses = _read_jsonl(DATA_DIR / "courses_clean.jsonl")
         course_ids: dict[str, int] = {}
         for c in courses:
@@ -68,7 +72,7 @@ def import_all() -> None:
         print(f"  {len(courses)} courses imported")
 
         # ── 3. Class Groups ─────────────────────────────────────
-        print("[3/5] Importing class_groups...")
+        print("[3/6] Importing class_groups...")
         cgs = _read_jsonl(DATA_DIR / "class_groups.jsonl")
         cg_ids: dict[str, int] = {}
         for cg in cgs:
@@ -91,7 +95,7 @@ def import_all() -> None:
         print(f"  {len(cgs)} class_groups imported")
 
         # ── 4. Classrooms ───────────────────────────────────────
-        print("[4/5] Importing classrooms...")
+        print("[4/6] Importing classrooms...")
         rooms = _read_jsonl(DATA_DIR / "classrooms_clean.jsonl")
         room_ids: dict[str, int] = {}
         for r in rooms:
@@ -110,10 +114,17 @@ def import_all() -> None:
         conn.commit()
         print(f"  {len(rooms)} classrooms imported")
 
-        # ── 5. Teaching Tasks + Class Group Links ───────────────
-        print("[5/5] Importing teaching_tasks + links...")
+        # ── 5. Time Slots ───────────────────────────────────────
+        print("[5/6] Importing time_slots...")
+        time_slot_count = import_time_slots(cursor)
+        conn.commit()
+        print(f"  {time_slot_count} time_slots imported")
+
+        # ── 6. Teaching Tasks + Class Group Links ───────────────
+        print("[6/6] Importing teaching_tasks + links...")
         tasks = _read_jsonl(DATA_DIR / "teaching_tasks_clean.jsonl")
         inserted = 0
+        reused = 0
         skipped = 0
         for t in tasks:
             course_code = (t.get("course_code") or "").strip()
@@ -146,11 +157,28 @@ def import_all() -> None:
             required_room = cr["required_room_type"] if cr else None
 
             cursor.execute(
-                """INSERT INTO teaching_task (course_id, primary_teacher_id, total_hours, required_room_type)
-                   VALUES (%s, %s, %s, %s)""",
-                (course_id, tid, total_hours, required_room),
+                """SELECT tt.id
+                   FROM teaching_task tt
+                   JOIN teaching_task_class_group ttcg ON ttcg.teaching_task_id = tt.id
+                   WHERE tt.course_id = %s
+                     AND tt.primary_teacher_id = %s
+                     AND ttcg.class_group_id = %s
+                     AND COALESCE(tt.required_room_type, '') = COALESCE(%s, '')
+                   LIMIT 1""",
+                (course_id, tid, cgid, required_room),
             )
-            task_id = cursor.lastrowid
+            existing = cursor.fetchone()
+            if existing:
+                task_id = existing["id"]
+                reused += 1
+            else:
+                cursor.execute(
+                    """INSERT INTO teaching_task (course_id, primary_teacher_id, total_hours, required_room_type)
+                       VALUES (%s, %s, %s, %s)""",
+                    (course_id, tid, total_hours, required_room),
+                )
+                task_id = cursor.lastrowid
+                inserted += 1
 
             cursor.execute(
                 """INSERT INTO teaching_task_class_group (teaching_task_id, class_group_id)
@@ -158,16 +186,37 @@ def import_all() -> None:
                    ON DUPLICATE KEY UPDATE teaching_task_id=teaching_task_id""",
                 (task_id, cgid),
             )
-            inserted += 1
 
         conn.commit()
-        print(f"  {inserted} tasks inserted, {skipped} skipped")
+        print(f"  {inserted} tasks inserted, {reused} reused, {skipped} skipped")
 
     finally:
         cursor.close()
         conn.close()
 
     print("\nImport complete!")
+
+
+def import_time_slots(cursor, *, weeks: int = 20, weekdays: int = 7, periods: int = 5) -> int:
+    labels = {
+        1: "1-2节",
+        2: "3-4节",
+        3: "5-6节",
+        4: "7-8节",
+        5: "9-11节",
+    }
+    inserted = 0
+    for week in range(1, weeks + 1):
+        for day in range(1, weekdays + 1):
+            for period in range(1, periods + 1):
+                label = f"第{week}周 周{day} {labels.get(period, f'第{period}节')}"
+                cursor.execute(
+                    """INSERT IGNORE INTO time_slot (week_number, day_of_week, period_index, label)
+                       VALUES (%s, %s, %s, %s)""",
+                    (week, day, period, label),
+                )
+                inserted += int(cursor.rowcount or 0)
+    return inserted
 
 
 def _read_jsonl(path: Path) -> list[dict]:
