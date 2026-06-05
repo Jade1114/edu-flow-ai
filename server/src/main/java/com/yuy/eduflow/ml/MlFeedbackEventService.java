@@ -1,9 +1,11 @@
 package com.yuy.eduflow.ml;
 
+import com.yuy.eduflow.adjustment.AdjustmentRequest;
 import com.yuy.eduflow.allocation.AllocationItem;
 import com.yuy.eduflow.allocation.AllocationItemMapper;
 import com.yuy.eduflow.allocation.AllocationScheme;
 import com.yuy.eduflow.allocation.AllocationSchemeMapper;
+import com.yuy.eduflow.assignment.CourseAssignment;
 import com.yuy.eduflow.common.exception.ResourceNotFoundException;
 import com.yuy.eduflow.common.exception.ValidationException;
 import java.util.LinkedHashMap;
@@ -20,6 +22,8 @@ public class MlFeedbackEventService {
 	public static final String ITEM_MOVED = "ITEM_MOVED";
 	public static final String ITEM_MARKED_GOOD = "ITEM_MARKED_GOOD";
 	public static final String ITEM_MARKED_BAD = "ITEM_MARKED_BAD";
+	public static final String ADJUSTMENT_APPROVED = "ADJUSTMENT_APPROVED";
+	public static final String ADJUSTMENT_REJECTED = "ADJUSTMENT_REJECTED";
 
 	private final MlFeedbackEventMapper eventMapper;
 	private final AllocationSchemeMapper schemeMapper;
@@ -93,6 +97,14 @@ public class MlFeedbackEventService {
 		return event;
 	}
 
+	public void recordAdjustmentApproved(AdjustmentRequest request, CourseAssignment assignment, String reviewNote) {
+		recordAdjustmentReview(ADJUSTMENT_APPROVED, request, assignment, reviewNote);
+	}
+
+	public void recordAdjustmentRejected(AdjustmentRequest request, CourseAssignment assignment, String reviewNote) {
+		recordAdjustmentReview(ADJUSTMENT_REJECTED, request, assignment, reviewNote);
+	}
+
 	public MlFeedbackEventSummary summary(Long taskId, int recentLimit) {
 		return new MlFeedbackEventSummary(
 			eventMapper.countAll(taskId),
@@ -146,6 +158,52 @@ public class MlFeedbackEventService {
 		itemData.put("conflict_message", item.getConflictMessage());
 		itemData.put("profile_penalty_message", Boolean.TRUE.equals(item.getValid()) ? item.getConflictMessage() : null);
 		snapshot.put("item", itemData);
+		return snapshot;
+	}
+
+	private void recordAdjustmentReview(
+		String eventType,
+		AdjustmentRequest request,
+		CourseAssignment assignment,
+		String reviewNote
+	) {
+		if (request == null || assignment == null || assignment.getSourceSchemeId() == null) {
+			return;
+		}
+		AllocationScheme scheme = findScheme(assignment.getSourceSchemeId());
+		MlFeedbackEvent event = baseEvent(eventType, scheme, null);
+		event.setTeachingTaskId(assignment.getTeachingTaskId());
+		event.setReasonCode(eventType);
+		event.setReasonText(clean(reviewNote));
+		event.setBeforeSnapshotJson(toJson(assignmentSnapshot(assignment)));
+		Map<String, Object> source = new LinkedHashMap<>();
+		source.put("adjustment_request_id", request.getId());
+		source.put("assignment_id", request.getAssignmentId());
+		source.put("teacher_id", request.getTeacherId());
+		source.put("status", request.getStatus() == null ? null : request.getStatus().code());
+		source.put("reason", request.getReason());
+		source.put("preferred_time_text", request.getPreferredTimeText());
+		source.put("review_note", reviewNote);
+		event.setContextSnapshotJson(toJson(contextSnapshot(scheme, source)));
+		eventMapper.insert(event);
+	}
+
+	private Map<String, Object> assignmentSnapshot(CourseAssignment assignment) {
+		if (assignment == null) {
+			return Map.of();
+		}
+		Map<String, Object> snapshot = new LinkedHashMap<>();
+		Map<String, Object> assignmentData = new LinkedHashMap<>();
+		assignmentData.put("id", assignment.getId());
+		assignmentData.put("source_scheme_id", assignment.getSourceSchemeId());
+		assignmentData.put("teaching_task_id", assignment.getTeachingTaskId());
+		assignmentData.put("teacher_id", assignment.getTeacherId());
+		assignmentData.put("class_group_id", assignment.getClassGroupId());
+		assignmentData.put("course_id", assignment.getCourseId());
+		assignmentData.put("classroom_id", assignment.getClassroomId());
+		assignmentData.put("time_slot_id", assignment.getTimeSlotId());
+		assignmentData.put("status", assignment.getStatus() == null ? null : assignment.getStatus().code());
+		snapshot.put("assignment", assignmentData);
 		return snapshot;
 	}
 

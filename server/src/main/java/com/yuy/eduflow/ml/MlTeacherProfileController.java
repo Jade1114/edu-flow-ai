@@ -34,15 +34,18 @@ public class MlTeacherProfileController {
     private final AllocationSchemeService allocationSchemeService;
     private final AllocationItemService allocationItemService;
     private final TeacherProfileMapper teacherProfileMapper;
+    private final TeacherProfileFeedbackAggregationService feedbackAggregationService;
 
     public MlTeacherProfileController(
         AllocationSchemeService allocationSchemeService,
         AllocationItemService allocationItemService,
-        TeacherProfileMapper teacherProfileMapper
+        TeacherProfileMapper teacherProfileMapper,
+        TeacherProfileFeedbackAggregationService feedbackAggregationService
     ) {
         this.allocationSchemeService = allocationSchemeService;
         this.allocationItemService = allocationItemService;
         this.teacherProfileMapper = teacherProfileMapper;
+        this.feedbackAggregationService = feedbackAggregationService;
     }
 
     @GetMapping("/v3")
@@ -206,7 +209,33 @@ public class MlTeacherProfileController {
             "V3 教师画像文件不存在，请先运行画像生成脚本",
             "读取 V3 教师画像文件失败"
         );
-        return mergeDeclaredProfiles(doc);
+        return mergeFeedbackProfiles(mergeDeclaredProfiles(doc));
+    }
+
+    @SuppressWarnings("unchecked")
+    private Map<String, Object> mergeFeedbackProfiles(Map<String, Object> doc) {
+        Object profilesValue = doc.get("profiles");
+        if (!(profilesValue instanceof List<?> profiles)) {
+            return doc;
+        }
+        Map<Long, Map<String, Object>> feedbackByTeacher = feedbackAggregationService.aggregateByTeacher();
+        int feedbackProfileCount = 0;
+        for (Object value : profiles) {
+            if (!(value instanceof Map<?, ?> rawProfile)) {
+                continue;
+            }
+            Map<String, Object> profile = (Map<String, Object>) rawProfile;
+            long teacherId = (long) number(profile.get("teacher_id"));
+            Map<String, Object> feedback = feedbackByTeacher.get(teacherId);
+            if (feedback == null || feedback.isEmpty()) {
+                continue;
+            }
+            profile.putAll(feedback);
+            feedbackProfileCount += 1;
+        }
+        doc.put("feedback_profile_count", feedbackProfileCount);
+        doc.put("feedback_merge_strategy", "feedback_evidence_attached_without_overriding_declared_profile");
+        return doc;
     }
 
     @SuppressWarnings("unchecked")

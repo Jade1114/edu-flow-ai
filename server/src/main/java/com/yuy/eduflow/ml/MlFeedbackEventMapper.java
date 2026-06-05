@@ -68,4 +68,19 @@ public interface MlFeedbackEventMapper {
 		</script>
 		""")
 	List<Map<String, Object>> findRecent(@Param("taskId") Long taskId, @Param("limit") int limit);
+
+	@Select("""
+		SELECT id, event_type AS eventType, task_id AS taskId, scheme_id AS schemeId,
+		       item_id AS itemId, teaching_task_id AS teachingTaskId,
+		       actor_type AS actorType, actor_id AS actorId,
+		       reason_code AS reasonCode, reason_text AS reasonText,
+		       before_snapshot_json AS beforeSnapshotJson,
+		       after_snapshot_json AS afterSnapshotJson,
+		       context_snapshot_json AS contextSnapshotJson,
+		       created_at AS createdAt
+		FROM ml_feedback_event
+		ORDER BY id DESC
+		LIMIT #{limit}
+		""")
+	List<MlFeedbackEvent> findForProfileAggregation(@Param("limit") int limit);
 }

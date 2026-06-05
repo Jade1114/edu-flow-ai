@@ -3,6 +3,8 @@ package com.yuy.eduflow.adjustment;
 import com.yuy.eduflow.assignment.CourseAssignment;
 import com.yuy.eduflow.assignment.CourseAssignmentService;
 import com.yuy.eduflow.common.exception.ResourceNotFoundException;
+import com.yuy.eduflow.enums.AdjustmentStatus;
+import com.yuy.eduflow.ml.MlFeedbackEventService;
 import java.util.List;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -12,13 +14,16 @@ public class AdjustmentRequestService {
 
     private final AdjustmentRequestMapper adjustmentRequestMapper;
     private final CourseAssignmentService courseAssignmentService;
+    private final MlFeedbackEventService feedbackEventService;
 
     public AdjustmentRequestService(
         AdjustmentRequestMapper adjustmentRequestMapper,
-        CourseAssignmentService courseAssignmentService
+        CourseAssignmentService courseAssignmentService,
+        MlFeedbackEventService feedbackEventService
     ) {
         this.adjustmentRequestMapper = adjustmentRequestMapper;
         this.courseAssignmentService = courseAssignmentService;
+        this.feedbackEventService = feedbackEventService;
     }
 
     // ==================== CRUD ====================
@@ -50,13 +55,23 @@ public class AdjustmentRequestService {
 
     @Transactional
     public void confirm(Long requestId, AdjustmentConfirmRequest confirmReq) {
-        findById(requestId);
-        adjustmentRequestMapper.updateReview(requestId, "APPROVED", confirmReq.reviewNote());
+        AdjustmentRequest request = findById(requestId);
+        CourseAssignment assignment = courseAssignmentService.findById(request.getAssignmentId());
+        String reviewNote = confirmReq == null ? null : confirmReq.reviewNote();
+        adjustmentRequestMapper.updateReview(requestId, "APPROVED", reviewNote);
+        request.setStatus(AdjustmentStatus.APPROVED);
+        request.setReviewNote(reviewNote);
+        feedbackEventService.recordAdjustmentApproved(request, assignment, reviewNote);
     }
 
     @Transactional
     public void reject(Long requestId, AdjustmentRejectRequest rejectReq) {
-        findById(requestId);
-        adjustmentRequestMapper.updateReview(requestId, "REJECTED", rejectReq.reviewNote());
+        AdjustmentRequest request = findById(requestId);
+        CourseAssignment assignment = courseAssignmentService.findById(request.getAssignmentId());
+        String reviewNote = rejectReq == null ? null : rejectReq.reviewNote();
+        adjustmentRequestMapper.updateReview(requestId, "REJECTED", reviewNote);
+        request.setStatus(AdjustmentStatus.REJECTED);
+        request.setReviewNote(reviewNote);
+        feedbackEventService.recordAdjustmentRejected(request, assignment, reviewNote);
     }
 }

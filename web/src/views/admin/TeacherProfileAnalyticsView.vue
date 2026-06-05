@@ -7,6 +7,18 @@ import { Refresh, Search } from '@element-plus/icons-vue'
 
 type RateMap = Record<string, number>
 
+type FeedbackEventCounts = Record<string, number>
+
+interface FeedbackEvidenceSummary {
+  event_counts?: FeedbackEventCounts
+  positive_weight?: number
+  negative_weight?: number
+  positive_weekdays?: RateMap
+  negative_weekdays?: RateMap
+  positive_periods?: RateMap
+  negative_periods?: RateMap
+}
+
 interface TeacherProfile {
   teacher_id: number | null
   teacher_name: string
@@ -17,6 +29,9 @@ interface TeacherProfile {
     summary?: string
     preference?: Record<string, unknown>
   }
+  feedback_profile?: Record<string, unknown>
+  feedback_evidence_summary?: FeedbackEvidenceSummary
+  feedback_confidence?: number
   derived_from_data: {
     early_period_rate: number
     late_period_rate: number
@@ -48,6 +63,8 @@ interface TeacherProfileDoc {
   generated_at: string
   teacher_count: number
   declared_profile_count?: number
+  feedback_profile_count?: number
+  feedback_merge_strategy?: string
   merge_strategy?: string
   profiles: TeacherProfile[]
 }
@@ -91,6 +108,7 @@ const profileDoc = ref<TeacherProfileDoc | null>(null)
 const satisfactionReport = ref<TeacherSatisfactionReport | null>(null)
 const keyword = ref('')
 const declaredFilter = ref('all')
+const feedbackFilter = ref('all')
 const satisfactionFilter = ref('all')
 const tagFilter = ref('all')
 const selectedProfile = ref<TeacherProfile | null>(null)
@@ -112,6 +130,10 @@ const filteredProfiles = computed(() => {
       declaredFilter.value === 'all' ||
       (declaredFilter.value === 'declared' && !!profile.declared_profile) ||
       (declaredFilter.value === 'derived' && !profile.declared_profile)
+    const matchFeedback =
+      feedbackFilter.value === 'all' ||
+      (feedbackFilter.value === 'feedback' && hasFeedbackProfile(profile)) ||
+      (feedbackFilter.value === 'no_feedback' && !hasFeedbackProfile(profile))
     const matchSatisfaction =
       satisfactionFilter.value === 'all' ||
       (satisfactionFilter.value === 'low' && lowSatisfactionTeacherNames.value.has(profile.teacher_name))
@@ -120,7 +142,7 @@ const filteredProfiles = computed(() => {
       (tagFilter.value === 'avoid_early' && profile.final_profile.avoid_early_period) ||
       (tagFilter.value === 'compact' && profile.final_profile.prefer_compact_schedule) ||
       (tagFilter.value === 'avoid_late' && profile.final_profile.avoid_late_period)
-    return matchText && matchDeclared && matchSatisfaction && matchTag
+    return matchText && matchDeclared && matchFeedback && matchSatisfaction && matchTag
   })
 })
 
@@ -129,11 +151,13 @@ const summaryCards = computed(() => {
   if (!rows.length) return []
   const avoidEarly = rows.filter((p) => p.final_profile.avoid_early_period).length
   const compact = rows.filter((p) => p.final_profile.prefer_compact_schedule).length
+  const feedbackCount = rows.filter(hasFeedbackProfile).length
   const avgEarlyRate = avg(rows.map((p) => p.derived_from_data.early_period_rate))
   const avgCompact = avg(rows.map((p) => p.derived_from_data.compactness_score))
   return [
     { label: '画像教师数', value: rows.length, suffix: '人' },
     { label: '教师声明画像', value: profileDoc.value?.declared_profile_count || 0, suffix: '人' },
+    { label: '反馈画像证据', value: profileDoc.value?.feedback_profile_count || feedbackCount, suffix: '人' },
     { label: '低早课倾向', value: avoidEarly, suffix: '人' },
     { label: '偏好紧凑排课', value: compact, suffix: '人' },
     { label: '平均第1节占比', value: percent(avgEarlyRate), suffix: '' },
@@ -215,6 +239,49 @@ function topRateText(rates: RateMap, labeler: (value: number) => string) {
   const first = rateEntries(rates, labeler)[0]
   if (!first) return '-'
   return `${first.label} ${percent(first.value)}`
+}
+
+function hasFeedbackProfile(profile: TeacherProfile) {
+  return !!profile.feedback_evidence_summary && Object.keys(profile.feedback_evidence_summary.event_counts || {}).length > 0
+}
+
+function feedbackEventTotal(profile: TeacherProfile) {
+  return Object.values(profile.feedback_evidence_summary?.event_counts || {}).reduce((sum, value) => sum + Number(value || 0), 0)
+}
+
+function feedbackConfidenceText(profile: TeacherProfile) {
+  const confidence = Number(profile.feedback_confidence || 0)
+  return `${Math.round(confidence * 100)}%`
+}
+
+function feedbackEventEntries(profile: TeacherProfile) {
+  return Object.entries(profile.feedback_evidence_summary?.event_counts || {})
+    .map(([key, value]) => ({ key, label: feedbackEventLabel(key), value: Number(value || 0) }))
+    .sort((a, b) => b.value - a.value)
+}
+
+function feedbackEventLabel(key: string) {
+  const map: Record<string, string> = {
+    SCHEME_CONFIRMED: '方案确认',
+    ITEM_MOVED: '人工调整',
+    ITEM_MARKED_GOOD: '标为可参考',
+    ITEM_MARKED_BAD: '标为不满意',
+    ADJUSTMENT_APPROVED: '调课通过',
+    ADJUSTMENT_REJECTED: '调课驳回',
+  }
+  return map[key] || key
+}
+
+function feedbackProfileTags(profile: TeacherProfile) {
+  const feedback = profile.feedback_profile || {}
+  const tags = []
+  if (feedback.avoid_early_period) tags.push({ label: '反馈：避开第1节', type: 'warning' })
+  if (feedback.avoid_late_period) tags.push({ label: '反馈：避开晚课', type: 'warning' })
+  const weekdays = Array.isArray(feedback.preferred_weekdays) ? feedback.preferred_weekdays : []
+  const periods = Array.isArray(feedback.preferred_periods) ? feedback.preferred_periods : []
+  weekdays.forEach((day) => tags.push({ label: `反馈偏好 ${weekdayLabel(Number(day))}`, type: 'primary' }))
+  periods.forEach((period) => tags.push({ label: `反馈偏好 ${periodLabel(Number(period))}`, type: 'primary' }))
+  return tags
 }
 
 function profileTags(profile: TeacherProfile) {
@@ -364,6 +431,11 @@ onMounted(() => {
               <el-option label="有教师声明" value="declared" />
               <el-option label="仅历史推断" value="derived" />
             </el-select>
+            <el-select v-model="feedbackFilter" class="filter-select" placeholder="反馈证据">
+              <el-option label="全部反馈" value="all" />
+              <el-option label="有反馈证据" value="feedback" />
+              <el-option label="暂无反馈" value="no_feedback" />
+            </el-select>
             <el-select v-model="satisfactionFilter" class="filter-select" placeholder="满足度">
               <el-option label="全部满足度" value="all" />
               <el-option label="低满足教师" value="low" />
@@ -393,6 +465,9 @@ onMounted(() => {
               </div>
               <div class="profile-badges">
                 <el-tag v-if="profile.declared_profile" size="small" type="success">有声明</el-tag>
+                <el-tag v-if="hasFeedbackProfile(profile)" size="small" type="primary">
+                  反馈 {{ feedbackConfidenceText(profile) }}
+                </el-tag>
                 <el-tag size="small">{{ profile.observation_count }} 条</el-tag>
               </div>
             </div>
@@ -469,6 +544,35 @@ onMounted(() => {
           <div class="declared-summary">{{ selectedProfile.declared_profile.summary || '教师声明偏好已合并进最终画像' }}</div>
           <div v-if="selectedProfile.declared_profile.profile_note" class="declared-note">
             {{ selectedProfile.declared_profile.profile_note }}
+          </div>
+        </div>
+
+        <div v-if="hasFeedbackProfile(selectedProfile)" class="feedback-box">
+          <div class="section-title">反馈画像证据</div>
+          <el-descriptions :column="3" border size="small">
+            <el-descriptions-item label="事件数量">{{ feedbackEventTotal(selectedProfile) }}</el-descriptions-item>
+            <el-descriptions-item label="置信度">{{ feedbackConfidenceText(selectedProfile) }}</el-descriptions-item>
+            <el-descriptions-item label="正/负权重">
+              {{ selectedProfile.feedback_evidence_summary?.positive_weight || 0 }} /
+              {{ selectedProfile.feedback_evidence_summary?.negative_weight || 0 }}
+            </el-descriptions-item>
+          </el-descriptions>
+          <div class="feedback-section-subtitle">反馈来源</div>
+          <div class="tag-row">
+            <el-tag v-for="event in feedbackEventEntries(selectedProfile)" :key="event.key" size="small" type="info">
+              {{ event.label }} × {{ event.value }}
+            </el-tag>
+          </div>
+          <div v-if="feedbackProfileTags(selectedProfile).length" class="feedback-section-subtitle">反馈推断偏好</div>
+          <div v-if="feedbackProfileTags(selectedProfile).length" class="tag-row">
+            <el-tag
+              v-for="tag in feedbackProfileTags(selectedProfile)"
+              :key="tag.label"
+              :type="tag.type as any"
+              size="small"
+            >
+              {{ tag.label }}
+            </el-tag>
           </div>
         </div>
 
@@ -559,7 +663,7 @@ onMounted(() => {
 
 .summary-grid {
   display: grid;
-  grid-template-columns: repeat(6, minmax(120px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
   gap: 12px;
   margin-bottom: 18px;
 }
@@ -784,6 +888,21 @@ onMounted(() => {
   color: #606266;
   line-height: 1.6;
   white-space: pre-wrap;
+}
+
+.feedback-box {
+  margin-top: 16px;
+  padding: 12px;
+  border-radius: 10px;
+  background: #f5f8ff;
+  border: 1px solid #dce8ff;
+}
+
+.feedback-section-subtitle {
+  margin-top: 12px;
+  color: #606266;
+  font-size: 13px;
+  font-weight: 600;
 }
 
 .bar-list {
