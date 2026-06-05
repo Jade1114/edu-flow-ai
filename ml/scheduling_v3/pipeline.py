@@ -13,11 +13,11 @@ from __future__ import annotations
 import json
 import os
 import time
-from collections import Counter
+from collections import Counter, defaultdict
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 from ml.db.config import connect, load_db_config
 from ml.db.repositories import (
@@ -29,19 +29,30 @@ from ml.db.repositories import (
 )
 from ml.scheduling_v3.cp_sat_selector import (
     DEFAULT_TIME_LIMIT_SECONDS,
+    MODEL_OBJECTIVE_WEIGHT,
+    TEACHER_PROFILE_OBJECTIVE_WEIGHT,
+    TEACHER_PROFILE_PENALTY_WEIGHT,
     audit_scheme_items,
     select_cp_sat_global_plans_jsonl,
 )
 from ml.scheduling_v3.placement_direct import DirectPlacementModel
 from ml.scheduling_v3.plan_templates import (
     _build_task_plan_row,
+    _load_teacher_profiles,
     _read_candidate_rows,
     WeekUsageAllocator,
 )
 
 DEFAULT_TOP_K = 50
-MAX_PLAN_COUNT = 120
+MAX_TOP_K = 200
+MAX_PLAN_COUNT = 500
 DEFAULT_PLAN_COUNT = 120
+DEFAULT_CP_PLAN_COUNT = 40
+MAX_SOLVER_TIME_LIMIT_SECONDS = 3600.0
+DEFAULT_GENERATION_MODE = "AUTO"
+DEFAULT_SINGLE_GENERATION_MODE = "QUALITY"
+FEASIBILITY_MODES = {"FEASIBILITY", "FIRST_SOLUTION", "FIRST_FEASIBLE"}
+AUTO_GENERATION_MODES = {"AUTO", "AUTOMATIC", "PIPELINE"}
 DEFAULT_SEMESTER_WEEKS = 18
 DEFAULT_ALLOWED_WEEKS = set(range(1, DEFAULT_SEMESTER_WEEKS + 1))
 DEFAULT_ALLOWED_WEEKDAYS = set(range(1, 6))
@@ -56,21 +67,39 @@ def run_v3_pipeline(
     plan_count: int = DEFAULT_PLAN_COUNT,
     scheme_count: int | None = None,
     solver_time_limit_seconds: float = DEFAULT_TIME_LIMIT_SECONDS,
+    generation_mode: str | None = None,
     output_dir: Path | str | None = None,
+    progress_callback: Callable[[dict[str, Any]], None] | None = None,
 ) -> dict[str, Any]:
-    """Run the full V3 scheduling pipeline for professional courses.
+    """Run one V3 scheduling mode for professional courses.
 
     Returns a summary dict with paths and statistics.
     """
+    if _is_auto_generation_mode(generation_mode):
+        return run_v3_auto_pipeline(
+            allocation_task_id,
+            top_k=top_k,
+            plan_count=plan_count,
+            scheme_count=scheme_count,
+            solver_time_limit_seconds=solver_time_limit_seconds,
+            output_dir=output_dir,
+            progress_callback=progress_callback,
+        )
+
     started = time.perf_counter()
 
-    top_k = max(1, min(int(top_k), 50))
-    plan_count = max(1, min(int(plan_count), MAX_PLAN_COUNT))
+    def emit(stage: str, message: str, progress: int, **extra: Any) -> None:
+        if progress_callback is None:
+            return
+        payload = {"stage": stage, "message": message, "progress": progress, **extra}
+        progress_callback(payload)
 
+    emit("PREFLIGHT", "初始化 V3 排课流水线...", 5)
     out_dir = _resolve_output_dir(allocation_task_id, output_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
 
     # ── Step 1: Load data from DB ───────────────────────────────────
+    emit("PREFLIGHT", "加载排课任务、资源和生成配置...", 8)
     print("[V3] Step 1: Loading data from DB...")
     db = load_db_config()
     conn = connect(db)
@@ -91,7 +120,14 @@ def run_v3_pipeline(
                 f"time_slot_count={len(time_slots)}, raw_config={raw_config}"
             )
         time_slot_id_by_coord = _time_slot_id_by_coord(filtered_time_slots)
+        resolved_generation_mode = _resolve_generation_mode(raw_config, generation_mode)
         resolved_scheme_count = scheme_count if scheme_count is not None else _resolve_scheme_count(raw_config)
+        if resolved_generation_mode in FEASIBILITY_MODES:
+            resolved_scheme_count = 1
+        resolved_top_k = _resolve_bounded_int(raw_config, "placement_top_k", top_k, 1, MAX_TOP_K)
+        resolved_plan_count = _resolve_plan_count(raw_config, plan_count)
+        resolved_cp_plan_count = _resolve_bounded_int(raw_config, "cp_plan_count", DEFAULT_CP_PLAN_COUNT, 1, MAX_PLAN_COUNT)
+        resolved_solver_time_limit = _resolve_solver_time_limit(raw_config, solver_time_limit_seconds)
 
         teaching_tasks = list(fetch_all(conn,
             """SELECT tt.*, c.code AS course_code, c.name AS course_name,
@@ -129,9 +165,13 @@ def run_v3_pipeline(
     print(f"  Tasks: {len(teaching_tasks)}, Courses: {len(courses)}, "
           f"Classrooms: {len(classrooms)}, Classes: {len(class_groups)}, "
           f"Teachers: {len(teachers)}, TimeSlots: {len(time_slot_id_by_coord)}, "
-          f"Schemes: {resolved_scheme_count}, SeededTimeSlots: {seeded_time_slots}")
+          f"Schemes: {resolved_scheme_count}, TopK: {resolved_top_k}, "
+          f"Plans: {resolved_plan_count}, CpPlans: {resolved_cp_plan_count}, "
+          f"SolverLimit: {resolved_solver_time_limit}s, Mode: {resolved_generation_mode}, "
+          f"SeededTimeSlots: {seeded_time_slots}")
 
     # ── Step 2: Placement Model inference ───────────────────────────
+    emit("PREFLIGHT", "Placement Model 正在生成资源候选...", 18, task_count=len(teaching_tasks), top_k=resolved_top_k)
     print("[V3] Step 2: Placement Model inference...")
     model = DirectPlacementModel.load()
     candidates_path = out_dir / "placement_candidates.jsonl"
@@ -143,7 +183,7 @@ def run_v3_pipeline(
         class_groups=class_groups,
         teachers=teachers,
         model=model,
-        top_k=top_k,
+        top_k=resolved_top_k,
         output_path=candidates_path,
         allocation_task_id=allocation_task_id,
         raw_config=raw_config,
@@ -151,28 +191,90 @@ def run_v3_pipeline(
     print(f"  {task_count} tasks → {candidates_path}")
 
     # ── Step 3: Template generation ─────────────────────────────────
+    emit("PREFLIGHT", "正在生成 task plans，用于 CP-SAT 全局选择...", 32, raw_plan_count=resolved_plan_count)
     print("[V3] Step 3: Template generation...")
     task_plans_path = out_dir / "task_plans.jsonl"
     task_plans_count = _run_template_generation_parallel(
         candidates_path=str(candidates_path),
         output_path=task_plans_path,
-        plan_count=plan_count,
+        plan_count=resolved_plan_count,
     )
     print(f"  {task_plans_count} tasks → {task_plans_path}")
 
-    # ── Step 4: CP-SAT global plan selection ─────────────────────────
-    print("[V3] Step 4: CP-SAT global plan selection...")
-    cp_sat_summary = select_cp_sat_global_plans_jsonl(
+    preflight_summary = _write_preflight_report(
         task_plans_path,
+        out_dir,
+        expected_task_count=len(teaching_tasks),
+        placement_top_k=resolved_top_k,
+        raw_plan_count=resolved_plan_count,
+        cp_plan_count=resolved_cp_plan_count,
+        generation_mode=resolved_generation_mode,
+    )
+    print(
+        "  Preflight: "
+        f"tasks={preflight_summary['task_count']} "
+        f"no_plan={preflight_summary['no_plan_task_count']} "
+        f"estimated_feasible={preflight_summary['estimated_feasible']}"
+    )
+    emit(
+        "PREFLIGHT",
+        "Preflight 诊断完成，准备判断是否进入 CP-SAT...",
+        45,
+        report_path=preflight_summary.get("report_path"),
+        no_candidate_task_count=preflight_summary.get("no_candidate_task_count"),
+        no_plan_task_count=preflight_summary.get("no_plan_task_count"),
+        estimated_feasible=preflight_summary.get("estimated_feasible"),
+    )
+    if preflight_summary["no_plan_task_count"] > 0 or preflight_summary["no_candidate_task_count"] > 0:
+        report_path = preflight_summary["report_path"]
+        raise ValueError(
+            "V3 preflight failed: "
+            f"no_candidate_task_count={preflight_summary['no_candidate_task_count']}, "
+            f"no_plan_task_count={preflight_summary['no_plan_task_count']}; "
+            f"report={report_path}"
+        )
+    cp_task_plans_path = out_dir / "task_plans_cp.jsonl"
+    _write_cp_task_plans(task_plans_path, cp_task_plans_path, resolved_cp_plan_count)
+
+    # ── Step 4: CP-SAT global plan selection ─────────────────────────
+    cp_stage = "FIRST_FEASIBLE" if resolved_generation_mode in FEASIBILITY_MODES else "QUALITY_OPTIMIZATION"
+    if resolved_scheme_count > 1:
+        cp_stage = "DIVERSITY_SEARCH"
+    emit(cp_stage, "CP-SAT 正在做全局无冲突方案选择...", 55, scheme_count=resolved_scheme_count)
+    print("[V3] Step 4: CP-SAT global plan selection...")
+    objective_weights = _resolve_cp_sat_objective_weights(raw_config)
+    if resolved_generation_mode in FEASIBILITY_MODES:
+        objective_weights["teacher_profile_score"] = 0.0
+        objective_weights["teacher_profile_penalty"] = 0.0
+    cp_sat_summary = select_cp_sat_global_plans_jsonl(
+        cp_task_plans_path,
         time_slot_id_by_coord=time_slot_id_by_coord,
         scheme_count=resolved_scheme_count,
-        time_limit_seconds=solver_time_limit_seconds,
+        time_limit_seconds=resolved_solver_time_limit,
+        model_objective_weight=objective_weights["model"],
+        teacher_profile_objective_weight=objective_weights["teacher_profile_score"],
+        teacher_profile_penalty_weight=objective_weights["teacher_profile_penalty"],
+        summary_context={
+            "placement_top_k": resolved_top_k,
+            "raw_plan_count": resolved_plan_count,
+            "cp_plan_count": resolved_cp_plan_count,
+            "plan_count": resolved_plan_count,
+            "generation_mode": resolved_generation_mode,
+        },
         output_dir=out_dir,
     )
     schemes_path = Path(cp_sat_summary["output_path"])
     conflicts_after = _audit_schemes_jsonl(schemes_path)
     print(f"  Schemes: {cp_sat_summary['scheme_count']}/{resolved_scheme_count}; "
           f"Conflicts after: {conflicts_after}")
+    emit(
+        "PERSISTING",
+        "CP-SAT 已产出方案，准备交给后端入库和冲突检测...",
+        68,
+        scheme_count=cp_sat_summary.get("scheme_count"),
+        solver_status=cp_sat_summary.get("solver_status"),
+        summary_path=cp_sat_summary.get("summary_path"),
+    )
 
     runtime_s = round(time.perf_counter() - started, 2)
     summary = {
@@ -182,14 +284,24 @@ def run_v3_pipeline(
         "schemes_path": str(schemes_path),
         "candidates_path": str(candidates_path),
         "task_plans_path": str(task_plans_path),
+        "cp_task_plans_path": str(cp_task_plans_path),
+        "preflight_summary_path": preflight_summary.get("summary_path"),
+        "preflight_report_path": preflight_summary.get("report_path"),
+        "preflight": preflight_summary,
         "cp_sat_summary_path": cp_sat_summary.get("summary_path"),
         "task_count": len(teaching_tasks),
         "assigned_count": cp_sat_summary.get("task_count"),
-        "placement_top_k": top_k,
-        "plan_count": plan_count,
+        "placement_top_k": resolved_top_k,
+        "raw_plan_count": resolved_plan_count,
+        "cp_plan_count": resolved_cp_plan_count,
+        "solver_time_limit_seconds": resolved_solver_time_limit,
+        "generation_mode": resolved_generation_mode,
+        "plan_count": resolved_plan_count,
         "scheme_count": cp_sat_summary.get("scheme_count"),
         "scheme_count_requested": resolved_scheme_count,
         "solver_status": cp_sat_summary.get("solver_status"),
+        "objective": cp_sat_summary.get("objective"),
+        "objective_weights": cp_sat_summary.get("objective_weights"),
         "seeded_time_slots": seeded_time_slots,
         "conflicts": conflicts_after,
         "runtime_s": runtime_s,
@@ -200,8 +312,195 @@ def run_v3_pipeline(
     with open(summary_path, "w", encoding="utf-8") as f:
         json.dump(summary, f, ensure_ascii=False, indent=2, default=str)
 
+    emit(
+        "DONE",
+        "V3 排课流水线完成，后端正在读取方案结果...",
+        70,
+        output_dir=str(out_dir),
+        schemes_path=str(schemes_path),
+        runtime_s=runtime_s,
+    )
     print(f"[V3] Done in {runtime_s}s. Conflicts: {conflicts_after}")
     print(f"  → {schemes_path}")
+    return summary
+
+
+def run_v3_auto_pipeline(
+    allocation_task_id: int,
+    *,
+    top_k: int = DEFAULT_TOP_K,
+    plan_count: int = DEFAULT_PLAN_COUNT,
+    scheme_count: int | None = None,
+    solver_time_limit_seconds: float = DEFAULT_TIME_LIMIT_SECONDS,
+    output_dir: Path | str | None = None,
+    progress_callback: Callable[[dict[str, Any]], None] | None = None,
+) -> dict[str, Any]:
+    """Run V3 automatically: first feasible → quality → diversity."""
+    started = time.perf_counter()
+    auto_dir = _resolve_output_dir(allocation_task_id, output_dir)
+    auto_dir.mkdir(parents=True, exist_ok=True)
+    requested_scheme_count = max(1, scheme_count or 3)
+    stages: list[dict[str, Any]] = []
+    best_result: dict[str, Any] | None = None
+    best_stage = ""
+
+    def emit(stage: str, message: str, progress: int, **extra: Any) -> None:
+        if progress_callback is not None:
+            progress_callback({"stage": stage, "message": message, "progress": progress, **extra})
+
+    def run_stage(
+        stage: str,
+        *,
+        mode: str,
+        stage_scheme_count: int,
+        stage_solver_time_limit: float,
+        stage_progress_base: int,
+        stage_output_name: str,
+    ) -> dict[str, Any] | None:
+        stage_started = time.perf_counter()
+        stage_record: dict[str, Any] = {
+            "stage": stage,
+            "mode": mode,
+            "status": "RUNNING",
+            "scheme_count_requested": stage_scheme_count,
+            "solver_time_limit_seconds": stage_solver_time_limit,
+        }
+        stages.append(stage_record)
+        emit(
+            stage,
+            _auto_stage_message(stage, "start"),
+            stage_progress_base,
+            generation_mode=mode,
+            scheme_count=stage_scheme_count,
+        )
+        try:
+            result = run_v3_pipeline(
+                allocation_task_id,
+                top_k=top_k,
+                plan_count=plan_count,
+                scheme_count=stage_scheme_count,
+                solver_time_limit_seconds=stage_solver_time_limit,
+                generation_mode=mode,
+                output_dir=auto_dir / stage_output_name,
+                progress_callback=progress_callback,
+            )
+            stage_record.update({
+                "status": "SUCCESS",
+                "output_dir": result.get("output_dir"),
+                "summary_path": result.get("summary_path"),
+                "schemes_path": result.get("schemes_path"),
+                "preflight_report_path": result.get("preflight_report_path"),
+                "cp_sat_summary_path": result.get("cp_sat_summary_path"),
+                "scheme_count": result.get("scheme_count"),
+                "solver_status": result.get("solver_status"),
+                "runtime_s": round(time.perf_counter() - stage_started, 2),
+            })
+            emit(
+                stage,
+                _auto_stage_message(stage, "success"),
+                min(stage_progress_base + 12, 95),
+                output_dir=result.get("output_dir"),
+                scheme_count=result.get("scheme_count"),
+            )
+            return result
+        except Exception as exc:
+            stage_record.update({
+                "status": "FAILED",
+                "error": f"{type(exc).__name__}: {exc}",
+                "runtime_s": round(time.perf_counter() - stage_started, 2),
+            })
+            emit(
+                stage,
+                _auto_stage_message(stage, "failed"),
+                min(stage_progress_base + 12, 95),
+                error=stage_record["error"],
+            )
+            return None
+
+    emit("PREFLIGHT", "AUTO 流水线启动：先判可行，再优化质量，最后搜索多方案...", 3)
+    first_result = run_stage(
+        "FIRST_FEASIBLE",
+        mode="FEASIBILITY",
+        stage_scheme_count=1,
+        stage_solver_time_limit=_auto_first_feasible_time_limit(solver_time_limit_seconds),
+        stage_progress_base=8,
+        stage_output_name="first_feasible",
+    )
+    if first_result is not None:
+        best_result = first_result
+        best_stage = "FIRST_FEASIBLE"
+
+    quality_result: dict[str, Any] | None = None
+    if best_result is not None:
+        quality_result = run_stage(
+            "QUALITY_OPTIMIZATION",
+            mode="QUALITY",
+            stage_scheme_count=1,
+            stage_solver_time_limit=solver_time_limit_seconds,
+            stage_progress_base=38,
+            stage_output_name="quality",
+        )
+        if quality_result is not None:
+            best_result = quality_result
+            best_stage = "QUALITY_OPTIMIZATION"
+    else:
+        stages.append({"stage": "QUALITY_OPTIMIZATION", "status": "SKIPPED", "reason": "FIRST_FEASIBLE_FAILED"})
+        emit("QUALITY_OPTIMIZATION", "首个可行解失败，跳过质量优化。", 38)
+
+    diversity_result: dict[str, Any] | None = None
+    if quality_result is not None:
+        diversity_result = run_stage(
+            "DIVERSITY_SEARCH",
+            mode="QUALITY",
+            stage_scheme_count=max(2, requested_scheme_count),
+            stage_solver_time_limit=solver_time_limit_seconds,
+            stage_progress_base=68,
+            stage_output_name="diversity",
+        )
+        if diversity_result is not None:
+            best_result = diversity_result
+            best_stage = "DIVERSITY_SEARCH"
+    else:
+        stages.append({"stage": "DIVERSITY_SEARCH", "status": "SKIPPED", "reason": "QUALITY_OPTIMIZATION_FAILED"})
+        emit("DIVERSITY_SEARCH", "质量优化未成功，保留已有最佳方案并跳过多方案搜索。", 68)
+
+    runtime_s = round(time.perf_counter() - started, 2)
+    summary = {
+        "architecture": "v3_auto_pipeline",
+        "allocation_task_id": allocation_task_id,
+        "generation_mode": "AUTO",
+        "output_dir": best_result.get("output_dir") if best_result else str(auto_dir),
+        "best_stage": best_stage or None,
+        "best_result": best_result,
+        "stages": stages,
+        "runtime_s": runtime_s,
+        "generated_at": datetime.now().astimezone().isoformat(timespec="seconds"),
+    }
+    summary_path = auto_dir / "auto_summary.json"
+    summary["summary_path"] = str(summary_path)
+    summary_path.write_text(json.dumps(summary, ensure_ascii=False, indent=2, default=str), encoding="utf-8")
+
+    if best_result is None:
+        emit("FAILED", "AUTO 流水线未找到可用方案，请查看 auto_summary.json 和 preflight_report.json。", 100, summary_path=str(summary_path))
+        raise ValueError(f"V3 AUTO pipeline failed: summary={summary_path}")
+
+    emit(
+        "PERSISTING",
+        "AUTO 流水线已选出最佳可用结果，准备交给后端入库...",
+        96,
+        output_dir=summary["output_dir"],
+        best_stage=best_stage,
+        summary_path=str(summary_path),
+    )
+    emit(
+        "DONE",
+        "AUTO 排课流水线完成。",
+        100,
+        output_dir=summary["output_dir"],
+        best_stage=best_stage,
+        summary_path=str(summary_path),
+        runtime_s=runtime_s,
+    )
     return summary
 
 
@@ -272,6 +571,7 @@ def _run_template_generation_parallel(
     """
     workers = min(8, max(1, (os.cpu_count() or 4) - 1))
     candidate_rows = _read_candidate_rows(Path(candidates_path))
+    teacher_profiles = _load_teacher_profiles()
     generated_at = datetime.now().astimezone().isoformat(timespec="seconds")
 
     def _gen_one(candidate_row: dict) -> str | None:
@@ -282,6 +582,7 @@ def _run_template_generation_parallel(
                 plan_count=plan_count,
                 generated_at=generated_at,
                 allocator=allocator,
+                teacher_profiles=teacher_profiles,
             )
         except Exception:
             return None
@@ -408,6 +709,7 @@ def _build_candidate_row(
             "total_sessions": total_sessions,
             "course_code": course_code,
             "course_type": course.get("course_type", ""),
+            "required_room_type": course.get("required_room_type", ""),
         },
         "resources": resources,
         "meta": {
@@ -565,6 +867,282 @@ def _resolve_scheme_count(raw_config: dict[str, Any] | None) -> int:
     except (TypeError, ValueError):
         return 1
     return max(1, min(value, 20))
+
+
+def _is_auto_generation_mode(mode: str | None) -> bool:
+    return str(mode or DEFAULT_GENERATION_MODE).strip().upper() in AUTO_GENERATION_MODES
+
+
+def _auto_first_feasible_time_limit(configured_time_limit: float) -> float:
+    return max(30.0, min(float(configured_time_limit), 300.0))
+
+
+def _auto_stage_message(stage: str, status: str) -> str:
+    messages = {
+        ("FIRST_FEASIBLE", "start"): "正在判断是否存在首个无冲突可行解...",
+        ("FIRST_FEASIBLE", "success"): "首个可行解已找到，进入质量优化。",
+        ("FIRST_FEASIBLE", "failed"): "首个可行解未找到，AUTO 流水线停止。",
+        ("QUALITY_OPTIMIZATION", "start"): "正在结合教师画像和美观目标优化高质量方案...",
+        ("QUALITY_OPTIMIZATION", "success"): "高质量方案已生成，开始尝试多方案搜索。",
+        ("QUALITY_OPTIMIZATION", "failed"): "质量优化失败，保留已有可行解。",
+        ("DIVERSITY_SEARCH", "start"): "正在基于高质量方案搜索其他候选方案...",
+        ("DIVERSITY_SEARCH", "success"): "多方案搜索完成，已选用最佳可用结果。",
+        ("DIVERSITY_SEARCH", "failed"): "多方案搜索失败，保留已有高质量结果。",
+    }
+    return messages.get((stage, status), f"{stage} {status}")
+
+
+def _resolve_generation_mode(raw_config: dict[str, Any] | None, explicit_mode: str | None) -> str:
+    raw_value = explicit_mode
+    if raw_value is None and raw_config:
+        raw_value = raw_config.get("generation_mode") or raw_config.get("scheduling_mode")
+    mode = str(raw_value or DEFAULT_SINGLE_GENERATION_MODE).strip().upper()
+    if mode in {"FEASIBLE", "FIRST", "FIRST_SOLUTION"}:
+        return "FEASIBILITY"
+    if mode in AUTO_GENERATION_MODES:
+        return DEFAULT_SINGLE_GENERATION_MODE
+    if mode not in {"FEASIBILITY", "QUALITY", "STRESS"}:
+        return DEFAULT_SINGLE_GENERATION_MODE
+    return mode
+
+
+def _resolve_plan_count(raw_config: dict[str, Any] | None, default: int) -> int:
+    raw_value = None
+    if raw_config:
+        raw_value = raw_config.get("raw_plan_count") or raw_config.get("plan_count")
+    return _bounded_int(raw_value, default, 1, MAX_PLAN_COUNT)
+
+
+def _resolve_solver_time_limit(raw_config: dict[str, Any] | None, default: float) -> float:
+    raw_value = raw_config.get("solver_time_limit_seconds") if raw_config else None
+    value = _parse_float(raw_value, default)
+    return max(1.0, min(value, MAX_SOLVER_TIME_LIMIT_SECONDS))
+
+
+def _resolve_bounded_int(
+    raw_config: dict[str, Any] | None,
+    key: str,
+    default: int,
+    minimum: int,
+    maximum: int,
+) -> int:
+    raw_value = raw_config.get(key) if raw_config else None
+    return _bounded_int(raw_value, default, minimum, maximum)
+
+
+def _bounded_int(value: Any, default: int, minimum: int, maximum: int) -> int:
+    try:
+        parsed = int(value if value is not None else default)
+    except (TypeError, ValueError):
+        parsed = default
+    return max(minimum, min(parsed, maximum))
+
+
+def _resolve_cp_sat_objective_weights(raw_config: dict[str, Any] | None) -> dict[str, float]:
+    model_weight = _parse_float(raw_config.get("model_weight") if raw_config else None, MODEL_OBJECTIVE_WEIGHT)
+    teacher_scale = _parse_float(raw_config.get("teacher_profile_penalty_scale") if raw_config else None, 100.0)
+    teacher_multiplier = max(0.0, teacher_scale) / 100.0
+    return {
+        "model": max(0.0, model_weight),
+        "teacher_profile_score": TEACHER_PROFILE_OBJECTIVE_WEIGHT * teacher_multiplier,
+        "teacher_profile_penalty": TEACHER_PROFILE_PENALTY_WEIGHT * teacher_multiplier,
+    }
+
+
+def _parse_float(value: Any, default: float) -> float:
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return default
+
+
+def _write_preflight_report(
+    task_plans_path: Path,
+    output_dir: Path,
+    *,
+    expected_task_count: int,
+    placement_top_k: int,
+    raw_plan_count: int,
+    cp_plan_count: int,
+    generation_mode: str,
+) -> dict[str, Any]:
+    rows = _read_jsonl(task_plans_path)
+    plan_counts = [len(row.get("plans") or []) for row in rows]
+    no_plan_rows = [row for row in rows if not row.get("plans")]
+    no_candidate_task_count = max(0, expected_task_count - len(rows))
+    teacher_sessions: Counter[int] = Counter()
+    class_sessions: Counter[int] = Counter()
+    resource_slots: Counter[str] = Counter()
+    room_type_slots: dict[str, set[str]] = defaultdict(set)
+    task_room_type_requirements: Counter[str] = Counter()
+    risk_items: list[dict[str, Any]] = []
+
+    for row in rows:
+        task = row.get("task") or {}
+        teacher_id = int(task.get("teacher_id") or 0)
+        total_sessions = int(task.get("total_sessions") or 0)
+        if teacher_id > 0:
+            teacher_sessions[teacher_id] += total_sessions
+        for class_group_id in task.get("class_group_ids") or []:
+            cid = int(class_group_id or 0)
+            if cid > 0:
+                class_sessions[cid] += total_sessions
+        if not row.get("plans"):
+            risk_items.append({
+                "type": "NO_PLAN",
+                "teaching_task_id": row.get("teaching_task_id"),
+                "teacher_id": teacher_id,
+                "reason": row.get("error") or "NO_VALID_TASK_PLAN",
+            })
+        required_room_type = str(task.get("required_room_type") or task.get("course_type") or "").strip() or "UNKNOWN"
+        task_room_type_requirements[required_room_type] += 1
+        for plan in (row.get("plans") or [])[:10]:
+            for segment in plan.get("segments") or []:
+                resource = segment.get("resource") or {}
+                slot = resource.get("slot") or {}
+                classroom = resource.get("classroom") or {}
+                key = f"{classroom.get('id') or classroom.get('name')}|{slot.get('day_of_week')}|{slot.get('period_index')}"
+                resource_slots[key] += 1
+                room_type = str(classroom.get("classroom_type") or "UNKNOWN").strip() or "UNKNOWN"
+                room_type_slots[room_type].add(key)
+
+    if plan_counts:
+        sorted_counts = sorted(plan_counts)
+        p50 = sorted_counts[len(sorted_counts) // 2]
+        min_plans = sorted_counts[0]
+        max_plans = sorted_counts[-1]
+        avg_plans = round(sum(plan_counts) / len(plan_counts), 2)
+    else:
+        p50 = min_plans = max_plans = avg_plans = 0
+
+    teacher_capacity_risk = [
+        {"teacher_id": tid, "sessions": count}
+        for tid, count in teacher_sessions.most_common(20)
+        if count > 90
+    ]
+    class_capacity_risk = [
+        {"class_group_id": cid, "sessions": count}
+        for cid, count in class_sessions.most_common(20)
+        if count > 120
+    ]
+    hot_resource_slots = [
+        {"resource_slot": key, "candidate_plan_hits": count}
+        for key, count in resource_slots.most_common(20)
+        if count > max(50, len(rows) * 0.02)
+    ]
+    room_type_capacity_risk = [
+        {
+            "room_type": room_type,
+            "task_count": task_count,
+            "candidate_slot_count": len(room_type_slots.get(room_type, set())),
+        }
+        for room_type, task_count in task_room_type_requirements.most_common()
+        if len(room_type_slots.get(room_type, set())) == 0
+    ][:20]
+    risks: list[dict[str, Any]] = []
+    if no_candidate_task_count > 0:
+        risks.append({"type": "NO_CANDIDATE_TASKS", "count": no_candidate_task_count})
+    if no_plan_rows:
+        risks.append({"type": "NO_PLAN_TASKS", "count": len(no_plan_rows)})
+    if teacher_capacity_risk:
+        risks.append({"type": "TEACHER_LOAD_HIGH", "count": len(teacher_capacity_risk)})
+    if class_capacity_risk:
+        risks.append({"type": "CLASS_LOAD_HIGH", "count": len(class_capacity_risk)})
+    if room_type_capacity_risk:
+        risks.append({"type": "ROOM_TYPE_CAPACITY_LOW", "count": len(room_type_capacity_risk)})
+    estimated_feasible = not no_plan_rows and no_candidate_task_count == 0
+    report_path = output_dir / "preflight_report.json"
+    summary = {
+        "summary_path": str(report_path),
+        "report_path": str(report_path),
+        "task_count": len(rows),
+        "expected_task_count": expected_task_count,
+        "no_candidate_task_count": no_candidate_task_count,
+        "no_plan_task_count": len(no_plan_rows),
+        "empty_plan_task_count": len(no_plan_rows),
+        "plan_count_min": min_plans,
+        "plan_count_p50": p50,
+        "plan_count_avg": avg_plans,
+        "plan_count_max": max_plans,
+        "plan_count_per_task": {
+            "min": min_plans,
+            "p50": p50,
+            "avg": avg_plans,
+            "max": max_plans,
+        },
+        "teacher_capacity_risk": teacher_capacity_risk,
+        "class_capacity_risk": class_capacity_risk,
+        "room_type_capacity_risk": room_type_capacity_risk,
+        "hot_resource_slots": hot_resource_slots,
+        "risk_items": risk_items[:100],
+        "risks": risks,
+        "estimated_feasible": estimated_feasible,
+        "placement_top_k": placement_top_k,
+        "raw_plan_count": raw_plan_count,
+        "cp_plan_count": cp_plan_count,
+        "generation_mode": generation_mode,
+        "generated_at": datetime.now().astimezone().isoformat(timespec="seconds"),
+    }
+    report_path.write_text(json.dumps(summary, ensure_ascii=False, indent=2), encoding="utf-8")
+    return summary
+
+
+def _write_cp_task_plans(source_path: Path, target_path: Path, cp_plan_count: int) -> int:
+    written = 0
+    with source_path.open("r", encoding="utf-8") as source, target_path.open("w", encoding="utf-8") as target:
+        for line in source:
+            raw = line.strip()
+            if not raw:
+                continue
+            row = json.loads(raw)
+            plans = list(row.get("plans") or [])
+            if len(plans) > cp_plan_count:
+                row["plans"] = _select_cp_plans(plans, cp_plan_count)
+                meta = row.setdefault("meta", {})
+                meta["raw_plan_count"] = len(plans)
+                meta["cp_plan_count"] = len(row["plans"])
+                meta["cp_plan_strategy"] = "score_plus_slot_diversity"
+            target.write(json.dumps(row, ensure_ascii=False, default=str) + "\n")
+            written += 1
+    return written
+
+
+def _select_cp_plans(plans: list[dict[str, Any]], limit: int) -> list[dict[str, Any]]:
+    ranked = sorted(plans, key=_plan_rank_key)
+    selected: list[dict[str, Any]] = []
+    used_slot_signatures: set[tuple[tuple[int, int], ...]] = set()
+    for plan in ranked:
+        signature = _plan_slot_signature(plan)
+        if signature in used_slot_signatures and len(selected) < max(1, limit // 2):
+            continue
+        selected.append(plan)
+        used_slot_signatures.add(signature)
+        if len(selected) >= limit:
+            return selected
+    for plan in ranked:
+        if plan not in selected:
+            selected.append(plan)
+        if len(selected) >= limit:
+            break
+    return selected
+
+
+def _plan_rank_key(plan: dict[str, Any]) -> tuple[float, int, str]:
+    score = float(plan.get("score") or 0.0)
+    profile_score = float(plan.get("teacher_profile_score") or 1.0)
+    segment_count = len(plan.get("segments") or [])
+    return (-(score + 0.15 * profile_score), segment_count, str(plan.get("plan_id") or ""))
+
+
+def _plan_slot_signature(plan: dict[str, Any]) -> tuple[tuple[int, int], ...]:
+    slots = []
+    for segment in plan.get("segments") or []:
+        slot = ((segment.get("resource") or {}).get("slot") or {})
+        day = int(slot.get("day_of_week") or 0)
+        period = int(slot.get("period_index") or 0)
+        if day > 0 and period > 0:
+            slots.append((day, period))
+    return tuple(sorted(set(slots)))
 
 
 def _filter_time_slots(time_slots: list[dict[str, Any]], raw_config: dict[str, Any] | None) -> list[dict[str, Any]]:

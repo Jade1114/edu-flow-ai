@@ -11,7 +11,15 @@ from fastapi import APIRouter, HTTPException
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
-from ml.scheduling_v3.pipeline import DEFAULT_PLAN_COUNT, DEFAULT_TOP_K, MAX_PLAN_COUNT, run_v3_pipeline
+from ml.scheduling_v3.pipeline import (
+    DEFAULT_GENERATION_MODE,
+    DEFAULT_PLAN_COUNT,
+    DEFAULT_TOP_K,
+    MAX_PLAN_COUNT,
+    MAX_SOLVER_TIME_LIMIT_SECONDS,
+    MAX_TOP_K,
+    run_v3_pipeline,
+)
 
 router = APIRouter(tags=["v3"])
 _tasks: dict[str, dict] = {}
@@ -21,20 +29,22 @@ _event_queues: dict[str, list[asyncio.Queue]] = {}
 
 class GenerateV3Request(BaseModel):
     allocation_task_id: int
-    top_k: int = Field(default=DEFAULT_TOP_K, ge=1, le=50)
+    top_k: int = Field(default=DEFAULT_TOP_K, ge=1, le=MAX_TOP_K)
     plan_count: int = Field(default=DEFAULT_PLAN_COUNT, ge=1, le=MAX_PLAN_COUNT)
     scheme_count: int | None = Field(default=None, ge=1, le=20)
-    solver_time_limit_seconds: float = Field(default=60.0, ge=1.0, le=600.0)
+    solver_time_limit_seconds: float = Field(default=60.0, ge=1.0, le=MAX_SOLVER_TIME_LIMIT_SECONDS)
+    generation_mode: str = DEFAULT_GENERATION_MODE
     output_dir: str | None = None
 
 
 class GenerateSchemeRequest(BaseModel):
     task_id: int
     teacher_profiles_jsonl: str | None = None
-    top_k: int = Field(default=DEFAULT_TOP_K, ge=1, le=50)
+    top_k: int = Field(default=DEFAULT_TOP_K, ge=1, le=MAX_TOP_K)
     plan_count: int = Field(default=DEFAULT_PLAN_COUNT, ge=1, le=MAX_PLAN_COUNT)
     scheme_count: int | None = Field(default=None, ge=1, le=20)
-    solver_time_limit_seconds: float = Field(default=60.0, ge=1.0, le=600.0)
+    solver_time_limit_seconds: float = Field(default=60.0, ge=1.0, le=MAX_SOLVER_TIME_LIMIT_SECONDS)
+    generation_mode: str = DEFAULT_GENERATION_MODE
 
 
 @router.post("/v3/generate")
@@ -50,6 +60,7 @@ async def generate_v3(request: GenerateV3Request):
             plan_count=request.plan_count,
             scheme_count=request.scheme_count,
             solver_time_limit_seconds=request.solver_time_limit_seconds,
+            generation_mode=request.generation_mode,
             output_dir=request.output_dir,
         )
     except (ValueError, FileNotFoundError) as exc:
@@ -85,6 +96,8 @@ async def submit_generate_scheme(request: GenerateSchemeRequest):
                 plan_count=request.plan_count,
                 scheme_count=request.scheme_count,
                 solver_time_limit_seconds=request.solver_time_limit_seconds,
+                generation_mode=request.generation_mode,
+                progress_callback=lambda payload: _push("progress", payload),
             )
             _tasks[task_uid] = {"status": "completed", "result": result, "error": None}
             _push("completed", result)

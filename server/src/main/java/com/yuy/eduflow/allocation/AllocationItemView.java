@@ -20,6 +20,10 @@ public class AllocationItemView {
 	private Integer weekNumber;
 	private Integer dayOfWeek;
 	private Integer periodIndex;
+	private Double teacherProfileScore;
+	private Double teacherProfilePenalty;
+	private String teacherProfileReasonsJson;
+	private String teacherProfileComponentsJson;
 	private Boolean valid;
 	private String conflictMessage;
 }

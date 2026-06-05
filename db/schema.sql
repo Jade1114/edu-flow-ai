@@ -150,7 +150,7 @@ CREATE TABLE IF NOT EXISTS allocation_task (
     UNIQUE KEY uk_allocation_task_name (name)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
--- v8: 排课任务生成配置快照（教务可配置 HARD 时间片裁剪 + SOFT 偏好权重；GA 内部参数不入库）
+-- v10: 排课任务生成配置快照（HARD 时间片裁剪 + V3 Placement/CP-SAT/教师画像 objective 权重）
 CREATE TABLE IF NOT EXISTS allocation_task_generation_config (
     id BIGINT PRIMARY KEY AUTO_INCREMENT,
     task_id BIGINT NOT NULL,
@@ -158,7 +158,12 @@ CREATE TABLE IF NOT EXISTS allocation_task_generation_config (
     allowed_weekdays VARCHAR(32) NOT NULL DEFAULT '1,2,3,4,5' COMMENT '允许参与排课的星期，多选结果，1=周一，7=周日',
     allowed_periods VARCHAR(32) NOT NULL DEFAULT '1,2,3,4' COMMENT '允许参与排课的节次，多选结果，默认不排晚课',
     scheme_count INT NOT NULL DEFAULT 3 COMMENT '生成候选方案数量',
-    teacher_profile_penalty_scale DECIMAL(10,4) NOT NULL DEFAULT 80.0000 COMMENT '教师软画像惩罚缩放',
+    placement_top_k INT NOT NULL DEFAULT 80 COMMENT 'Placement Model 每个任务保留的候选资源数量',
+    raw_plan_count INT NOT NULL DEFAULT 240 COMMENT '每个任务生成的原始 task plan 数量',
+    cp_plan_count INT NOT NULL DEFAULT 80 COMMENT '送入 CP-SAT 的每任务 plan 数量上限',
+    solver_time_limit_seconds INT NOT NULL DEFAULT 1800 COMMENT 'CP-SAT 每个方案求解时间上限，秒',
+    generation_mode VARCHAR(32) NOT NULL DEFAULT 'QUALITY' COMMENT 'V3 运行模式：FEASIBILITY/QUALITY/STRESS',
+    teacher_profile_penalty_scale DECIMAL(10,4) NOT NULL DEFAULT 100.0000 COMMENT '教师画像 objective 权重倍率，100=默认，0=关闭，200=翻倍',
     early_period_penalty DECIMAL(10,6) NOT NULL DEFAULT 0.040000 COMMENT '早课惩罚（第1-2节）',
     late_period_penalty DECIMAL(10,6) NOT NULL DEFAULT 0.030000 COMMENT '晚课惩罚（第4-5节）',
     weekend_penalty DECIMAL(10,6) NOT NULL DEFAULT 0.050000 COMMENT '周末排课惩罚',
@@ -191,8 +196,7 @@ CREATE TABLE IF NOT EXISTS allocation_task_teaching_task (
     CONSTRAINT fk_att_teaching FOREIGN KEY (teaching_task_id) REFERENCES teaching_task (id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
--- v2: 候选方案（不变）
--- v5: 方案评估字段 + 反馈表
+-- v3: 候选方案（Placement Model + CP-SAT 生成，多方案候选 + 评估摘要）
 CREATE TABLE IF NOT EXISTS allocation_scheme (
     id BIGINT PRIMARY KEY AUTO_INCREMENT,
     task_id BIGINT NOT NULL,
@@ -202,7 +206,7 @@ CREATE TABLE IF NOT EXISTS allocation_scheme (
     evaluation_summary TEXT NULL COMMENT '评估结果 JSON',
     policy VARCHAR(32) NULL COMMENT '生成策略名称',
     policy_params TEXT NULL COMMENT '生成策略参数 JSON',
-    model_version VARCHAR(16) NULL COMMENT '模型版本 v1/v2',
+    model_version VARCHAR(16) NULL COMMENT '模型/排课链路版本，如 v3',
     conflict_summary TEXT NULL,
     valid BOOLEAN NOT NULL DEFAULT TRUE,
     status VARCHAR(30) NOT NULL DEFAULT 'CANDIDATE',
@@ -247,13 +251,17 @@ CREATE TABLE IF NOT EXISTS allocation_item_adjustment_log (
     CONSTRAINT fk_item_adj_scheme FOREIGN KEY (scheme_id) REFERENCES allocation_scheme (id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
--- v2: 排课片段（改为 teaching_task_id 替代 course/classGroup/teacher）
+-- v3: 候选方案排课片段（含 CP-SAT 选择结果与教师画像解释字段）
 CREATE TABLE IF NOT EXISTS allocation_item (
     id BIGINT PRIMARY KEY AUTO_INCREMENT,
     scheme_id BIGINT NOT NULL,
     teaching_task_id BIGINT NOT NULL,
     classroom_id BIGINT NOT NULL,
     time_slot_id BIGINT NOT NULL,
+    teacher_profile_score DOUBLE NULL COMMENT '教师画像满足度分数 0-1',
+    teacher_profile_penalty DOUBLE NULL COMMENT '教师画像软惩罚 0-1',
+    teacher_profile_reasons_json TEXT NULL COMMENT '教师画像解释原因 JSON 数组',
+    teacher_profile_components_json TEXT NULL COMMENT '教师画像分项满足度 JSON',
     valid BOOLEAN NOT NULL DEFAULT TRUE,
     conflict_message TEXT NULL,
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -267,7 +275,7 @@ CREATE TABLE IF NOT EXISTS allocation_item (
     CONSTRAINT fk_allocation_item_time_slot FOREIGN KEY (time_slot_id) REFERENCES time_slot (id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
--- v2: 正式课表（改为 teaching_task_id 替代 course/classGroup/teacher）
+-- v3: 正式课表（候选方案确认后落地）
 CREATE TABLE IF NOT EXISTS course_assignment (
     id BIGINT PRIMARY KEY AUTO_INCREMENT,
     source_scheme_id BIGINT NULL,
@@ -287,7 +295,7 @@ CREATE TABLE IF NOT EXISTS course_assignment (
     CONSTRAINT fk_course_assignment_time_slot FOREIGN KEY (time_slot_id) REFERENCES time_slot (id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
--- v2: 冲突检测结果
+-- v3: 冲突检测结果（硬冲突、课时不一致等诊断）
 CREATE TABLE IF NOT EXISTS conflict_check_result (
     id BIGINT PRIMARY KEY AUTO_INCREMENT,
     biz_type VARCHAR(30) NOT NULL,
@@ -334,7 +342,7 @@ CREATE TABLE IF NOT EXISTS adjustment_request (
 -- v6: 模型训练日志（记录每次重训的版本、指标、数据来源）
 CREATE TABLE IF NOT EXISTS model_training_log (
     id BIGINT PRIMARY KEY AUTO_INCREMENT,
-    model_version VARCHAR(16) NOT NULL COMMENT '模型版本号 v1/v2/...',
+    model_version VARCHAR(16) NOT NULL COMMENT '模型版本号，如 v3 / feedback-*',
     training_type VARCHAR(30) NOT NULL COMMENT 'INITIAL / FEEDBACK / FULL',
     scheme_count INT NOT NULL DEFAULT 0 COMMENT '参与训练的方案数',
     item_count INT NOT NULL DEFAULT 0 COMMENT '参与训练的明细数',
@@ -364,7 +372,7 @@ CREATE TABLE IF NOT EXISTS model_training_log (
 -- v7: 反馈事件台账（先沉淀事实，再构建训练样本）
 CREATE TABLE IF NOT EXISTS ml_feedback_event (
     id BIGINT PRIMARY KEY AUTO_INCREMENT,
-    event_type VARCHAR(50) NOT NULL COMMENT 'SCHEME_CONFIRMED / ITEM_MOVED / ITEM_MARKED_GOOD / ITEM_MARKED_BAD',
+    event_type VARCHAR(50) NOT NULL COMMENT 'SCHEME_CONFIRMED / ITEM_MOVED / ITEM_MARKED_GOOD / ITEM_MARKED_BAD / ADJUSTMENT_APPROVED / ADJUSTMENT_REJECTED',
     task_id BIGINT NOT NULL,
     scheme_id BIGINT NOT NULL,
     item_id BIGINT NULL,

@@ -96,7 +96,12 @@ public class AllocationMlSchemeService {
 		progressReporter.accept(running("ml", "调用自训练排课模型生成候选方案...", 15));
 
 		try {
-			String outputDirStr = mlApiClient.generateSchemes(requestBody);
+			String outputDirStr = mlApiClient.generateSchemes(requestBody, progress -> {
+				String stage = String.valueOf(progress.getOrDefault("stage", "ml"));
+				String message = String.valueOf(progress.getOrDefault("message", "排课模型运行中..."));
+				Integer progressValue = progress.get("progress") instanceof Number n ? n.intValue() : 20;
+				progressReporter.accept(running(stage, message, progressValue));
+			});
 			if (outputDirStr == null || outputDirStr.isBlank()) {
 				throw new BusinessException(500, "ML API 响应缺少 output_dir");
 			}
@@ -280,11 +285,19 @@ public class AllocationMlSchemeService {
 				Number teachingTaskId = (Number) itemData.get("teaching_task_id");
 				Number timeSlotId = (Number) itemData.get("time_slot_id");
 				Number classroomId = (Number) itemData.get("classroom_id");
+				Number teacherProfileScore = (Number) itemData.get("teacher_profile_score");
+				Number teacherProfilePenalty = (Number) itemData.get("teacher_profile_penalty");
+				Object reasons = itemData.get("teacher_profile_reasons");
+				Object components = itemData.get("teacher_profile_components");
 				Object explanation = itemData.get("teacher_profile_penalty_explanation");
 				items.add(new AllocationParsedItem(
 					teachingTaskId != null ? teachingTaskId.longValue() : null,
 					timeSlotId != null ? timeSlotId.longValue() : null,
 					classroomId != null ? classroomId.longValue() : null,
+					teacherProfileScore != null ? teacherProfileScore.doubleValue() : null,
+					teacherProfilePenalty != null ? teacherProfilePenalty.doubleValue() : null,
+					toJsonOrNull(reasons),
+					toJsonOrNull(components),
 					explanation instanceof String s && !s.isBlank() ? s : null
 				));
 			}
@@ -310,6 +323,17 @@ public class AllocationMlSchemeService {
 			));
 		}
 		return schemes;
+	}
+
+	private String toJsonOrNull(Object value) {
+		if (value == null) {
+			return null;
+		}
+		try {
+			return objectMapper.writeValueAsString(value);
+		} catch (Exception e) {
+			return null;
+		}
 	}
 
 	private String buildSummary(List<AllocationParsedItem> items, List<Map<String, Object>> itemsData) {

@@ -182,7 +182,12 @@ public class AllocationTaskService {
 		config.setAllowedWeeks(defaultString(request.allowedWeeks(), DEFAULT_ALLOWED_WEEKS));
 		config.setAllowedWeekdays(defaultString(request.allowedWeekdays(), DEFAULT_ALLOWED_WEEKDAYS));
 		config.setAllowedPeriods(defaultString(request.allowedPeriods(), DEFAULT_ALLOWED_PERIODS));
+		config.setGenerationMode(defaultGenerationMode(request.generationMode()));
 		config.setSchemeCount(defaultInteger(request.schemeCount(), 3));
+		config.setPlacementTopK(defaultInteger(request.placementTopK(), 80));
+		config.setRawPlanCount(defaultInteger(request.rawPlanCount(), 240));
+		config.setCpPlanCount(defaultInteger(request.cpPlanCount(), 80));
+		config.setSolverTimeLimitSeconds(defaultInteger(request.solverTimeLimitSeconds(), 1800));
 		config.setTeacherProfilePenaltyScale(defaultDecimal(request.teacherProfilePenaltyScale(), "50.0000"));
 		config.setEarlyPeriodPenalty(defaultDecimal(request.earlyPeriodPenalty(), "0.012000"));
 		config.setLatePeriodPenalty(defaultDecimal(request.latePeriodPenalty(), "0.008000"));
@@ -207,6 +212,11 @@ public class AllocationTaskService {
 		config.setAllowedWeekdays(DEFAULT_ALLOWED_WEEKDAYS);
 		config.setAllowedPeriods(DEFAULT_ALLOWED_PERIODS);
 		config.setSchemeCount(3);
+		config.setPlacementTopK(80);
+		config.setRawPlanCount(240);
+		config.setCpPlanCount(80);
+		config.setSolverTimeLimitSeconds(1800);
+		config.setGenerationMode("AUTO");
 		config.setTeacherProfilePenaltyScale(new BigDecimal("80.0000"));
 		config.setEarlyPeriodPenalty(new BigDecimal("0.040000"));
 		config.setLatePeriodPenalty(new BigDecimal("0.030000"));
@@ -233,6 +243,17 @@ public class AllocationTaskService {
 		return value != null ? value : new BigDecimal(defaultValue);
 	}
 
+	private String defaultGenerationMode(String value) {
+		if (value == null || value.isBlank()) {
+			return "AUTO";
+		}
+		String mode = value.trim().toUpperCase();
+		return switch (mode) {
+			case "AUTO", "FEASIBILITY", "QUALITY", "STRESS" -> mode;
+			default -> "AUTO";
+		};
+	}
+
 	private AllocationTask toTask(AllocationTask task, AllocationTaskRequest request) {
 		task.setName(request.name());
 		return task;
@@ -253,8 +274,24 @@ public class AllocationTaskService {
 		validateCsvNumbers(config.allowedWeeks(), "允许周次", 1, 18);
 		validateCsvNumbers(config.allowedWeekdays(), "允许星期", 1, 7);
 		validateCsvNumbers(config.allowedPeriods(), "允许节次", 1, 5);
-		if (config.schemeCount() != null && (config.schemeCount() < 1 || config.schemeCount() > 5)) {
-			throw new ValidationException("候选方案数量必须在1到5之间");
+		if (config.schemeCount() != null && (config.schemeCount() < 1 || config.schemeCount() > 20)) {
+			throw new ValidationException("候选方案数量必须在1到20之间");
+		}
+		validateRange(config.placementTopK(), "Placement TopK", 1, 200);
+		validateRange(config.rawPlanCount(), "原始 plan 数量", 1, 500);
+		validateRange(config.cpPlanCount(), "CP-SAT plan 数量", 1, 500);
+		validateRange(config.solverTimeLimitSeconds(), "CP-SAT 时间上限", 1, 3600);
+		if (config.generationMode() != null) {
+			String mode = config.generationMode().trim().toUpperCase();
+			if (!mode.equals("AUTO") && !mode.equals("FEASIBILITY") && !mode.equals("QUALITY") && !mode.equals("STRESS")) {
+				throw new ValidationException("运行模式必须为 AUTO、FEASIBILITY、QUALITY 或 STRESS");
+			}
+		}
+	}
+
+	private void validateRange(Integer value, String fieldName, int min, int max) {
+		if (value != null && (value < min || value > max)) {
+			throw new ValidationException(fieldName + "必须在" + min + "到" + max + "之间");
 		}
 	}
 

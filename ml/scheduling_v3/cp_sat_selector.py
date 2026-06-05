@@ -24,6 +24,9 @@ except ModuleNotFoundError:  # pragma: no cover - exercised only without deps
 DEFAULT_SCHEME_COUNT = 3
 DEFAULT_TIME_LIMIT_SECONDS = 60.0
 OBJECTIVE_SCALE = 1_000_000
+MODEL_OBJECTIVE_WEIGHT = 1.0
+TEACHER_PROFILE_OBJECTIVE_WEIGHT = 0.15
+TEACHER_PROFILE_PENALTY_WEIGHT = 0.15
 
 ResourceKey = tuple[str, int, int]
 CoordKey = tuple[int, int, int]
@@ -41,6 +44,9 @@ class CpSatPlanOption:
     resource_keys: tuple[ResourceKey, ...]
     hard_static: int
     quality_score: float
+    teacher_profile_score: float
+    teacher_profile_penalty: float
+    teacher_profile_reasons: tuple[str, ...]
 
 
 @dataclass(frozen=True)
@@ -56,6 +62,10 @@ def select_cp_sat_global_plans_jsonl(
     scheme_count: int = DEFAULT_SCHEME_COUNT,
     time_limit_seconds: float = DEFAULT_TIME_LIMIT_SECONDS,
     diversity_threshold: int | None = None,
+    model_objective_weight: float = MODEL_OBJECTIVE_WEIGHT,
+    teacher_profile_objective_weight: float = TEACHER_PROFILE_OBJECTIVE_WEIGHT,
+    teacher_profile_penalty_weight: float = TEACHER_PROFILE_PENALTY_WEIGHT,
+    summary_context: dict[str, Any] | None = None,
     output_dir: str | Path | None = None,
 ) -> dict[str, Any]:
     """Select globally compatible task plans and write schemes.jsonl.
@@ -85,6 +95,7 @@ def select_cp_sat_global_plans_jsonl(
     schemes: list[dict[str, Any]] = []
     selected_solutions: list[set[tuple[int, int]]] = []
     statuses: list[str] = []
+    objective_values: list[float] = []
     fallback_summary: dict[str, Any] | None = None
     variable_count = 0
     constraint_count = 0
@@ -95,8 +106,12 @@ def select_cp_sat_global_plans_jsonl(
             previous_solutions=selected_solutions,
             diversity_threshold=diff_threshold,
             time_limit_seconds=time_limit_seconds,
+            model_objective_weight=model_objective_weight,
+            teacher_profile_objective_weight=teacher_profile_objective_weight,
+            teacher_profile_penalty_weight=teacher_profile_penalty_weight,
         )
         statuses.append(solved["solver_status"])
+        objective_values.append(float(solved.get("objective_value") or 0.0))
         variable_count = max(variable_count, int(solved["variable_count"]))
         constraint_count = max(constraint_count, int(solved["constraint_count"]))
         if not solved["selected"]:
@@ -126,6 +141,19 @@ def select_cp_sat_global_plans_jsonl(
         "scheme_count": len(schemes),
         "variable_count": variable_count,
         "constraint_count": constraint_count,
+        "time_limit_seconds": time_limit_seconds,
+        "objective": "maximize_quality_plus_teacher_profile_v1",
+        "objective_weights": {
+            "model": model_objective_weight,
+            "teacher_profile_score": teacher_profile_objective_weight,
+            "teacher_profile_penalty": teacher_profile_penalty_weight,
+        },
+        "placement_top_k": (summary_context or {}).get("placement_top_k"),
+        "raw_plan_count": (summary_context or {}).get("raw_plan_count"),
+        "cp_plan_count": (summary_context or {}).get("cp_plan_count"),
+        "plan_count": (summary_context or {}).get("plan_count"),
+        "generation_mode": (summary_context or {}).get("generation_mode"),
+        "objective_values": objective_values,
         "diversity_threshold": diff_threshold,
         "fallback": fallback_summary,
         "runtime_ms": runtime_ms,
@@ -227,6 +255,9 @@ def _plan_option(
     teacher_id = int(task.get("teacher_id") or 0)
     class_group_ids = tuple(int(value) for value in task.get("class_group_ids") or [] if int(value or 0) > 0)
     total_sessions = int(task.get("total_sessions") or 0)
+    teacher_profile_score = float(plan.get("teacher_profile_score") or 1.0)
+    teacher_profile_penalty = float(plan.get("teacher_profile_penalty") or 0.0)
+    teacher_profile_reasons = tuple(str(value) for value in plan.get("teacher_profile_reasons") or [])
 
     assignments: list[dict[str, Any]] = []
     resource_keys: list[ResourceKey] = []
@@ -256,6 +287,9 @@ def _plan_option(
                 "selected_plan_id": plan.get("plan_id") or f"{teaching_task_id}_p{plan_index + 1:03d}",
                 "template_id": segment.get("template_id") or "",
                 "placement_score": round(float(resource.get("score") or 0.0), 6),
+                "teacher_profile_score": round(teacher_profile_score, 6),
+                "teacher_profile_penalty": round(teacher_profile_penalty, 6),
+                "teacher_profile_reasons": list(teacher_profile_reasons),
             }
             assignments.append(assignment)
             if teacher_id > 0:
@@ -279,6 +313,9 @@ def _plan_option(
         resource_keys=tuple(resource_keys),
         hard_static=0,
         quality_score=score,
+        teacher_profile_score=teacher_profile_score,
+        teacher_profile_penalty=teacher_profile_penalty,
+        teacher_profile_reasons=teacher_profile_reasons,
     )
 
 
@@ -288,6 +325,9 @@ def _solve_one_scheme(
     previous_solutions: list[set[tuple[int, int]]],
     diversity_threshold: int,
     time_limit_seconds: float,
+    model_objective_weight: float,
+    teacher_profile_objective_weight: float,
+    teacher_profile_penalty_weight: float,
 ) -> dict[str, Any]:
     model = cp_model.CpModel()
     variables: dict[tuple[int, int], Any] = {}
@@ -321,6 +361,20 @@ def _solve_one_scheme(
             model.Add(sum(previous_vars) <= max(0, len(previous_vars) - diversity_threshold))
             constraint_count += 1
 
+    objective_terms = []
+    for task in tasks:
+        for option in task.options:
+            var = variables[(option.task_index, option.plan_index)]
+            objective_score = int(round(_objective_score(
+                option,
+                model_weight=model_objective_weight,
+                teacher_profile_weight=teacher_profile_objective_weight,
+                teacher_profile_penalty_weight=teacher_profile_penalty_weight,
+            ) * OBJECTIVE_SCALE))
+            objective_terms.append(objective_score * var)
+    if objective_terms:
+        model.Maximize(sum(objective_terms))
+
     for key, var in variables.items():
         model.AddHint(var, 1 if greedy_hint.get(key[0]) == key[1] else 0)
 
@@ -349,8 +403,23 @@ def _solve_one_scheme(
         "selected": selected,
         "variable_count": len(variables),
         "constraint_count": constraint_count,
+        "objective_value": round(solver.ObjectiveValue() / OBJECTIVE_SCALE, 6) if selected else 0.0,
         "greedy_initial_conflicts": greedy_conflicts,
     }
+
+
+def _objective_score(
+    option: CpSatPlanOption,
+    *,
+    model_weight: float = MODEL_OBJECTIVE_WEIGHT,
+    teacher_profile_weight: float = TEACHER_PROFILE_OBJECTIVE_WEIGHT,
+    teacher_profile_penalty_weight: float = TEACHER_PROFILE_PENALTY_WEIGHT,
+) -> float:
+    session_count = max(1, len(option.assignments))
+    model_score = max(0.0, option.quality_score) * max(0.0, model_weight)
+    profile_score = max(0.0, option.teacher_profile_score) * session_count * max(0.0, teacher_profile_weight)
+    profile_penalty = max(0.0, option.teacher_profile_penalty) * session_count * max(0.0, teacher_profile_penalty_weight)
+    return model_score + profile_score - profile_penalty
 
 
 def _greedy_plan_hint(tasks: list[CpSatTaskPlans]) -> tuple[dict[int, int], int]:

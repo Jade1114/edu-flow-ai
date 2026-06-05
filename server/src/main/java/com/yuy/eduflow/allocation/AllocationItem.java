@@ -10,6 +10,10 @@ public class AllocationItem {
 	private Long teachingTaskId;
 	private Long classroomId;
 	private Long timeSlotId;
+	private Double teacherProfileScore;
+	private Double teacherProfilePenalty;
+	private String teacherProfileReasonsJson;
+	private String teacherProfileComponentsJson;
 	private Boolean valid;
 	private String conflictMessage;
 	private LocalDateTime createdAt;

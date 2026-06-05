@@ -12,6 +12,11 @@ const defaultGenerationConfig = () => ({
   allowedWeekdays: [1, 2, 3, 4, 5],
   allowedPeriods: [1, 2, 3, 4],
   schemeCount: 3,
+  generationMode: "AUTO",
+  placementTopK: 80,
+  rawPlanCount: 240,
+  cpPlanCount: 80,
+  solverTimeLimitSeconds: 1800,
   teacherProfilePenaltyScale: 80,
   earlyPeriodPenalty: 0.04,
   latePeriodPenalty: 0.03,
@@ -95,6 +100,29 @@ const policyLabelMap = {
   ...Object.fromEntries(policyOptions.map((item) => [item.value, item.label])),
   CUSTOM: "自定义",
 };
+
+const generationModeOptions = [
+  {
+    value: "AUTO",
+    label: "自动流水线",
+    desc: "先找可行解，再优化质量，最后尝试多方案",
+  },
+  {
+    value: "FEASIBILITY",
+    label: "可行性优先",
+    desc: "快速找首个无冲突方案",
+  },
+  {
+    value: "QUALITY",
+    label: "质量优先",
+    desc: "画像和模型质量一起优化",
+  },
+  {
+    value: "STRESS",
+    label: "压测模式",
+    desc: "全量任务长时间求解",
+  },
+];
 
 // === 预设权重（前端模板，保存后由任务配置表驱动 Python 生成）===
 const PRESET_WEIGHTS = {
@@ -288,6 +316,17 @@ function normalizeGenerationConfig(rawConfig = {}) {
       rawConfig.allowedPeriods,
       defaults.allowedPeriods,
     ),
+    generationMode: rawConfig.generationMode || defaults.generationMode,
+    placementTopK: Number(rawConfig.placementTopK ?? defaults.placementTopK),
+    rawPlanCount: Number(rawConfig.rawPlanCount ?? defaults.rawPlanCount),
+    cpPlanCount: Number(rawConfig.cpPlanCount ?? defaults.cpPlanCount),
+    solverTimeLimitSeconds: Number(
+      rawConfig.solverTimeLimitSeconds ?? defaults.solverTimeLimitSeconds,
+    ),
+    schemeCount: Number(rawConfig.schemeCount ?? defaults.schemeCount),
+    teacherProfilePenaltyScale: Number(
+      rawConfig.teacherProfilePenaltyScale ?? defaults.teacherProfilePenaltyScale,
+    ),
   };
 }
 
@@ -297,6 +336,7 @@ function serializeGenerationConfig(config) {
     allowedWeeks: numberArrayToCsv(config.allowedWeeks),
     allowedWeekdays: numberArrayToCsv(config.allowedWeekdays),
     allowedPeriods: numberArrayToCsv(config.allowedPeriods),
+    generationMode: config.generationMode || "QUALITY",
   };
 }
 
@@ -973,11 +1013,7 @@ const profilePenaltyByTeacher = computed(() => {
     const key = item.teacherName || "未命名教师";
     const current = map.get(key) || { teacherName: key, count: 0, reasons: new Set() };
     current.count += 1;
-    String(item.conflictMessage || "")
-      .split("；")
-      .map((value) => value.trim())
-      .filter(Boolean)
-      .forEach((reason) => current.reasons.add(reason));
+    profileReasonList(item).forEach((reason) => current.reasons.add(reason));
     map.set(key, current);
   }
   return [...map.values()]
@@ -1201,7 +1237,39 @@ function schemeConflictSummary(scheme) {
 }
 
 function itemHasProfileExplanation(item) {
-  return !itemHasConflict(item) && !!item.conflictMessage;
+  return !itemHasConflict(item) && (
+    profileReasonList(item).length > 0 ||
+    Number(item?.teacherProfilePenalty || 0) > 0
+  );
+}
+
+function profileReasonList(item) {
+  const parsed = parseJsonArray(item?.teacherProfileReasonsJson);
+  return parsed.map((value) => String(value)).filter(Boolean);
+}
+
+function itemExplanationText(item) {
+  if (itemHasConflict(item)) return item?.conflictMessage || "存在硬冲突";
+  const reasons = profileReasonList(item);
+  if (reasons.length) return reasons.join("；");
+  if (Number(item?.teacherProfilePenalty || 0) > 0) return "教师画像软偏好未完全满足";
+  return item?.conflictMessage || "";
+}
+
+function parseJsonArray(raw) {
+  if (!raw) return [];
+  if (Array.isArray(raw)) return raw;
+  try {
+    const value = JSON.parse(raw);
+    return Array.isArray(value) ? value : [];
+  } catch {
+    return [];
+  }
+}
+
+function profileScoreText(item) {
+  const score = Number(item?.teacherProfileScore);
+  return Number.isFinite(score) ? percentText(score) : "-";
 }
 
 function isInvalidValue(value) {
@@ -1813,15 +1881,88 @@ onUnmounted(() => {
           </span>
         </el-form-item>
         <template v-if="configMode === 'advanced'">
+          <el-form-item label="运行模式">
+            <el-radio-group v-model="taskForm.generationConfig.generationMode">
+              <el-radio-button
+                v-for="opt in generationModeOptions"
+                :key="opt.value"
+                :value="opt.value"
+              >
+                {{ opt.label }}
+              </el-radio-button>
+            </el-radio-group>
+            <span style="margin-left: 8px; color: #909399; font-size: 12px">
+              {{
+                generationModeOptions.find(
+                  (item) => item.value === taskForm.generationConfig.generationMode,
+                )?.desc || ""
+              }}
+            </span>
+          </el-form-item>
           <el-form-item label="生成方案数">
             <el-input-number
               v-model="taskForm.generationConfig.schemeCount"
               :min="1"
-              :max="5"
+              :max="20"
             />
             <span style="margin-left: 8px; color: #909399; font-size: 12px"
-              >点击生成时按这里的数量生成候选方案</span
+              >可行性优先会自动按 1 个方案执行</span
             >
+          </el-form-item>
+          <el-form-item label="求解规模">
+            <div
+              style="
+                display: grid;
+                grid-template-columns: repeat(2, minmax(260px, 1fr));
+                gap: 8px;
+                width: 100%;
+              "
+            >
+              <div style="display: flex; align-items: center; justify-content: space-between; gap: 8px">
+                <span style="font-size: 12px; color: #606266">Placement TopK</span>
+                <el-input-number
+                  v-model="taskForm.generationConfig.placementTopK"
+                  :min="1"
+                  :max="200"
+                  size="small"
+                  controls-position="right"
+                  style="width: 140px"
+                />
+              </div>
+              <div style="display: flex; align-items: center; justify-content: space-between; gap: 8px">
+                <span style="font-size: 12px; color: #606266">Raw Plan Count</span>
+                <el-input-number
+                  v-model="taskForm.generationConfig.rawPlanCount"
+                  :min="1"
+                  :max="500"
+                  size="small"
+                  controls-position="right"
+                  style="width: 140px"
+                />
+              </div>
+              <div style="display: flex; align-items: center; justify-content: space-between; gap: 8px">
+                <span style="font-size: 12px; color: #606266">CP Plan Count</span>
+                <el-input-number
+                  v-model="taskForm.generationConfig.cpPlanCount"
+                  :min="1"
+                  :max="500"
+                  size="small"
+                  controls-position="right"
+                  style="width: 140px"
+                />
+              </div>
+              <div style="display: flex; align-items: center; justify-content: space-between; gap: 8px">
+                <span style="font-size: 12px; color: #606266">CP-SAT 秒数</span>
+                <el-input-number
+                  v-model="taskForm.generationConfig.solverTimeLimitSeconds"
+                  :min="1"
+                  :max="3600"
+                  size="small"
+                  controls-position="right"
+                  style="width: 140px"
+                />
+              </div>
+            </div>
           </el-form-item>
           <el-form-item label="周次多选">
             <el-checkbox-group
@@ -2756,6 +2897,14 @@ onUnmounted(() => {
         <el-table-column prop="teacherName" label="教师" />
         <el-table-column prop="classGroupName" label="班级" />
         <el-table-column prop="classroomName" label="教室" />
+        <el-table-column label="画像分" width="82">
+          <template #default="{ row }">
+            <el-tag v-if="row.teacherProfileScore != null" size="small" type="primary" effect="plain">
+              {{ profileScoreText(row) }}
+            </el-tag>
+            <span v-else style="color: #909399">-</span>
+          </template>
+        </el-table-column>
         <el-table-column prop="valid" label="有效" width="60">
           <template #default="{ row }">
             <el-tag :type="row.valid ? 'success' : 'danger'" size="small">{{
@@ -2764,7 +2913,7 @@ onUnmounted(() => {
           </template>
         </el-table-column>
         <el-table-column
-          v-if="slotDetail.items.some((i) => i.conflictMessage)"
+          v-if="slotDetail.items.some((i) => itemHasConflict(i) || itemHasProfileExplanation(i))"
           label="说明"
           min-width="220"
           show-overflow-tooltip
@@ -2776,7 +2925,7 @@ onUnmounted(() => {
             <el-tag v-else type="warning" size="small" effect="plain"
               >画像扣分</el-tag
             >
-            <span style="margin-left: 6px">{{ row.conflictMessage }}</span>
+            <span style="margin-left: 6px">{{ itemExplanationText(row) }}</span>
           </template>
         </el-table-column>
         <el-table-column label="操作" width="70">

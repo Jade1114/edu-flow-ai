@@ -134,6 +134,10 @@ public class AllocationSchemeGenerationService {
 			var tt = teachingTaskMapper.findById(parsedItem.teachingTaskId());
 			item.setClassroomId(parsedItem.classroomId() != null ? parsedItem.classroomId() : (tt != null ? tt.getClassroomId() : null));
 			item.setTimeSlotId(parsedItem.timeSlotId());
+			item.setTeacherProfileScore(parsedItem.teacherProfileScore());
+			item.setTeacherProfilePenalty(parsedItem.teacherProfilePenalty());
+			item.setTeacherProfileReasonsJson(parsedItem.teacherProfileReasonsJson());
+			item.setTeacherProfileComponentsJson(parsedItem.teacherProfileComponentsJson());
 			item.setValid(true);
 			item.setConflictMessage(parsedItem.conflictMessage());
 			allocationItemMapper.insert(item);

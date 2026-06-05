@@ -11,6 +11,7 @@ import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.LinkedHashMap;
 import java.util.Map;
+import java.util.function.Consumer;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.MediaType;
 import org.springframework.http.client.SimpleClientHttpRequestFactory;
@@ -102,8 +103,12 @@ public class MlApiClient {
 	 * Submit a V3 scheduling job via POST, then wait via SSE. Returns output_dir string.
 	 */
 	public String generateSchemes(Map<String, Object> requestParams) {
+		return generateSchemes(requestParams, ignored -> {});
+	}
+
+	public String generateSchemes(Map<String, Object> requestParams, Consumer<Map<String, Object>> progressConsumer) {
 		String taskId = submitGenerateSchemes(requestParams);
-		return waitForSseOutputDir(taskId);
+		return waitForSseOutputDir(taskId, progressConsumer);
 	}
 
 	private String submitGenerateSchemes(Map<String, Object> requestParams) {
@@ -134,7 +139,7 @@ public class MlApiClient {
 	/**
 	 * Read SSE stream until completed/failed event. Returns output_dir string.
 	 */
-	private String waitForSseOutputDir(String taskId) {
+	private String waitForSseOutputDir(String taskId, Consumer<Map<String, Object>> progressConsumer) {
 		String streamUrl = properties.getUrl() + "/api/ml/generate-scheme/" + taskId + "/stream";
 		log.info("ML API SSE connect: taskId={}", taskId);
 
@@ -180,7 +185,10 @@ public class MlApiClient {
 								throw new BusinessException(500,
 									"ML API task failed: taskId=" + taskId + ", error=" + error);
 							}
-							case "progress" -> log.info("ML progress: taskId={} {}", taskId, data);
+							case "progress" -> {
+								log.info("ML progress: taskId={} {}", taskId, data);
+								progressConsumer.accept(extractProgress(data));
+							}
 							case "heartbeat" -> log.debug("SSE heartbeat: taskId={}", taskId);
 						}
 						currentEvent = null;
@@ -212,6 +220,66 @@ public class MlApiClient {
 		start++;
 		int end = json.indexOf("\"", start);
 		return end > start ? json.substring(start, end) : null;
+	}
+
+	private static Map<String, Object> extractProgress(String json) {
+		Map<String, Object> progress = new LinkedHashMap<>();
+		progress.put("stage", extractJsonString(json, "stage", "ml"));
+		progress.put("message", extractJsonString(json, "message", json));
+		progress.put("progress", extractJsonInt(json, "progress", 20));
+		String reportPath = extractJsonString(json, "report_path", null);
+		if (reportPath != null) progress.put("reportPath", reportPath);
+		String summaryPath = extractJsonString(json, "summary_path", null);
+		if (summaryPath != null) progress.put("summaryPath", summaryPath);
+		String outputDir = extractJsonString(json, "output_dir", null);
+		if (outputDir != null) progress.put("outputDir", outputDir);
+		String solverStatus = extractJsonString(json, "solver_status", null);
+		if (solverStatus != null) progress.put("solverStatus", solverStatus);
+		return progress;
+	}
+
+	private static String extractJsonString(String json, String field, String defaultValue) {
+		String key = "\"" + field + "\"";
+		int keyIndex = json.indexOf(key);
+		if (keyIndex < 0) return defaultValue;
+		int colonIndex = json.indexOf(':', keyIndex + key.length());
+		if (colonIndex < 0) return defaultValue;
+		int start = json.indexOf('"', colonIndex + 1);
+		if (start < 0) return defaultValue;
+		start++;
+		StringBuilder value = new StringBuilder();
+		boolean escaped = false;
+		for (int i = start; i < json.length(); i++) {
+			char ch = json.charAt(i);
+			if (escaped) {
+				value.append(ch);
+				escaped = false;
+			} else if (ch == '\\') {
+				escaped = true;
+			} else if (ch == '"') {
+				return value.toString();
+			} else {
+				value.append(ch);
+			}
+		}
+		return defaultValue;
+	}
+
+	private static int extractJsonInt(String json, String field, int defaultValue) {
+		String key = "\"" + field + "\"";
+		int keyIndex = json.indexOf(key);
+		if (keyIndex < 0) return defaultValue;
+		int colonIndex = json.indexOf(':', keyIndex + key.length());
+		if (colonIndex < 0) return defaultValue;
+		int start = colonIndex + 1;
+		while (start < json.length() && Character.isWhitespace(json.charAt(start))) start++;
+		int end = start;
+		while (end < json.length() && Character.isDigit(json.charAt(end))) end++;
+		try {
+			return end > start ? Integer.parseInt(json.substring(start, end)) : defaultValue;
+		} catch (NumberFormatException ignored) {
+			return defaultValue;
+		}
 	}
 
 	/**

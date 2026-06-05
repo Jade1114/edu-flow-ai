@@ -10,6 +10,7 @@ are intentionally left to the next layer.
 from __future__ import annotations
 
 import argparse
+from collections import Counter
 import json
 from datetime import datetime
 from pathlib import Path
@@ -18,6 +19,7 @@ from typing import Any
 MAX_PLAN_COUNT = 120
 DEFAULT_PLAN_COUNT = 8
 WEEK_USAGE_SCORE_SCALE = 0.0005
+DEFAULT_TEACHER_PROFILE_PATH = Path(__file__).resolve().parents[2] / "data" / "profiles" / "v3" / "teacher_profiles_v3.json"
 
 
 def generate_task_plans_jsonl(
@@ -39,6 +41,7 @@ def generate_task_plans_jsonl(
     generated_at = _now_iso()
 
     candidate_rows = _read_candidate_rows(source_path)
+    teacher_profiles = _load_teacher_profiles()
     allocator = WeekUsageAllocator()
     rows: list[dict[str, Any]] = []
     with output_path.open("w", encoding="utf-8") as target:
@@ -48,6 +51,7 @@ def generate_task_plans_jsonl(
                 plan_count=plan_count,
                 generated_at=generated_at,
                 allocator=allocator,
+                teacher_profiles=teacher_profiles,
             )
             row["meta"]["source_line_number"] = line_number
             rows.append(row)
@@ -60,6 +64,13 @@ def generate_task_plans_jsonl(
         "task_count": len(rows),
         "plan_count_requested": plan_count,
         "empty_plan_task_count": sum(1 for row in rows if not row.get("plans")),
+        "teacher_profile_count": len(teacher_profiles),
+        "teacher_profile_scored_plan_count": sum(
+            1
+            for row in rows
+            for plan in row.get("plans") or []
+            if plan.get("teacher_profile_source") == "teacher_profiles_v3"
+        ),
         "week_strategy": "resource_aware_low_usage",
         "generated_at": generated_at,
     }
@@ -76,6 +87,7 @@ def _build_task_plan_row(
     plan_count: int,
     generated_at: str,
     allocator: "WeekUsageAllocator",
+    teacher_profiles: dict[int, dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     resources = list(candidate_row.get("resources") or [])
     task = dict(candidate_row.get("task") or {})
@@ -100,6 +112,7 @@ def _build_task_plan_row(
             total_hours=total_hours,
             plan_count=plan_count,
             allocator=allocator,
+            teacher_profiles=teacher_profiles or {},
         )
         if not plans:
             error = "NO_PLANS"
@@ -134,6 +147,7 @@ def _build_plans(
     total_hours: int,
     plan_count: int,
     allocator: "WeekUsageAllocator",
+    teacher_profiles: dict[int, dict[str, Any]],
 ) -> list[dict[str, Any]]:
     plans: list[dict[str, Any]] = []
     max_distinct_plans = plan_count
@@ -148,6 +162,12 @@ def _build_plans(
         if not segments:
             continue
         week_usage_cost = _segments_week_usage_cost(segments)
+        teacher_id = int((candidate_row.get("task") or {}).get("teacher_id") or 0)
+        profile_metrics = _teacher_profile_metrics(
+            segments,
+            total_sessions,
+            teacher_profiles.get(teacher_id),
+        )
         plan = {
             "plan_id": f"{candidate_row.get('teaching_task_id')}_p{plan_index + 1:03d}",
             "plan_rank": len(plans) + 1,
@@ -155,6 +175,11 @@ def _build_plans(
             "total_sessions": total_sessions,
             "total_hours": total_hours,
             "score": _plan_score(segments, total_sessions, week_usage_cost=week_usage_cost),
+            "teacher_profile_score": profile_metrics["score"],
+            "teacher_profile_penalty": profile_metrics["penalty"],
+            "teacher_profile_components": profile_metrics["components"],
+            "teacher_profile_reasons": profile_metrics["reasons"],
+            "teacher_profile_source": profile_metrics["source"],
             "week_strategy": "resource_aware_low_usage",
             "week_usage_cost": week_usage_cost,
             "valid": _segment_session_sum(segments) == total_sessions,
@@ -374,6 +399,155 @@ def _resource_key(resource: dict[str, Any]) -> str:
 
 def _segments_week_usage_cost(segments: list[dict[str, Any]]) -> float:
     return round(sum(float(segment.get("week_usage_cost") or 0.0) for segment in segments), 6)
+
+
+def _load_teacher_profiles(path: str | Path | None = None) -> dict[int, dict[str, Any]]:
+    source_path = Path(path) if path else DEFAULT_TEACHER_PROFILE_PATH
+    if not source_path.exists():
+        return {}
+    try:
+        payload = json.loads(source_path.read_text(encoding="utf-8"))
+    except Exception:
+        return {}
+    profiles: dict[int, dict[str, Any]] = {}
+    for row in payload.get("profiles") or []:
+        try:
+            teacher_id = int(row.get("teacher_id") or 0)
+        except (TypeError, ValueError):
+            continue
+        final_profile = row.get("final_profile") or {}
+        if teacher_id > 0 and isinstance(final_profile, dict):
+            profiles[teacher_id] = final_profile
+    return profiles
+
+
+def _teacher_profile_metrics(
+    segments: list[dict[str, Any]],
+    total_sessions: int,
+    profile: dict[str, Any] | None,
+) -> dict[str, Any]:
+    if not profile:
+        return {
+            "score": 1.0,
+            "penalty": 0.0,
+            "components": {},
+            "reasons": [],
+            "source": "none",
+        }
+
+    sessions = _segment_sessions(segments)
+    total = max(1, len(sessions) or total_sessions)
+    preferred_weekdays = _int_set(profile.get("preferred_weekdays"))
+    preferred_periods = _int_set(profile.get("preferred_periods"))
+    preferred_room_types = {str(value).strip() for value in profile.get("preferred_room_types") or [] if str(value).strip()}
+    max_daily_lessons = _positive_int(profile.get("max_daily_lessons"))
+
+    early_count = sum(1 for session in sessions if session["period"] == 1)
+    late_count = sum(1 for session in sessions if session["period"] >= 5)
+    weekday_hits = sum(1 for session in sessions if session["day"] in preferred_weekdays)
+    period_hits = sum(1 for session in sessions if session["period"] in preferred_periods)
+    room_hits = sum(1 for session in sessions if session["room_type"] in preferred_room_types)
+
+    daily_loads: Counter[tuple[int, int]] = Counter((session["week"], session["day"]) for session in sessions)
+    overloaded_days = sum(1 for load in daily_loads.values() if max_daily_lessons > 0 and load > max_daily_lessons)
+
+    components = {
+        "early_period": 1.0 - early_count / total if bool(profile.get("avoid_early_period")) else 1.0,
+        "late_period": 1.0 - late_count / total if bool(profile.get("avoid_late_period")) else 1.0,
+        "preferred_weekday": weekday_hits / total if preferred_weekdays else 1.0,
+        "preferred_period": period_hits / total if preferred_periods else 1.0,
+        "daily_load": 1.0 - overloaded_days / max(1, len(daily_loads)) if max_daily_lessons > 0 and daily_loads else 1.0,
+        "room_type": room_hits / total if preferred_room_types else 1.0,
+    }
+    components = {key: round(max(0.0, min(1.0, value)), 6) for key, value in components.items()}
+    score = round(sum(components.values()) / max(1, len(components)), 6)
+    reasons = _teacher_profile_reasons(
+        profile,
+        components,
+        early_count=early_count,
+        late_count=late_count,
+        weekday_hits=weekday_hits,
+        period_hits=period_hits,
+        room_hits=room_hits,
+        total=total,
+        overloaded_days=overloaded_days,
+    )
+    return {
+        "score": score,
+        "penalty": round(1.0 - score, 6),
+        "components": components,
+        "reasons": reasons,
+        "source": "teacher_profiles_v3",
+    }
+
+
+def _segment_sessions(segments: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    sessions: list[dict[str, Any]] = []
+    for segment in segments:
+        resource = segment.get("resource") or {}
+        slot = resource.get("slot") or {}
+        classroom = resource.get("classroom") or {}
+        day = int(slot.get("day_of_week") or 0)
+        period = int(slot.get("period_index") or 0)
+        room_type = str(classroom.get("classroom_type") or "").strip()
+        for week in segment.get("weeks") or []:
+            sessions.append({
+                "week": int(week),
+                "day": day,
+                "period": period,
+                "room_type": room_type,
+            })
+    return sessions
+
+
+def _teacher_profile_reasons(
+    profile: dict[str, Any],
+    components: dict[str, float],
+    *,
+    early_count: int,
+    late_count: int,
+    weekday_hits: int,
+    period_hits: int,
+    room_hits: int,
+    total: int,
+    overloaded_days: int,
+) -> list[str]:
+    reasons: list[str] = []
+    if bool(profile.get("avoid_early_period")):
+        reasons.append("避开第1节" if early_count == 0 else f"第1节出现 {early_count}/{total}")
+    if bool(profile.get("avoid_late_period")):
+        reasons.append("避开晚课" if late_count == 0 else f"晚课出现 {late_count}/{total}")
+    if profile.get("preferred_weekdays"):
+        reasons.append(f"偏好星期命中 {weekday_hits}/{total}")
+    if profile.get("preferred_periods"):
+        reasons.append(f"偏好节次命中 {period_hits}/{total}")
+    if _positive_int(profile.get("max_daily_lessons")) > 0:
+        reasons.append("未超过日课时上限" if overloaded_days == 0 else f"超日课时上限 {overloaded_days} 天")
+    if profile.get("preferred_room_types"):
+        reasons.append(f"偏好教室类型命中 {room_hits}/{total}")
+    return [reason for reason in reasons if reason]
+
+
+def _int_set(value: Any) -> set[int]:
+    if not isinstance(value, list):
+        return set()
+    result: set[int] = set()
+    for item in value:
+        try:
+            parsed = int(item)
+        except (TypeError, ValueError):
+            continue
+        if parsed > 0:
+            result.add(parsed)
+    return result
+
+
+def _positive_int(value: Any) -> int:
+    try:
+        parsed = int(value)
+    except (TypeError, ValueError):
+        return 0
+    return parsed if parsed > 0 else 0
 
 
 def _plan_score(segments: list[dict[str, Any]], total_sessions: int, *, week_usage_cost: float = 0.0) -> float:

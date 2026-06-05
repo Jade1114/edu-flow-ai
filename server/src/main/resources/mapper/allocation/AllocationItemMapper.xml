@@ -12,6 +12,8 @@
                ai.classroom_id, cr.name AS classroom_name,
                ai.time_slot_id, ts.label AS time_slot_label,
                ts.week_number, ts.day_of_week, ts.period_index,
+               ai.teacher_profile_score, ai.teacher_profile_penalty,
+               ai.teacher_profile_reasons_json, ai.teacher_profile_components_json,
                ai.valid, ai.conflict_message
         FROM allocation_item ai
         JOIN teaching_task tt ON ai.teaching_task_id = tt.id

@@ -20,6 +20,8 @@ public interface AllocationTaskGenerationConfigMapper {
 	@Insert("""
 		INSERT INTO allocation_task_generation_config (
 			task_id, allowed_weeks, allowed_weekdays, allowed_periods, scheme_count,
+			placement_top_k, raw_plan_count, cp_plan_count, solver_time_limit_seconds,
+			generation_mode,
 			teacher_profile_penalty_scale,
 			early_period_penalty, late_period_penalty, weekend_penalty,
 			llm_prompt, llm_result_json, llm_overrides,
@@ -27,6 +29,8 @@ public interface AllocationTaskGenerationConfigMapper {
 			teacher_day_load_penalty, class_day_load_penalty, teacher_overload_penalty
 		) VALUES (
 			#{taskId}, #{allowedWeeks}, #{allowedWeekdays}, #{allowedPeriods}, #{schemeCount},
+			#{placementTopK}, #{rawPlanCount}, #{cpPlanCount}, #{solverTimeLimitSeconds},
+			#{generationMode},
 			#{teacherProfilePenaltyScale},
 			#{earlyPeriodPenalty}, #{latePeriodPenalty}, #{weekendPenalty},
 			#{llmPrompt}, #{llmResultJson}, #{llmOverrides},
@@ -43,6 +47,11 @@ public interface AllocationTaskGenerationConfigMapper {
 		    allowed_weekdays = #{allowedWeekdays},
 		    allowed_periods = #{allowedPeriods},
 		    scheme_count = #{schemeCount},
+		    placement_top_k = #{placementTopK},
+		    raw_plan_count = #{rawPlanCount},
+		    cp_plan_count = #{cpPlanCount},
+		    solver_time_limit_seconds = #{solverTimeLimitSeconds},
+		    generation_mode = #{generationMode},
 		    teacher_profile_penalty_scale = #{teacherProfilePenaltyScale},
 		    early_period_penalty = #{earlyPeriodPenalty},
 		    late_period_penalty = #{latePeriodPenalty},

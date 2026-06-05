@@ -12,6 +12,11 @@ public class AllocationTaskGenerationConfig {
 	private String allowedWeekdays;
 	private String allowedPeriods;
 	private Integer schemeCount;
+	private Integer placementTopK;
+	private Integer rawPlanCount;
+	private Integer cpPlanCount;
+	private Integer solverTimeLimitSeconds;
+	private String generationMode;
 	private BigDecimal teacherProfilePenaltyScale;
 	private BigDecimal earlyPeriodPenalty;
 	private BigDecimal latePeriodPenalty;

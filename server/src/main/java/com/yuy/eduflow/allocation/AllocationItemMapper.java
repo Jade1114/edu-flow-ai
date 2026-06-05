@@ -15,7 +15,9 @@ public interface AllocationItemMapper {
 	@Select("""
 		<script>
             SELECT id, scheme_id, teaching_task_id, classroom_id,
-        		       time_slot_id, valid, conflict_message, created_at, updated_at
+        		       time_slot_id, teacher_profile_score, teacher_profile_penalty,
+        		       teacher_profile_reasons_json, teacher_profile_components_json,
+        		       valid, conflict_message, created_at, updated_at
 		FROM allocation_item
 		WHERE 1 = 1
 		<if test='schemeId != null'>
@@ -42,7 +44,9 @@ public interface AllocationItemMapper {
 
 	@Select("""
             SELECT id, scheme_id, teaching_task_id, classroom_id,
-        		       time_slot_id, valid, conflict_message, created_at, updated_at
+        		       time_slot_id, teacher_profile_score, teacher_profile_penalty,
+        		       teacher_profile_reasons_json, teacher_profile_components_json,
+        		       valid, conflict_message, created_at, updated_at
 		FROM allocation_item
 		WHERE id = #{id}
 		""")
@@ -51,11 +55,15 @@ public interface AllocationItemMapper {
 	@Insert("""
 		INSERT INTO allocation_item (
                 scheme_id, teaching_task_id, classroom_id,
-        		    time_slot_id, valid, conflict_message
+        		    time_slot_id, teacher_profile_score, teacher_profile_penalty,
+        		    teacher_profile_reasons_json, teacher_profile_components_json,
+        		    valid, conflict_message
 		)
 		VALUES (
                 #{schemeId}, #{teachingTaskId}, #{classroomId},
-        		    #{timeSlotId}, #{valid}, #{conflictMessage}
+        		    #{timeSlotId}, #{teacherProfileScore}, #{teacherProfilePenalty},
+        		    #{teacherProfileReasonsJson}, #{teacherProfileComponentsJson},
+        		    #{valid}, #{conflictMessage}
 		)
 		""")
 	@Options(useGeneratedKeys = true, keyProperty = "id")
@@ -67,6 +75,10 @@ public interface AllocationItemMapper {
                 teaching_task_id = #{teachingTaskId},
         		    classroom_id = #{classroomId},
 		    time_slot_id = #{timeSlotId},
+		    teacher_profile_score = #{teacherProfileScore},
+		    teacher_profile_penalty = #{teacherProfilePenalty},
+		    teacher_profile_reasons_json = #{teacherProfileReasonsJson},
+		    teacher_profile_components_json = #{teacherProfileComponentsJson},
 		    valid = #{valid},
 		    conflict_message = #{conflictMessage}
 		WHERE id = #{id}

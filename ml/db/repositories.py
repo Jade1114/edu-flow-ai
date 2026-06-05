@@ -238,6 +238,8 @@ def fetch_generation_config(connection, task_id: int) -> dict[str, Any] | None:
         SELECT
             allowed_weeks, allowed_weekdays, allowed_periods,
             scheme_count,
+            placement_top_k, raw_plan_count, cp_plan_count, solver_time_limit_seconds,
+            generation_mode,
             teacher_profile_penalty_scale,
             early_period_penalty, late_period_penalty, weekend_penalty,
             model_weight, llm_weight,
