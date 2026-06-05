@@ -313,9 +313,23 @@ data/profiles/v3/
 
 ### Phase 2：声明画像与反馈画像合并
 
-- 接入 Java `teacher_profile` 表中的教师声明画像
-- 接入调课申请说明，LLM 分类为结构化反馈信号
-- 形成来源优先级：教师编辑 > LLM 声明 > 调课反馈 > 历史数据
+当前状态：已基本完成 MVP 闭环。
+
+- [x] 接入 Java `teacher_profile` 表中的教师声明画像
+- [x] 接入方案确认、人工移动、人工好坏标注、调课审批反馈事件
+- [x] 基于 `ml_feedback_event` 聚合 `feedback_profile`、`feedback_evidence_summary`、`feedback_confidence`
+- [x] 教师画像页展示反馈来源、事件数量、置信度和反馈推断偏好
+- [ ] 暂不将反馈画像直接覆盖 `final_profile`，避免样本量不足时冲掉教师手动声明
+
+当前来源策略：
+
+```text
+教师手动编辑 / LLM 声明解析
+  > 反馈画像证据（只展示与解释，暂不覆盖 final_profile）
+  > 历史课表推断画像
+```
+
+后续只有在反馈样本量和置信度达到阈值后，再考虑把反馈画像合并进 `final_profile`。
 
 ### Phase 3：进入 CP-SAT 软目标
 

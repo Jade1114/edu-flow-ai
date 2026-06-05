@@ -48,7 +48,8 @@ docs/
 │   └── 01-排课真实数据验收反馈.md
 └── roadmap/
     ├── 01-训练样本收集优先路线.md
-    └── 02-理论与实验设计推进路线.md
+    ├── 02-理论与实验设计推进路线.md
+    └── 03-毕设最终系统剩余开发清单.md
 ```
 
 ---
@@ -57,6 +58,9 @@ docs/
 
 | 文档 | 职责 | 状态 |
 |------|------|------|
+| **architecture/19-毕设最终系统架构设计.md** | ★ 毕设最终形态：导入 → 排课 → 反馈训练 → 多角色导出 | ✅ 当前总纲 |
+| **architecture/20-教师画像反馈信号接入点设计.md** | ★ 教师画像 Phase 2：反馈事件接入点与画像聚合方案 | ✅ 设计完成 |
+| **architecture/21-教师画像进入CP-SAT接入点设计.md** | ★ 教师画像 Phase 3：task plan 分数与 CP-SAT objective 接入点 | ✅ 设计完成 |
 | **architecture/17-V3-CP-SAT排课架构设计.md** | ★ 当前架构：Placement Model + CP-SAT 全局方案选择 | ✅ 生产 |
 | **architecture/18-V3-教师画像MVP设计.md** | ★ V3 教师画像：历史课表画像提取 + 课表满足度分析 | ✅ MVP |
 | architecture/03-LightGBM模型训练架构设计.md | 训练闭环设计（规则冷启动→反馈重训），V3 placement model 的训练方法论 | ⚠️ 需更新 |
@@ -71,10 +75,12 @@ docs/
 | implementation/02-教师画像JSONL快照接入说明.md | 画像快照导出与传递 | ⚠️ 待 V3 适配 |
 | implementation/03-排课链路验证与排障说明.md | 本地验证命令、常见问题 | 🔴 已过时 (V2) |
 | implementation/05-真实课表数据导入流程.md | XLS→JSONL→MySQL 管道 | ✅ 仍适用 |
+| implementation/06-allocation-item-teacher-profile-fields-migration.sql | allocation_item 教师画像解释字段迁移 | ✅ Phase 3 |
 | thesis/* | 论文与答辩材料 | ⚠️ 需更新为 V3 |
 | feedback/01-排课真实数据验收反馈.md | V2 验收中的非阻塞问题 | ⚠️ 部分已修复 |
 | roadmap/01-训练样本收集优先路线.md | 样本收集路线 | ⚠️ 需更新 |
 | roadmap/02-理论与实验设计推进路线.md | 理论实验推进 | ⚠️ 需更新 |
+| roadmap/03-毕设最终系统剩余开发清单.md | 从最终架构反推的开发 TODO | ✅ 当前路线图 |
 
 ---
 
@@ -98,4 +104,4 @@ docs/
 Task Plans 模板生成 → CP-SAT 全局方案选择 → `schemes.jsonl` 输出 →
 Java 入库 → 冲突检测 → 前端 SSE 展示。
 
-实现细节优先看 `docs/architecture/17-V3-*`，`docs/archive/` 为 V1/V2 历史参考。
+总体方向优先看 `docs/architecture/19-毕设最终系统架构设计.md`。实现细节看 `docs/architecture/17-V3-*` 和 `docs/architecture/18-V3-*`，`docs/archive/` 为 V1/V2 历史参考。

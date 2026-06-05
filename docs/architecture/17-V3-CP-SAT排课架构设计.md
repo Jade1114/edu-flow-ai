@@ -149,9 +149,12 @@ class_no, student_count, total_hours, course_type_code, required_room_type_code
 - 每个方案独立求解，通过添加 forbidden assignment 约束避免重复
 - 如果无法满足 scheme_count，返回已求解的最大数量
 
-**性能**:
-- 默认时间限制: 60s
-- 2615 tasks 典型求解时间: < 30s
+**性能与全量压测策略**:
+- `FEASIBILITY`: 可行性优先，`scheme_count` 强制按 1 执行，先找首个无冲突方案。
+- `QUALITY`: 质量优先，在可行基础上同时优化 Placement 模型分与教师画像满足度。
+- `STRESS`: 压测模式，面向 2615~4000+ teaching_task，使用更大的 `placement_top_k`、`raw_plan_count`、`cp_plan_count` 和更长 `solver_time_limit_seconds`。
+- CP-SAT 前固定输出 `preflight_report.json`，先检查无候选/无 plan、教师负载、班级负载和房型候选容量风险；明显无解时 fail fast。
+- 推荐压测顺序：`preflight` → `FEASIBILITY` first feasible → `QUALITY/STRESS` quality optimization。
 
 **代码位置**: `ml/scheduling_v3/cp_sat_selector.py` (668 行)
 
@@ -176,10 +179,11 @@ Pipeline 主链路只用 CP-SAT。
 ```json
 {
   "allocation_task_id": 1,
-  "top_k": 50,
-  "plan_count": 120,
+  "top_k": 80,
+  "plan_count": 240,
   "scheme_count": 3,
-  "solver_time_limit_seconds": 60.0
+  "solver_time_limit_seconds": 1800.0,
+  "generation_mode": "QUALITY"
 }
 ```
 
@@ -199,6 +203,8 @@ Java 兼容端点，202 Accepted 后通过 `/generate-scheme/{task_uid}/stream` 
 data/generated/v3/task_{id}_{timestamp}/
 ├── placement_candidates.jsonl   # Step 2 输出
 ├── task_plans.jsonl             # Step 3 输出
+├── task_plans_cp.jsonl          # CP-SAT 前按 cp_plan_count 裁剪后的 plans
+├── preflight_report.json        # CP-SAT 前轻量可行性诊断
 ├── schemes.jsonl                # Step 4 最终方案
 ├── v3_summary.json              # 汇总信息
 └── cp_sat_summary.json          # CP-SAT 求解详情
