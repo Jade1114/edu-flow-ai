@@ -177,6 +177,7 @@ public class MlApiClient {
 									throw new BusinessException(500,
 										"ML API SSE completed but no output_dir in: " + data);
 								}
+								progressConsumer.accept(extractProgress(data));
 								log.info("ML API task completed via SSE: taskId={}", taskId);
 								return outputDir;
 							}
@@ -235,6 +236,16 @@ public class MlApiClient {
 		if (outputDir != null) progress.put("outputDir", outputDir);
 		String solverStatus = extractJsonString(json, "solver_status", null);
 		if (solverStatus != null) progress.put("solverStatus", solverStatus);
+		String bestStage = extractJsonString(json, "best_stage", null);
+		if (bestStage != null) progress.put("solverStatus", bestStage);
+		String error = extractJsonString(json, "error", null);
+		if (error != null) progress.put("errorDiagnosis", error);
+		String diagnosis = extractJsonString(json, "candidate_coverage_diagnosis", null);
+		if (diagnosis != null) progress.put("errorDiagnosis", diagnosis);
+		String strategy = extractJsonString(json, "strategy", null);
+		if (strategy != null) progress.put("stageStrategy", strategy);
+		String stageStrategy = extractJsonObject(json, "stage_strategy");
+		if (stageStrategy != null && strategy == null) progress.put("stageStrategy", stageStrategy);
 		return progress;
 	}
 
@@ -280,6 +291,42 @@ public class MlApiClient {
 		} catch (NumberFormatException ignored) {
 			return defaultValue;
 		}
+	}
+
+	private static String extractJsonObject(String json, String field) {
+		String key = "\"" + field + "\"";
+		int keyIndex = json.indexOf(key);
+		if (keyIndex < 0) return null;
+		int colonIndex = json.indexOf(':', keyIndex + key.length());
+		if (colonIndex < 0) return null;
+		int start = colonIndex + 1;
+		while (start < json.length() && Character.isWhitespace(json.charAt(start))) start++;
+		if (start >= json.length() || json.charAt(start) != '{') return null;
+		int depth = 0;
+		boolean inString = false;
+		boolean escaped = false;
+		for (int i = start; i < json.length(); i++) {
+			char ch = json.charAt(i);
+			if (inString) {
+				if (escaped) {
+					escaped = false;
+				} else if (ch == '\\') {
+					escaped = true;
+				} else if (ch == '"') {
+					inString = false;
+				}
+			} else if (ch == '"') {
+				inString = true;
+			} else if (ch == '{') {
+				depth++;
+			} else if (ch == '}') {
+				depth--;
+				if (depth == 0) {
+					return json.substring(start, i + 1);
+				}
+			}
+		}
+		return null;
 	}
 
 	/**
