@@ -8,9 +8,7 @@ services:
       - "3307:3306"
     volumes:
       - mysql_data:/var/lib/mysql
-      - ./db/schema.sql:/docker-entrypoint-initdb.d/01-schema.sql
-      - ./db/seed-basic.sql:/docker-entrypoint-initdb.d/02-seed-basic.sql
-      - ./db/seed-profiles.sql:/docker-entrypoint-initdb.d/03-seed-profiles.sql
+      - ./backend/db/schema.sql:/docker-entrypoint-initdb.d/01-schema.sql
     healthcheck:
       test: [ "CMD", "mysqladmin", "ping", "-h", "localhost" ]
       interval: 10s
@@ -20,7 +18,7 @@ services:
   ml-api:
     build:
       context: .
-      dockerfile: ml/Dockerfile
+      dockerfile: backend/python/Dockerfile
     environment:
       DB_URL: jdbc:mysql://db:3306/edu_flow_ai?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true&useSSL=false
       DB_USERNAME: root
@@ -36,7 +34,7 @@ services:
   server:
     build:
       context: .
-      dockerfile: server/Dockerfile
+      dockerfile: backend/java/Dockerfile
     environment:
       DB_URL: jdbc:mysql://db:3306/edu_flow_ai?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true&useSSL=false
       DB_USERNAME: root
