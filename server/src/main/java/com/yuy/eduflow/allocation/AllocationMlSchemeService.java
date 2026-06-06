@@ -27,6 +27,7 @@ public class AllocationMlSchemeService {
 
 	private final AllocationTaskMapper allocationTaskMapper;
 	private final AllocationSchemeMapper allocationSchemeMapper;
+	private final AllocationTaskGenerationConfigMapper generationConfigMapper;
 	private final ObjectMapper objectMapper;
 	private final MlApiClient mlApiClient;
 	private final TeacherProfileSnapshotService teacherProfileSnapshotService;
@@ -34,12 +35,14 @@ public class AllocationMlSchemeService {
 	public AllocationMlSchemeService(
 		AllocationTaskMapper allocationTaskMapper,
 		AllocationSchemeMapper allocationSchemeMapper,
+		AllocationTaskGenerationConfigMapper generationConfigMapper,
 		ObjectMapper objectMapper,
 		MlApiClient mlApiClient,
 		TeacherProfileSnapshotService teacherProfileSnapshotService
 	) {
 		this.allocationTaskMapper = allocationTaskMapper;
 		this.allocationSchemeMapper = allocationSchemeMapper;
+		this.generationConfigMapper = generationConfigMapper;
 		this.objectMapper = objectMapper;
 		this.mlApiClient = mlApiClient;
 		this.teacherProfileSnapshotService = teacherProfileSnapshotService;
@@ -83,6 +86,8 @@ public class AllocationMlSchemeService {
 	) {
 		Map<String, Object> requestBody = new LinkedHashMap<>();
 		requestBody.put("task_id", task.getId());
+		AllocationTaskGenerationConfig config = generationConfigMapper.findByTaskId(task.getId());
+		applyGenerationConfig(requestBody, config);
 		Path teacherProfilesJsonl = teacherProfileSnapshotService.exportForAllocationTask(task.getId());
 		if (teacherProfilesJsonl != null) {
 			requestBody.put("teacher_profiles_jsonl", teacherProfilesJsonl.toString());
@@ -100,7 +105,13 @@ public class AllocationMlSchemeService {
 				String stage = String.valueOf(progress.getOrDefault("stage", "ml"));
 				String message = String.valueOf(progress.getOrDefault("message", "排课模型运行中..."));
 				Integer progressValue = progress.get("progress") instanceof Number n ? n.intValue() : 20;
-				progressReporter.accept(running(stage, message, progressValue));
+				GenerationStatus status = running(stage, message, progressValue);
+				status.setSummaryPath(stringValue(progress.get("summaryPath")));
+				status.setOutputDir(stringValue(progress.get("outputDir")));
+				status.setSolverStatus(stringValue(progress.get("solverStatus")));
+				status.setErrorDiagnosis(stringValue(progress.get("errorDiagnosis")));
+				status.setStageStrategy(stringValue(progress.get("stageStrategy")));
+				progressReporter.accept(status);
 			});
 			if (outputDirStr == null || outputDirStr.isBlank()) {
 				throw new BusinessException(500, "ML API 响应缺少 output_dir");
@@ -112,6 +123,38 @@ public class AllocationMlSchemeService {
 		} catch (Exception e) {
 			throw new BusinessException(500, "自训练模型 HTTP 调用失败：" + e.getMessage(), e);
 		}
+	}
+
+	private void applyGenerationConfig(Map<String, Object> requestBody, AllocationTaskGenerationConfig config) {
+		if (config == null) {
+			return;
+		}
+		putIfPresent(requestBody, "top_k", config.getPlacementTopK());
+		putIfPresent(requestBody, "plan_count", config.getRawPlanCount());
+		putIfPresent(requestBody, "scheme_count", config.getSchemeCount());
+		putIfPresent(requestBody, "solver_time_limit_seconds", config.getSolverTimeLimitSeconds());
+		String generationMode = config.getGenerationMode();
+		if (generationMode != null && !generationMode.isBlank()) {
+			String mode = generationMode.trim().toUpperCase();
+			requestBody.put("generation_mode", mode);
+			if ("AUTO_QUALITY".equals(mode) || "AUTO_STRESS".equals(mode)) {
+				requestBody.put("max_auto_stage", "QUALITY_OPTIMIZATION");
+				requestBody.put("skip_diversity", true);
+			} else if ("AUTO_FULL".equals(mode)) {
+				requestBody.put("max_auto_stage", "DIVERSITY_SEARCH");
+				requestBody.put("skip_diversity", false);
+			}
+		}
+	}
+
+	private void putIfPresent(Map<String, Object> requestBody, String key, Object value) {
+		if (value != null) {
+			requestBody.put(key, value);
+		}
+	}
+
+	private String stringValue(Object value) {
+		return value instanceof String s && !s.isBlank() ? s : null;
 	}
 
 	private record EvaluationData(Double schemeScore, String evaluationSummary) {}

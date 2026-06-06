@@ -249,7 +249,7 @@ public class AllocationTaskService {
 		}
 		String mode = value.trim().toUpperCase();
 		return switch (mode) {
-			case "AUTO", "FEASIBILITY", "QUALITY", "STRESS" -> mode;
+			case "AUTO", "AUTO_QUALITY", "AUTO_FULL", "FEASIBILITY", "QUALITY", "STRESS" -> mode;
 			default -> "AUTO";
 		};
 	}
@@ -283,8 +283,8 @@ public class AllocationTaskService {
 		validateRange(config.solverTimeLimitSeconds(), "CP-SAT 时间上限", 1, 3600);
 		if (config.generationMode() != null) {
 			String mode = config.generationMode().trim().toUpperCase();
-			if (!mode.equals("AUTO") && !mode.equals("FEASIBILITY") && !mode.equals("QUALITY") && !mode.equals("STRESS")) {
-				throw new ValidationException("运行模式必须为 AUTO、FEASIBILITY、QUALITY 或 STRESS");
+			if (!mode.equals("AUTO") && !mode.equals("AUTO_QUALITY") && !mode.equals("AUTO_FULL") && !mode.equals("FEASIBILITY") && !mode.equals("QUALITY") && !mode.equals("STRESS")) {
+				throw new ValidationException("运行模式必须为 AUTO、AUTO_QUALITY、AUTO_FULL、FEASIBILITY、QUALITY 或 STRESS");
 			}
 		}
 	}

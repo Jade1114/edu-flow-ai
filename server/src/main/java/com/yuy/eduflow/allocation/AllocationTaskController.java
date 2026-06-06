@@ -22,6 +22,7 @@ public class AllocationTaskController {
 	private final AllocationTaskService allocationTaskService;
 	private final AllocationSchemeService allocationSchemeService;
 	private final AllocationSchemeGenerationService allocationSchemeGenerationService;
+	private final AllocationBalancedStressTaskService allocationBalancedStressTaskService;
 	private final GenerationTracker generationTracker;
 	private final MlApiClient mlApiClient;
 
@@ -29,12 +30,14 @@ public class AllocationTaskController {
 		AllocationTaskService allocationTaskService,
 		AllocationSchemeService allocationSchemeService,
 		AllocationSchemeGenerationService allocationSchemeGenerationService,
+		AllocationBalancedStressTaskService allocationBalancedStressTaskService,
 		GenerationTracker generationTracker,
 		MlApiClient mlApiClient
 	) {
 		this.allocationTaskService = allocationTaskService;
 		this.allocationSchemeService = allocationSchemeService;
 		this.allocationSchemeGenerationService = allocationSchemeGenerationService;
+		this.allocationBalancedStressTaskService = allocationBalancedStressTaskService;
 		this.generationTracker = generationTracker;
 		this.mlApiClient = mlApiClient;
 	}
@@ -110,6 +113,13 @@ public class AllocationTaskController {
 	@PostMapping
 	public ApiResponse<AllocationTask> create(@RequestBody AllocationTaskRequest request) {
 		return ApiResponse.success(allocationTaskService.create(request));
+	}
+
+	@PostMapping("/stress/balanced-4000")
+	public ApiResponse<BalancedStressTaskResponse> createBalanced4000StressTask(
+		@RequestBody(required = false) BalancedStressTaskRequest request
+	) {
+		return ApiResponse.success(allocationBalancedStressTaskService.createBalanced4000(request));
 	}
 
 	@PutMapping("/{id}")

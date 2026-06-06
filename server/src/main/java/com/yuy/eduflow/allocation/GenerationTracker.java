@@ -48,11 +48,18 @@ public class GenerationTracker {
 					taskId,
 					status -> updateStatus(taskId, status)
 				);
-				updateStatus(taskId, new GenerationStatus("COMPLETED", "done", "生成完成", 100, null, result.schemeCount(), null));
+				GenerationStatus completed = new GenerationStatus("COMPLETED", "done", "生成完成", 100, null, result.schemeCount(), null);
+				copyDiagnostics(statusMap.get(taskId), completed);
+				updateStatus(taskId, completed);
 				log.info("Generation completed for taskId={}, schemeCount={}", taskId, result.schemeCount());
 			} catch (Exception e) {
 				log.error("Generation failed for taskId={}", taskId, e);
-				updateStatus(taskId, new GenerationStatus("FAILED", "error", "生成失败", 100, e.getMessage(), 0, null));
+				GenerationStatus failed = new GenerationStatus("FAILED", "error", "生成失败", 100, e.getMessage(), 0, null);
+				copyDiagnostics(statusMap.get(taskId), failed);
+				if (failed.getErrorDiagnosis() == null || failed.getErrorDiagnosis().isBlank()) {
+					failed.setErrorDiagnosis(e.getMessage());
+				}
+				updateStatus(taskId, failed);
 			} finally {
 				completeEmitters(taskId);
 			}
@@ -91,6 +98,7 @@ public class GenerationTracker {
 	}
 
 	private void updateStatus(Long taskId, GenerationStatus status) {
+		copyDiagnostics(statusMap.get(taskId), status);
 		statusMap.put(taskId, status);
 		List<SseEmitter> taskEmitters = emitters.get(taskId);
 		if (taskEmitters == null || taskEmitters.isEmpty()) {
@@ -102,6 +110,27 @@ public class GenerationTracker {
 		// 终态（COMPLETED/FAILED）广播后完成所有 emitter，防止前端卡住
 		if ("COMPLETED".equals(status.getStatus()) || "FAILED".equals(status.getStatus())) {
 			completeEmitters(taskId);
+		}
+	}
+
+	private void copyDiagnostics(GenerationStatus source, GenerationStatus target) {
+		if (source == null || target == null) {
+			return;
+		}
+		if (target.getSolverStatus() == null) {
+			target.setSolverStatus(source.getSolverStatus());
+		}
+		if (target.getSummaryPath() == null) {
+			target.setSummaryPath(source.getSummaryPath());
+		}
+		if (target.getOutputDir() == null) {
+			target.setOutputDir(source.getOutputDir());
+		}
+		if (target.getErrorDiagnosis() == null) {
+			target.setErrorDiagnosis(source.getErrorDiagnosis());
+		}
+		if (target.getStageStrategy() == null) {
+			target.setStageStrategy(source.getStageStrategy());
 		}
 	}
 

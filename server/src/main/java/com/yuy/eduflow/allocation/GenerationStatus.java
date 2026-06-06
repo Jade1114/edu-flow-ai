@@ -13,6 +13,11 @@ public class GenerationStatus {
 	private String error;
 	private Integer schemeCount;
 	private Long startedAt;
+	private String solverStatus;
+	private String summaryPath;
+	private String outputDir;
+	private String errorDiagnosis;
+	private String stageStrategy;
 
 	public GenerationStatus() {
 	}
@@ -93,5 +98,45 @@ public class GenerationStatus {
 
 	public void setStartedAt(Long startedAt) {
 		this.startedAt = startedAt;
+	}
+
+	public String getSolverStatus() {
+		return solverStatus;
+	}
+
+	public void setSolverStatus(String solverStatus) {
+		this.solverStatus = solverStatus;
+	}
+
+	public String getSummaryPath() {
+		return summaryPath;
+	}
+
+	public void setSummaryPath(String summaryPath) {
+		this.summaryPath = summaryPath;
+	}
+
+	public String getOutputDir() {
+		return outputDir;
+	}
+
+	public void setOutputDir(String outputDir) {
+		this.outputDir = outputDir;
+	}
+
+	public String getErrorDiagnosis() {
+		return errorDiagnosis;
+	}
+
+	public void setErrorDiagnosis(String errorDiagnosis) {
+		this.errorDiagnosis = errorDiagnosis;
+	}
+
+	public String getStageStrategy() {
+		return stageStrategy;
+	}
+
+	public void setStageStrategy(String stageStrategy) {
+		this.stageStrategy = stageStrategy;
 	}
 }
