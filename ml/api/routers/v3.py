@@ -33,7 +33,10 @@ class GenerateV3Request(BaseModel):
     plan_count: int = Field(default=DEFAULT_PLAN_COUNT, ge=1, le=MAX_PLAN_COUNT)
     scheme_count: int | None = Field(default=None, ge=1, le=20)
     solver_time_limit_seconds: float = Field(default=60.0, ge=1.0, le=MAX_SOLVER_TIME_LIMIT_SECONDS)
+    solver_workers: int | None = Field(default=None, ge=1, le=32)
     generation_mode: str = DEFAULT_GENERATION_MODE
+    max_auto_stage: str | None = None
+    skip_diversity: bool = False
     output_dir: str | None = None
 
 
@@ -44,7 +47,10 @@ class GenerateSchemeRequest(BaseModel):
     plan_count: int = Field(default=DEFAULT_PLAN_COUNT, ge=1, le=MAX_PLAN_COUNT)
     scheme_count: int | None = Field(default=None, ge=1, le=20)
     solver_time_limit_seconds: float = Field(default=60.0, ge=1.0, le=MAX_SOLVER_TIME_LIMIT_SECONDS)
+    solver_workers: int | None = Field(default=None, ge=1, le=32)
     generation_mode: str = DEFAULT_GENERATION_MODE
+    max_auto_stage: str | None = None
+    skip_diversity: bool = False
 
 
 @router.post("/v3/generate")
@@ -60,7 +66,10 @@ async def generate_v3(request: GenerateV3Request):
             plan_count=request.plan_count,
             scheme_count=request.scheme_count,
             solver_time_limit_seconds=request.solver_time_limit_seconds,
+            solver_workers=request.solver_workers,
             generation_mode=request.generation_mode,
+            max_auto_stage=request.max_auto_stage,
+            skip_diversity=request.skip_diversity,
             output_dir=request.output_dir,
         )
     except (ValueError, FileNotFoundError) as exc:
@@ -96,7 +105,10 @@ async def submit_generate_scheme(request: GenerateSchemeRequest):
                 plan_count=request.plan_count,
                 scheme_count=request.scheme_count,
                 solver_time_limit_seconds=request.solver_time_limit_seconds,
+                solver_workers=request.solver_workers,
                 generation_mode=request.generation_mode,
+                max_auto_stage=request.max_auto_stage,
+                skip_diversity=request.skip_diversity,
                 progress_callback=lambda payload: _push("progress", payload),
             )
             _tasks[task_uid] = {"status": "completed", "result": result, "error": None}

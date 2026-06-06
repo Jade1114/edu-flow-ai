@@ -53,10 +53,20 @@ DEFAULT_GENERATION_MODE = "AUTO"
 DEFAULT_SINGLE_GENERATION_MODE = "QUALITY"
 FEASIBILITY_MODES = {"FEASIBILITY", "FIRST_SOLUTION", "FIRST_FEASIBLE"}
 AUTO_GENERATION_MODES = {"AUTO", "AUTOMATIC", "PIPELINE"}
+AUTO_STAGE_ORDER = ("FIRST_FEASIBLE", "QUALITY_OPTIMIZATION", "DIVERSITY_SEARCH")
 DEFAULT_SEMESTER_WEEKS = 18
 DEFAULT_ALLOWED_WEEKS = set(range(1, DEFAULT_SEMESTER_WEEKS + 1))
 DEFAULT_ALLOWED_WEEKDAYS = set(range(1, 6))
 DEFAULT_ALLOWED_PERIODS = set(range(1, 6))
+LARGE_STRESS_TASK_THRESHOLD = 4000
+FIRST_FEASIBLE_MIN_TOP_K = 64
+FIRST_FEASIBLE_MIN_PLAN_COUNT = 64
+FIRST_FEASIBLE_MIN_CP_PLAN_COUNT = 16
+DEFAULT_STAGE_SOLVER_WORKERS = {
+    "FIRST_FEASIBLE": 4,
+    "QUALITY_OPTIMIZATION": 8,
+    "DIVERSITY_SEARCH": 8,
+}
 OUTPUT_ROOT = Path(__file__).resolve().parents[2] / "data" / "generated" / "v3"
 
 
@@ -67,7 +77,10 @@ def run_v3_pipeline(
     plan_count: int = DEFAULT_PLAN_COUNT,
     scheme_count: int | None = None,
     solver_time_limit_seconds: float = DEFAULT_TIME_LIMIT_SECONDS,
+    solver_workers: int | None = None,
     generation_mode: str | None = None,
+    max_auto_stage: str | None = None,
+    skip_diversity: bool = False,
     output_dir: Path | str | None = None,
     progress_callback: Callable[[dict[str, Any]], None] | None = None,
 ) -> dict[str, Any]:
@@ -82,6 +95,10 @@ def run_v3_pipeline(
             plan_count=plan_count,
             scheme_count=scheme_count,
             solver_time_limit_seconds=solver_time_limit_seconds,
+            solver_workers=solver_workers,
+            max_auto_stage=max_auto_stage,
+            skip_diversity=skip_diversity,
+            requested_generation_mode=generation_mode,
             output_dir=output_dir,
             progress_callback=progress_callback,
         )
@@ -162,6 +179,14 @@ def run_v3_pipeline(
     finally:
         conn.close()
 
+    resolved_top_k, resolved_plan_count, resolved_cp_plan_count = _widen_first_feasible_candidates(
+        task_count=len(teaching_tasks),
+        generation_mode=resolved_generation_mode,
+        placement_top_k=resolved_top_k,
+        raw_plan_count=resolved_plan_count,
+        cp_plan_count=resolved_cp_plan_count,
+    )
+
     print(f"  Tasks: {len(teaching_tasks)}, Courses: {len(courses)}, "
           f"Classrooms: {len(classrooms)}, Classes: {len(class_groups)}, "
           f"Teachers: {len(teachers)}, TimeSlots: {len(time_slot_id_by_coord)}, "
@@ -240,7 +265,25 @@ def run_v3_pipeline(
     cp_stage = "FIRST_FEASIBLE" if resolved_generation_mode in FEASIBILITY_MODES else "QUALITY_OPTIMIZATION"
     if resolved_scheme_count > 1:
         cp_stage = "DIVERSITY_SEARCH"
-    emit(cp_stage, "CP-SAT 正在做全局无冲突方案选择...", 55, scheme_count=resolved_scheme_count)
+    resolved_solver_workers = _resolve_solver_workers(solver_workers, cp_stage)
+    stage_strategy = _stage_strategy(
+        cp_stage,
+        workers=resolved_solver_workers,
+        time_limit=resolved_solver_time_limit,
+        top_k=resolved_top_k,
+        raw_plan_count=resolved_plan_count,
+        cp_plan_count=resolved_cp_plan_count,
+        scheme_count=resolved_scheme_count,
+        objective_mode=resolved_generation_mode,
+    )
+    emit(
+        cp_stage,
+        "CP-SAT 正在做全局无冲突方案选择...",
+        55,
+        scheme_count=resolved_scheme_count,
+        stage_strategy=stage_strategy,
+        strategy=_format_stage_strategy(stage_strategy),
+    )
     print("[V3] Step 4: CP-SAT global plan selection...")
     objective_weights = _resolve_cp_sat_objective_weights(raw_config)
     if resolved_generation_mode in FEASIBILITY_MODES:
@@ -251,6 +294,7 @@ def run_v3_pipeline(
         time_slot_id_by_coord=time_slot_id_by_coord,
         scheme_count=resolved_scheme_count,
         time_limit_seconds=resolved_solver_time_limit,
+        solver_workers=resolved_solver_workers,
         model_objective_weight=objective_weights["model"],
         teacher_profile_objective_weight=objective_weights["teacher_profile_score"],
         teacher_profile_penalty_weight=objective_weights["teacher_profile_penalty"],
@@ -260,6 +304,9 @@ def run_v3_pipeline(
             "cp_plan_count": resolved_cp_plan_count,
             "plan_count": resolved_plan_count,
             "generation_mode": resolved_generation_mode,
+            "preflight_no_candidate_task_count": preflight_summary.get("no_candidate_task_count"),
+            "preflight_no_plan_task_count": preflight_summary.get("no_plan_task_count"),
+            "preflight_estimated_feasible": preflight_summary.get("estimated_feasible"),
         },
         output_dir=out_dir,
     )
@@ -274,6 +321,8 @@ def run_v3_pipeline(
         scheme_count=cp_sat_summary.get("scheme_count"),
         solver_status=cp_sat_summary.get("solver_status"),
         summary_path=cp_sat_summary.get("summary_path"),
+        stage_strategy=stage_strategy,
+        strategy=_format_stage_strategy(stage_strategy),
     )
 
     runtime_s = round(time.perf_counter() - started, 2)
@@ -295,6 +344,8 @@ def run_v3_pipeline(
         "raw_plan_count": resolved_plan_count,
         "cp_plan_count": resolved_cp_plan_count,
         "solver_time_limit_seconds": resolved_solver_time_limit,
+        "solver_workers": resolved_solver_workers,
+        "stage_strategy": stage_strategy,
         "generation_mode": resolved_generation_mode,
         "plan_count": resolved_plan_count,
         "scheme_count": cp_sat_summary.get("scheme_count"),
@@ -309,6 +360,7 @@ def run_v3_pipeline(
     }
 
     summary_path = out_dir / "v3_summary.json"
+    summary["summary_path"] = str(summary_path)
     with open(summary_path, "w", encoding="utf-8") as f:
         json.dump(summary, f, ensure_ascii=False, indent=2, default=str)
 
@@ -319,6 +371,8 @@ def run_v3_pipeline(
         output_dir=str(out_dir),
         schemes_path=str(schemes_path),
         runtime_s=runtime_s,
+        stage_strategy=stage_strategy,
+        strategy=_format_stage_strategy(stage_strategy),
     )
     print(f"[V3] Done in {runtime_s}s. Conflicts: {conflicts_after}")
     print(f"  → {schemes_path}")
@@ -332,14 +386,23 @@ def run_v3_auto_pipeline(
     plan_count: int = DEFAULT_PLAN_COUNT,
     scheme_count: int | None = None,
     solver_time_limit_seconds: float = DEFAULT_TIME_LIMIT_SECONDS,
+    solver_workers: int | None = None,
+    max_auto_stage: str | None = None,
+    skip_diversity: bool = False,
+    requested_generation_mode: str | None = None,
     output_dir: Path | str | None = None,
     progress_callback: Callable[[dict[str, Any]], None] | None = None,
 ) -> dict[str, Any]:
-    """Run V3 automatically: first feasible → quality → diversity."""
+    """Run V3 automatically: first feasible → quality → optional diversity."""
     started = time.perf_counter()
     auto_dir = _resolve_output_dir(allocation_task_id, output_dir)
     auto_dir.mkdir(parents=True, exist_ok=True)
     requested_scheme_count = max(1, scheme_count or 3)
+    resolved_max_auto_stage = _resolve_max_auto_stage(
+        max_auto_stage,
+        requested_generation_mode=requested_generation_mode,
+        skip_diversity=skip_diversity,
+    )
     stages: list[dict[str, Any]] = []
     best_result: dict[str, Any] | None = None
     best_stage = ""
@@ -354,9 +417,20 @@ def run_v3_auto_pipeline(
         mode: str,
         stage_scheme_count: int,
         stage_solver_time_limit: float,
+        stage_solver_workers: int,
         stage_progress_base: int,
         stage_output_name: str,
     ) -> dict[str, Any] | None:
+        stage_strategy = _stage_strategy(
+            stage,
+            workers=stage_solver_workers,
+            time_limit=stage_solver_time_limit,
+            top_k=top_k,
+            raw_plan_count=plan_count,
+            cp_plan_count=None,
+            scheme_count=stage_scheme_count,
+            objective_mode=mode,
+        )
         stage_started = time.perf_counter()
         stage_record: dict[str, Any] = {
             "stage": stage,
@@ -364,6 +438,8 @@ def run_v3_auto_pipeline(
             "status": "RUNNING",
             "scheme_count_requested": stage_scheme_count,
             "solver_time_limit_seconds": stage_solver_time_limit,
+            "solver_workers": stage_solver_workers,
+            "stage_strategy": stage_strategy,
         }
         stages.append(stage_record)
         emit(
@@ -372,6 +448,8 @@ def run_v3_auto_pipeline(
             stage_progress_base,
             generation_mode=mode,
             scheme_count=stage_scheme_count,
+            stage_strategy=stage_strategy,
+            strategy=_format_stage_strategy(stage_strategy),
         )
         try:
             result = run_v3_pipeline(
@@ -380,6 +458,7 @@ def run_v3_auto_pipeline(
                 plan_count=plan_count,
                 scheme_count=stage_scheme_count,
                 solver_time_limit_seconds=stage_solver_time_limit,
+                solver_workers=stage_solver_workers,
                 generation_mode=mode,
                 output_dir=auto_dir / stage_output_name,
                 progress_callback=progress_callback,
@@ -401,6 +480,8 @@ def run_v3_auto_pipeline(
                 min(stage_progress_base + 12, 95),
                 output_dir=result.get("output_dir"),
                 scheme_count=result.get("scheme_count"),
+                stage_strategy=result.get("stage_strategy") or stage_strategy,
+                strategy=_format_stage_strategy(result.get("stage_strategy") or stage_strategy),
             )
             return result
         except Exception as exc:
@@ -414,15 +495,24 @@ def run_v3_auto_pipeline(
                 _auto_stage_message(stage, "failed"),
                 min(stage_progress_base + 12, 95),
                 error=stage_record["error"],
+                stage_strategy=stage_strategy,
+                strategy=_format_stage_strategy(stage_strategy),
             )
             return None
 
-    emit("PREFLIGHT", "AUTO 流水线启动：先判可行，再优化质量，最后搜索多方案...", 3)
+    emit(
+        "PREFLIGHT",
+        f"AUTO 流水线启动：阶段上限 {resolved_max_auto_stage}。",
+        3,
+        max_auto_stage=resolved_max_auto_stage,
+        skip_diversity=skip_diversity,
+    )
     first_result = run_stage(
         "FIRST_FEASIBLE",
         mode="FEASIBILITY",
         stage_scheme_count=1,
         stage_solver_time_limit=_auto_first_feasible_time_limit(solver_time_limit_seconds),
+        stage_solver_workers=_resolve_solver_workers(solver_workers, "FIRST_FEASIBLE"),
         stage_progress_base=8,
         stage_output_name="first_feasible",
     )
@@ -431,35 +521,43 @@ def run_v3_auto_pipeline(
         best_stage = "FIRST_FEASIBLE"
 
     quality_result: dict[str, Any] | None = None
-    if best_result is not None:
+    if _auto_stage_enabled("QUALITY_OPTIMIZATION", resolved_max_auto_stage) and best_result is not None:
         quality_result = run_stage(
             "QUALITY_OPTIMIZATION",
             mode="QUALITY",
             stage_scheme_count=1,
             stage_solver_time_limit=solver_time_limit_seconds,
+            stage_solver_workers=_resolve_solver_workers(solver_workers, "QUALITY_OPTIMIZATION"),
             stage_progress_base=38,
             stage_output_name="quality",
         )
         if quality_result is not None:
             best_result = quality_result
             best_stage = "QUALITY_OPTIMIZATION"
+    elif not _auto_stage_enabled("QUALITY_OPTIMIZATION", resolved_max_auto_stage):
+        stages.append({"stage": "QUALITY_OPTIMIZATION", "status": "SKIPPED", "reason": "MAX_AUTO_STAGE"})
+        emit("QUALITY_OPTIMIZATION", "AUTO 阶段上限为首个可行解，跳过质量优化。", 38)
     else:
         stages.append({"stage": "QUALITY_OPTIMIZATION", "status": "SKIPPED", "reason": "FIRST_FEASIBLE_FAILED"})
         emit("QUALITY_OPTIMIZATION", "首个可行解失败，跳过质量优化。", 38)
 
     diversity_result: dict[str, Any] | None = None
-    if quality_result is not None:
+    if _auto_stage_enabled("DIVERSITY_SEARCH", resolved_max_auto_stage) and quality_result is not None:
         diversity_result = run_stage(
             "DIVERSITY_SEARCH",
             mode="QUALITY",
             stage_scheme_count=max(2, requested_scheme_count),
             stage_solver_time_limit=solver_time_limit_seconds,
+            stage_solver_workers=_resolve_solver_workers(solver_workers, "DIVERSITY_SEARCH"),
             stage_progress_base=68,
             stage_output_name="diversity",
         )
         if diversity_result is not None:
             best_result = diversity_result
             best_stage = "DIVERSITY_SEARCH"
+    elif not _auto_stage_enabled("DIVERSITY_SEARCH", resolved_max_auto_stage):
+        stages.append({"stage": "DIVERSITY_SEARCH", "status": "SKIPPED", "reason": "MAX_AUTO_STAGE"})
+        emit("DIVERSITY_SEARCH", "大规模/AUTO 阶段配置要求跳过多方案搜索。", 68)
     else:
         stages.append({"stage": "DIVERSITY_SEARCH", "status": "SKIPPED", "reason": "QUALITY_OPTIMIZATION_FAILED"})
         emit("DIVERSITY_SEARCH", "质量优化未成功，保留已有最佳方案并跳过多方案搜索。", 68)
@@ -469,6 +567,8 @@ def run_v3_auto_pipeline(
         "architecture": "v3_auto_pipeline",
         "allocation_task_id": allocation_task_id,
         "generation_mode": "AUTO",
+        "max_auto_stage": resolved_max_auto_stage,
+        "skip_diversity": not _auto_stage_enabled("DIVERSITY_SEARCH", resolved_max_auto_stage),
         "output_dir": best_result.get("output_dir") if best_result else str(auto_dir),
         "best_stage": best_stage or None,
         "best_result": best_result,
@@ -505,6 +605,54 @@ def run_v3_auto_pipeline(
 
 
 # ── internal helpers ──────────────────────────────────────────────────
+
+def _resolve_solver_workers(value: int | None, stage: str) -> int:
+    if value is not None:
+        return max(1, int(value))
+    return DEFAULT_STAGE_SOLVER_WORKERS.get(stage, 8)
+
+
+def _stage_strategy(
+    stage: str,
+    *,
+    workers: int,
+    time_limit: float,
+    top_k: int,
+    raw_plan_count: int,
+    cp_plan_count: int | None,
+    scheme_count: int,
+    objective_mode: str,
+) -> dict[str, Any]:
+    descriptions = {
+        "FIRST_FEASIBLE": "快速寻找首个无冲突可行解",
+        "QUALITY_OPTIMIZATION": "在可行基础上优化模型分和教师画像目标",
+        "DIVERSITY_SEARCH": "搜索多方案并进一步优化候选覆盖",
+    }
+    return {
+        "stage": stage,
+        "workers": workers,
+        "time_limit_seconds": time_limit,
+        "top_k": top_k,
+        "raw_plan_count": raw_plan_count,
+        "cp_plan_count": cp_plan_count,
+        "scheme_count": scheme_count,
+        "objective_mode": objective_mode,
+        "description": descriptions.get(stage, "执行 V3 CP-SAT 排课阶段"),
+    }
+
+
+def _format_stage_strategy(strategy: dict[str, Any]) -> str:
+    return (
+        f"workers={strategy.get('workers')}, "
+        f"time_limit={strategy.get('time_limit_seconds')}s, "
+        f"top_k={strategy.get('top_k')}, "
+        f"raw_plan_count={strategy.get('raw_plan_count')}, "
+        f"cp_plan_count={strategy.get('cp_plan_count')}, "
+        f"scheme_count={strategy.get('scheme_count')}, "
+        f"objective_mode={strategy.get('objective_mode')}; "
+        f"{strategy.get('description')}"
+    )
+
 
 def _resolve_output_dir(allocation_task_id: int, output_dir: Path | str | None) -> Path:
     if output_dir:
@@ -870,20 +1018,79 @@ def _resolve_scheme_count(raw_config: dict[str, Any] | None) -> int:
 
 
 def _is_auto_generation_mode(mode: str | None) -> bool:
-    return str(mode or DEFAULT_GENERATION_MODE).strip().upper() in AUTO_GENERATION_MODES
+    normalized = str(mode or DEFAULT_GENERATION_MODE).strip().upper()
+    return normalized in AUTO_GENERATION_MODES or normalized.startswith("AUTO_")
+
+
+def _resolve_max_auto_stage(
+    explicit_stage: str | None,
+    *,
+    requested_generation_mode: str | None,
+    skip_diversity: bool,
+) -> str:
+    if explicit_stage:
+        return _normalize_auto_stage(explicit_stage)
+    mode = str(requested_generation_mode or "").strip().upper()
+    if mode in {"AUTO_FEASIBLE", "AUTO_FIRST_FEASIBLE", "AUTO_FIRST"}:
+        return "FIRST_FEASIBLE"
+    if mode in {"AUTO_FULL", "AUTO_DIVERSITY", "AUTO_ALL"}:
+        return "DIVERSITY_SEARCH"
+    if skip_diversity or mode in {"AUTO_QUALITY", "AUTO_NO_DIVERSITY", "AUTO_FAST", "AUTO_STRESS"}:
+        return "QUALITY_OPTIMIZATION"
+    return "QUALITY_OPTIMIZATION"
+
+
+def _normalize_auto_stage(stage: str) -> str:
+    normalized = str(stage or "").strip().upper()
+    aliases = {
+        "FIRST": "FIRST_FEASIBLE",
+        "FEASIBLE": "FIRST_FEASIBLE",
+        "FEASIBILITY": "FIRST_FEASIBLE",
+        "FIRST_SOLUTION": "FIRST_FEASIBLE",
+        "QUALITY": "QUALITY_OPTIMIZATION",
+        "QUALITY_OPTIMIZATION": "QUALITY_OPTIMIZATION",
+        "DIVERSITY": "DIVERSITY_SEARCH",
+        "DIVERSITY_SEARCH": "DIVERSITY_SEARCH",
+    }
+    if normalized not in aliases:
+        raise ValueError(
+            "max_auto_stage must be one of FIRST_FEASIBLE, QUALITY_OPTIMIZATION, DIVERSITY_SEARCH"
+        )
+    return aliases[normalized]
+
+
+def _auto_stage_enabled(stage: str, max_auto_stage: str) -> bool:
+    return AUTO_STAGE_ORDER.index(stage) <= AUTO_STAGE_ORDER.index(max_auto_stage)
 
 
 def _auto_first_feasible_time_limit(configured_time_limit: float) -> float:
     return max(30.0, min(float(configured_time_limit), 300.0))
 
 
+def _widen_first_feasible_candidates(
+    *,
+    task_count: int,
+    generation_mode: str,
+    placement_top_k: int,
+    raw_plan_count: int,
+    cp_plan_count: int,
+) -> tuple[int, int, int]:
+    if generation_mode not in FEASIBILITY_MODES or task_count < LARGE_STRESS_TASK_THRESHOLD:
+        return placement_top_k, raw_plan_count, cp_plan_count
+    return (
+        max(placement_top_k, FIRST_FEASIBLE_MIN_TOP_K),
+        max(raw_plan_count, FIRST_FEASIBLE_MIN_PLAN_COUNT),
+        max(cp_plan_count, FIRST_FEASIBLE_MIN_CP_PLAN_COUNT),
+    )
+
+
 def _auto_stage_message(stage: str, status: str) -> str:
     messages = {
         ("FIRST_FEASIBLE", "start"): "正在判断是否存在首个无冲突可行解...",
-        ("FIRST_FEASIBLE", "success"): "首个可行解已找到，进入质量优化。",
+        ("FIRST_FEASIBLE", "success"): "首个可行解已找到。",
         ("FIRST_FEASIBLE", "failed"): "首个可行解未找到，AUTO 流水线停止。",
         ("QUALITY_OPTIMIZATION", "start"): "正在结合教师画像和美观目标优化高质量方案...",
-        ("QUALITY_OPTIMIZATION", "success"): "高质量方案已生成，开始尝试多方案搜索。",
+        ("QUALITY_OPTIMIZATION", "success"): "高质量方案已生成。",
         ("QUALITY_OPTIMIZATION", "failed"): "质量优化失败，保留已有可行解。",
         ("DIVERSITY_SEARCH", "start"): "正在基于高质量方案搜索其他候选方案...",
         ("DIVERSITY_SEARCH", "success"): "多方案搜索完成，已选用最佳可用结果。",

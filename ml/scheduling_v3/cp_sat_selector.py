@@ -23,6 +23,7 @@ except ModuleNotFoundError:  # pragma: no cover - exercised only without deps
 
 DEFAULT_SCHEME_COUNT = 3
 DEFAULT_TIME_LIMIT_SECONDS = 60.0
+DEFAULT_SOLVER_WORKERS = 8
 OBJECTIVE_SCALE = 1_000_000
 MODEL_OBJECTIVE_WEIGHT = 1.0
 TEACHER_PROFILE_OBJECTIVE_WEIGHT = 0.15
@@ -61,6 +62,7 @@ def select_cp_sat_global_plans_jsonl(
     time_slot_id_by_coord: dict[CoordKey, int],
     scheme_count: int = DEFAULT_SCHEME_COUNT,
     time_limit_seconds: float = DEFAULT_TIME_LIMIT_SECONDS,
+    solver_workers: int = DEFAULT_SOLVER_WORKERS,
     diversity_threshold: int | None = None,
     model_objective_weight: float = MODEL_OBJECTIVE_WEIGHT,
     teacher_profile_objective_weight: float = TEACHER_PROFILE_OBJECTIVE_WEIGHT,
@@ -84,6 +86,7 @@ def select_cp_sat_global_plans_jsonl(
 
     scheme_count = max(1, min(int(scheme_count), 20))
     time_limit_seconds = max(1.0, float(time_limit_seconds))
+    solver_workers = max(1, int(solver_workers))
     diff_threshold = (
         max(8, int(len(tasks) * 0.02))
         if diversity_threshold is None
@@ -106,6 +109,7 @@ def select_cp_sat_global_plans_jsonl(
             previous_solutions=selected_solutions,
             diversity_threshold=diff_threshold,
             time_limit_seconds=time_limit_seconds,
+            solver_workers=solver_workers,
             model_objective_weight=model_objective_weight,
             teacher_profile_objective_weight=teacher_profile_objective_weight,
             teacher_profile_penalty_weight=teacher_profile_penalty_weight,
@@ -129,12 +133,18 @@ def select_cp_sat_global_plans_jsonl(
     runtime_ms = round((time.perf_counter() - started) * 1000, 2)
     schemes_path = out_dir / "schemes.jsonl"
     summary_path = out_dir / "cp_sat_summary.json"
+    final_status = statuses[-1] if statuses else "UNKNOWN"
+    candidate_coverage_diagnosis = _candidate_coverage_diagnosis(
+        solver_status=final_status,
+        scheme_count=len(schemes),
+        summary_context=summary_context,
+    )
     summary = {
         "architecture": "v3_cp_sat_global_plan_selector",
         "source_path": str(source_path),
         "output_path": str(schemes_path),
         "summary_path": str(summary_path),
-        "solver_status": statuses[-1] if statuses else "UNKNOWN",
+        "solver_status": final_status,
         "solver_statuses": statuses,
         "task_count": len(tasks),
         "scheme_count_requested": scheme_count,
@@ -142,6 +152,7 @@ def select_cp_sat_global_plans_jsonl(
         "variable_count": variable_count,
         "constraint_count": constraint_count,
         "time_limit_seconds": time_limit_seconds,
+        "solver_workers": solver_workers,
         "objective": "maximize_quality_plus_teacher_profile_v1",
         "objective_weights": {
             "model": model_objective_weight,
@@ -153,6 +164,10 @@ def select_cp_sat_global_plans_jsonl(
         "cp_plan_count": (summary_context or {}).get("cp_plan_count"),
         "plan_count": (summary_context or {}).get("plan_count"),
         "generation_mode": (summary_context or {}).get("generation_mode"),
+        "preflight_no_candidate_task_count": (summary_context or {}).get("preflight_no_candidate_task_count"),
+        "preflight_no_plan_task_count": (summary_context or {}).get("preflight_no_plan_task_count"),
+        "preflight_estimated_feasible": (summary_context or {}).get("preflight_estimated_feasible"),
+        "candidate_coverage_diagnosis": candidate_coverage_diagnosis,
         "objective_values": objective_values,
         "diversity_threshold": diff_threshold,
         "fallback": fallback_summary,
@@ -172,13 +187,37 @@ def select_cp_sat_global_plans_jsonl(
     summary_path.write_text(json.dumps(summary, ensure_ascii=False, indent=2, default=str), encoding="utf-8")
     if not schemes:
         status = statuses[-1] if statuses else "UNKNOWN"
-        raise ValueError(f"CP-SAT failed to find a feasible V3 scheme: status={status}; summary={summary_path}")
+        diagnosis = ""
+        if candidate_coverage_diagnosis:
+            diagnosis = f"; diagnosis={candidate_coverage_diagnosis['message']}"
+        raise ValueError(f"CP-SAT failed to find a feasible V3 scheme: status={status}; summary={summary_path}{diagnosis}")
 
     schemes_path.write_text(
         "\n".join(json.dumps(row, ensure_ascii=False, default=str) for row in schemes),
         encoding="utf-8",
     )
     return summary
+
+
+def _candidate_coverage_diagnosis(
+    *,
+    solver_status: str,
+    scheme_count: int,
+    summary_context: dict[str, Any] | None,
+) -> dict[str, Any] | None:
+    context = summary_context or {}
+    no_candidate = int(context.get("preflight_no_candidate_task_count") or 0)
+    no_plan = int(context.get("preflight_no_plan_task_count") or 0)
+    if solver_status != "INFEASIBLE" or scheme_count > 0 or no_candidate > 0 or no_plan > 0:
+        return None
+    return {
+        "type": "CANDIDATE_COVERAGE_INSUFFICIENT",
+        "message": "CP-SAT INFEASIBLE but preflight has no no_candidate/no_plan tasks; likely candidate set coverage is too narrow or conflicts are concentrated.",
+        "recommendation": "Increase placement_top_k/raw_plan_count and cp_plan_count, especially for first_feasible on 4000-level stress runs.",
+        "placement_top_k": context.get("placement_top_k"),
+        "raw_plan_count": context.get("raw_plan_count"),
+        "cp_plan_count": context.get("cp_plan_count"),
+    }
 
 
 def load_cp_sat_task_plans(
@@ -325,6 +364,7 @@ def _solve_one_scheme(
     previous_solutions: list[set[tuple[int, int]]],
     diversity_threshold: int,
     time_limit_seconds: float,
+    solver_workers: int,
     model_objective_weight: float,
     teacher_profile_objective_weight: float,
     teacher_profile_penalty_weight: float,
@@ -389,7 +429,7 @@ def _solve_one_scheme(
 
     solver = cp_model.CpSolver()
     solver.parameters.max_time_in_seconds = time_limit_seconds
-    solver.parameters.num_search_workers = 8
+    solver.parameters.num_search_workers = solver_workers
     solver.parameters.search_branching = cp_model.PORTFOLIO_SEARCH
     status = solver.Solve(model)
     status_name = solver.StatusName(status)
