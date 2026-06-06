@@ -9,8 +9,8 @@
 // Additionally, you should also exclude this file from your linter and/or formatter to prevent it from being checked or modified.
 
 import { Route as rootRouteImport } from './routes/__root'
-import { Route as LoginRouteImport } from './routes/login'
 import { Route as AdminRouteImport } from './routes/admin'
+import { Route as IndexRouteImport } from './routes/index'
 import { Route as AdminTimetableRouteImport } from './routes/admin/timetable'
 import { Route as AdminTeachingTasksRouteImport } from './routes/admin/teaching-tasks'
 import { Route as AdminTeachersRouteImport } from './routes/admin/teachers'
@@ -23,14 +23,14 @@ import { Route as AdminClassGroupsRouteImport } from './routes/admin/class-group
 import { Route as AdminAllocationRouteImport } from './routes/admin/allocation'
 import { Route as AdminAdjustmentRouteImport } from './routes/admin/adjustment'
 
-const LoginRoute = LoginRouteImport.update({
-  id: '/login',
-  path: '/login',
-  getParentRoute: () => rootRouteImport,
-} as any)
 const AdminRoute = AdminRouteImport.update({
   id: '/admin',
   path: '/admin',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const IndexRoute = IndexRouteImport.update({
+  id: '/',
+  path: '/',
   getParentRoute: () => rootRouteImport,
 } as any)
 const AdminTimetableRoute = AdminTimetableRouteImport.update({
@@ -90,8 +90,8 @@ const AdminAdjustmentRoute = AdminAdjustmentRouteImport.update({
 } as any)
 
 export interface FileRoutesByFullPath {
+  '/': typeof IndexRoute
   '/admin': typeof AdminRouteWithChildren
-  '/login': typeof LoginRoute
   '/admin/adjustment': typeof AdminAdjustmentRoute
   '/admin/allocation': typeof AdminAllocationRoute
   '/admin/class-groups': typeof AdminClassGroupsRoute
@@ -105,8 +105,8 @@ export interface FileRoutesByFullPath {
   '/admin/timetable': typeof AdminTimetableRoute
 }
 export interface FileRoutesByTo {
+  '/': typeof IndexRoute
   '/admin': typeof AdminRouteWithChildren
-  '/login': typeof LoginRoute
   '/admin/adjustment': typeof AdminAdjustmentRoute
   '/admin/allocation': typeof AdminAllocationRoute
   '/admin/class-groups': typeof AdminClassGroupsRoute
@@ -121,8 +121,8 @@ export interface FileRoutesByTo {
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
+  '/': typeof IndexRoute
   '/admin': typeof AdminRouteWithChildren
-  '/login': typeof LoginRoute
   '/admin/adjustment': typeof AdminAdjustmentRoute
   '/admin/allocation': typeof AdminAllocationRoute
   '/admin/class-groups': typeof AdminClassGroupsRoute
@@ -138,8 +138,8 @@ export interface FileRoutesById {
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
   fullPaths:
+    | '/'
     | '/admin'
-    | '/login'
     | '/admin/adjustment'
     | '/admin/allocation'
     | '/admin/class-groups'
@@ -153,8 +153,8 @@ export interface FileRouteTypes {
     | '/admin/timetable'
   fileRoutesByTo: FileRoutesByTo
   to:
+    | '/'
     | '/admin'
-    | '/login'
     | '/admin/adjustment'
     | '/admin/allocation'
     | '/admin/class-groups'
@@ -168,8 +168,8 @@ export interface FileRouteTypes {
     | '/admin/timetable'
   id:
     | '__root__'
+    | '/'
     | '/admin'
-    | '/login'
     | '/admin/adjustment'
     | '/admin/allocation'
     | '/admin/class-groups'
@@ -184,24 +184,24 @@ export interface FileRouteTypes {
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
+  IndexRoute: typeof IndexRoute
   AdminRoute: typeof AdminRouteWithChildren
-  LoginRoute: typeof LoginRoute
 }
 
 declare module '@tanstack/react-router' {
   interface FileRoutesByPath {
-    '/login': {
-      id: '/login'
-      path: '/login'
-      fullPath: '/login'
-      preLoaderRoute: typeof LoginRouteImport
-      parentRoute: typeof rootRouteImport
-    }
     '/admin': {
       id: '/admin'
       path: '/admin'
       fullPath: '/admin'
       preLoaderRoute: typeof AdminRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/': {
+      id: '/'
+      path: '/'
+      fullPath: '/'
+      preLoaderRoute: typeof IndexRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/admin/timetable': {
@@ -315,8 +315,8 @@ const AdminRouteChildren: AdminRouteChildren = {
 const AdminRouteWithChildren = AdminRoute._addFileChildren(AdminRouteChildren)
 
 const rootRouteChildren: RootRouteChildren = {
+  IndexRoute: IndexRoute,
   AdminRoute: AdminRouteWithChildren,
-  LoginRoute: LoginRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
