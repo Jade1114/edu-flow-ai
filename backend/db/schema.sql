@@ -33,6 +33,19 @@ CREATE TABLE IF NOT EXISTS teacher_profile (
     CONSTRAINT fk_teacher_profile_teacher FOREIGN KEY (teacher_id) REFERENCES teacher (id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
+-- v3: 教师-院系多对多关联（支持一位教师属于多个院系）
+CREATE TABLE IF NOT EXISTS teacher_department (
+    id BIGINT PRIMARY KEY AUTO_INCREMENT,
+    teacher_id BIGINT NOT NULL,
+    department VARCHAR(100) NOT NULL,
+    is_primary BOOLEAN NOT NULL DEFAULT FALSE COMMENT '是否为默认院系',
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE KEY uk_teacher_dept (teacher_id, department),
+    INDEX idx_teacher_dept_department (department),
+    INDEX idx_teacher_department_teacher (teacher_id),
+    CONSTRAINT fk_teacher_department_teacher FOREIGN KEY (teacher_id) REFERENCES teacher (id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
 CREATE TABLE IF NOT EXISTS course (
     id BIGINT PRIMARY KEY AUTO_INCREMENT,
     name VARCHAR(100) NOT NULL,
@@ -70,8 +83,8 @@ CREATE TABLE IF NOT EXISTS classroom (
     id BIGINT PRIMARY KEY AUTO_INCREMENT,
     name VARCHAR(100) NOT NULL,
     building VARCHAR(100) DEFAULT NULL,
-    capacity INT NULL COMMENT '按类型固定：普通80 / 机房120 / 虚拟1200 / 操场1000 / 形体1000',
-    classroom_type ENUM('普通教室','机房','阶梯教室','操场','虚拟教室','形体教室') NULL COMMENT '教室物理类型',
+    capacity INT NULL COMMENT '教室容量',
+    classroom_type ENUM('普通教室','机房') NULL COMMENT '教室物理类型',
     status VARCHAR(20) NOT NULL DEFAULT 'ACTIVE',
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
