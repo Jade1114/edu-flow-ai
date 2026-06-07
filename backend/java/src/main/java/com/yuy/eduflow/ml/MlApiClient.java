@@ -146,7 +146,7 @@ public class MlApiClient {
 		try {
 			HttpRequest request = HttpRequest.newBuilder()
 				.uri(URI.create(streamUrl))
-				.timeout(Duration.ofMinutes(30))
+				.timeout(Duration.ofMinutes(90))
 				.GET()
 				.build();
 

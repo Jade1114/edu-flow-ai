@@ -3,54 +3,22 @@
     <include resource="org/springframework/boot/logging/logback/defaults.xml"/>
     <include resource="org/springframework/boot/logging/logback/console-appender.xml"/>
 
+    <!-- 单一日志文件，输出到 backend/logs/java.log -->
     <property name="LOG_DIR" value="${LOG_PATH:-${user.dir}/../logs}"/>
-    <property name="FILE_PATTERN" value="%d{yyyy-MM-dd HH:mm:ss.SSS} %-5level [%thread] %logger{40} - %msg%n"/>
 
-    <appender name="APP_FILE" class="ch.qos.logback.core.rolling.RollingFileAppender">
-        <file>${LOG_DIR}/edu-flow-ai.log</file>
+    <appender name="FILE" class="ch.qos.logback.core.FileAppender">
+        <file>${LOG_DIR}/java.log</file>
+        <append>true</append>
         <encoder>
-            <pattern>${FILE_PATTERN}</pattern>
+            <pattern>%d{yyyy-MM-dd HH:mm:ss.SSS} %-5level [%thread] %logger{40} - %msg%n</pattern>
             <charset>UTF-8</charset>
         </encoder>
-        <rollingPolicy class="ch.qos.logback.core.rolling.SizeAndTimeBasedRollingPolicy">
-            <fileNamePattern>${LOG_DIR}/archive/edu-flow-ai.%d{yyyy-MM-dd}.%i.log.gz</fileNamePattern>
-            <maxFileSize>20MB</maxFileSize>
-            <maxHistory>14</maxHistory>
-            <totalSizeCap>1GB</totalSizeCap>
-        </rollingPolicy>
     </appender>
 
-    <appender name="SCHEDULE_CHAIN_FILE" class="ch.qos.logback.core.rolling.RollingFileAppender">
-        <file>${LOG_DIR}/schedule-chain.log</file>
-        <encoder>
-            <pattern>${FILE_PATTERN}</pattern>
-            <charset>UTF-8</charset>
-        </encoder>
-        <rollingPolicy class="ch.qos.logback.core.rolling.SizeAndTimeBasedRollingPolicy">
-            <fileNamePattern>${LOG_DIR}/archive/schedule-chain.%d{yyyy-MM-dd}.%i.log.gz</fileNamePattern>
-            <maxFileSize>20MB</maxFileSize>
-            <maxHistory>14</maxHistory>
-            <totalSizeCap>1GB</totalSizeCap>
-        </rollingPolicy>
-    </appender>
+    <!-- 业务代码 -->
+    <logger name="com.yuy.eduflow" level="INFO"/>
 
-    <!-- ===== 业务代码 ===== -->
-    <logger name="com.yuy.eduflow.allocation" level="INFO">
-        <appender-ref ref="SCHEDULE_CHAIN_FILE"/>
-    </logger>
-    <logger name="com.yuy.eduflow.teacher" level="INFO">
-        <appender-ref ref="SCHEDULE_CHAIN_FILE"/>
-    </logger>
-    <logger name="com.yuy.eduflow.llm" level="INFO">
-        <appender-ref ref="SCHEDULE_CHAIN_FILE"/>
-    </logger>
-    <logger name="com.yuy.eduflow.assignment" level="INFO"/>
-    <logger name="com.yuy.eduflow.ml" level="INFO">
-        <appender-ref ref="SCHEDULE_CHAIN_FILE"/>
-    </logger>
-
-    <!-- ===== 框架 & 噪音源 ===== -->
-    <!-- MyBatis/JDBC：WARN，避免 Mapper DEBUG 时刷 SQL、参数和 Total 行 -->
+    <!-- 框架 & 噪音源：WARN 压制 -->
     <logger name="org.mybatis" level="WARN"/>
     <logger name="org.mybatis.spring" level="WARN"/>
     <logger name="org.apache.ibatis" level="WARN"/>
@@ -59,6 +27,6 @@
 
     <root level="INFO">
         <appender-ref ref="CONSOLE"/>
-        <appender-ref ref="APP_FILE"/>
+        <appender-ref ref="FILE"/>
     </root>
 </configuration>
