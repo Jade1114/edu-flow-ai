@@ -11,3 +11,4 @@ backend/.envtarget/
 **/.env
 !.env.example
 !.env.example
+backend/.env.example
