@@ -7,3 +7,6 @@ backend/logs
 backend/models
 
 backend/.envtarget/
+.DS_Store
+**/.env
+!.env.example
