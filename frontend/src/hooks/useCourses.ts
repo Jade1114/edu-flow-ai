@@ -44,7 +44,7 @@ export function useCourses() {
     setLoading(true);
     try {
       const data = await request.get<Course[]>("/api/courses");
-      setCourses(data);
+      setCourses(Array.isArray(data) ? data : data?.content ?? []);
     } finally {
       setLoading(false);
     }

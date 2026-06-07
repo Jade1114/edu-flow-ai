@@ -42,7 +42,7 @@ export function useTeachers() {
     setLoading(true);
     try {
       const data = await request.get<Teacher[]>("/api/teachers");
-      setTeachers(data);
+      setTeachers(Array.isArray(data) ? data : data?.content ?? []);
     } finally { setLoading(false); }
   }
 

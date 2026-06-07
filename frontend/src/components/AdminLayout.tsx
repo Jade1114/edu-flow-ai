@@ -20,7 +20,7 @@ export default function AdminLayout({ children }: AdminLayoutProps) {
           role={role}
           onLogout={handleLogout}
         />
-        <main className="flex-1 bg-[#f5f7fa] p-5 overflow-auto">
+        <main className="flex-1 bg-gray-900 p-5 overflow-auto">
           {children}
         </main>
       </div>

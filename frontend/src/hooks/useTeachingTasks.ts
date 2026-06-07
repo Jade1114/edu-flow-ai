@@ -58,6 +58,7 @@ export function useTeachingTasks() {
   async function loadAll() {
     setLoading(true);
     try {
+      const unwrap = (d: any) => Array.isArray(d) ? d : d?.content ?? [];
       const [t, c, te, cg, cr] = await Promise.all([
         request.get<TeachingTask[]>("/api/teaching-tasks"),
         request.get<Course[]>("/api/courses"),
@@ -65,7 +66,7 @@ export function useTeachingTasks() {
         request.get<ClassGroup[]>("/api/class-groups"),
         request.get<Classroom[]>("/api/classrooms"),
       ]);
-      setTasks(t); setCourses(c); setTeachers(te); setClassGroups(cg); setClassrooms(cr);
+      setTasks(unwrap(t)); setCourses(unwrap(c)); setTeachers(unwrap(te)); setClassGroups(unwrap(cg)); setClassrooms(cr);
     } finally { setLoading(false); }
   }
 

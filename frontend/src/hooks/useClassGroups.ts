@@ -36,7 +36,7 @@ export function useClassGroups() {
     setLoading(true);
     try {
       const data = await request.get<ClassGroup[]>("/api/class-groups");
-      setGroups(data);
+      setGroups(Array.isArray(data) ? data : data?.content ?? []);
     } finally { setLoading(false); }
   }
 

@@ -1,3 +1,5 @@
+import { Link } from "@tanstack/react-router";
+
 interface MenuItem {
   path: string;
   label: string;
@@ -18,14 +20,14 @@ export default function AdminSidebar({ menus, activePath }: AdminSidebarProps) {
         {menus.map((menu) => {
           const isActive = activePath === menu.path;
           return (
-            <a
+            <Link
               key={menu.path}
-              href={menu.path}
+              to={menu.path}
               className={`block px-5 py-3 text-sm transition-colors
                 ${isActive ? "text-[#409EFF]" : "text-[#bfcbd9] hover:text-white"}`}
             >
               {menu.label}
-            </a>
+            </Link>
           );
         })}
       </nav>
