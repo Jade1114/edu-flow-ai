@@ -19,6 +19,8 @@ import pandas as pd
 from app.db.session import connect, load_db_config
 from app.db.repositories import fetch_allocation_task, fetch_all, fetch_generation_config
 from app.ml.placement_direct import DirectPlacementModel, DIRECT_MODEL_PATH, parse_resource_key
+from app.ml.placement_direct import CatBoostPlacementModel
+from app.ml.historical_retrieval import HistoricalRetrievalModel
 
 PROJECT_ROOT = Path(__file__).resolve().parents[3]
 OUTPUT_ROOT = PROJECT_ROOT / "data" / "generated" / "v3"
@@ -76,10 +78,20 @@ def generate_placement_candidates_jsonl(
     allowed_day_periods = _allowed_day_periods(raw_config)
     generated_at = _now_iso()
     model, features = _load_model()
+    # 优先用历史检索（零模型），fallback 到 CatBoost → LightGBM
+    direct_model = None
+    model_mode = "none"
     try:
-        direct_model = DirectPlacementModel.load()
+        direct_model = HistoricalRetrievalModel.load()
+        model_mode = "historical_retrieval"
     except FileNotFoundError:
-        direct_model = None
+        try:
+            direct_model = CatBoostPlacementModel.load()
+        except (FileNotFoundError, ImportError):
+            try:
+                direct_model = DirectPlacementModel.load()
+            except FileNotFoundError:
+                direct_model = None
     out_dir = Path(output_dir) if output_dir else _default_output_dir(allocation_task_id)
     out_dir.mkdir(parents=True, exist_ok=True)
     output_path = out_dir / "placement_candidates.jsonl"
@@ -119,8 +131,8 @@ def generate_placement_candidates_jsonl(
         "max_per_slot": max_per_slot,
         "predict_batch_size": predict_batch_size,
         "model_enabled": True,
-        "model_mode": "direct" if direct_model else "ranker",
-        "direct_model_path": str(DIRECT_MODEL_PATH) if direct_model else None,
+        "model_mode": model_mode,
+        "direct_model_path": str(DIRECT_MODEL_PATH) if model_mode == "direct" else None,
         "model_path": str(MODEL_PATH),
         "allowed_weeks": allowed_weeks,
         "allowed_day_periods": [{"day_of_week": d, "period_index": p} for d, p in allowed_day_periods],

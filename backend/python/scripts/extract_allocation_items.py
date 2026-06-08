@@ -20,7 +20,7 @@ def parse_title(row0):
 
 def extract_detail_courses(text):
     results = {}
-    for m in re.finditer(r'(.+?)\(([^)]+)\)\(ID\[\d+\]学分\[([^\]]*)\]\s*时\[([^\]]*)\]\s*师\[([^\]]*)\]\s*室\[([^\]]*)\]', text):
+    for m in re.finditer(r'(.+?)\(([^)]+)\)\(ID\[\d+\]学分\[([^\]]*)\]\)\s*时\[([^\]]*)\]\s*师\[([^\]]*)\]\s*室\[([^\]]*)\]', text):
         code = m.group(2).strip()
         teachers = [t.strip() for t in m.group(5).split(",") if t.strip()]
         if code:
