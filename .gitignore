@@ -1,4 +1,5 @@
 .alma-snapshots
+.alma
 .vscode/
 .pnpm-store
 

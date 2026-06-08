@@ -33,8 +33,8 @@ function SchemeTimetable({
 
   const days = [1,2,3,4,5,6,7];
   const dayLabels = ["周一","周二","周三","周四","周五","周六","周日"];
-  const periods = [1,2,3,4,5,6,7,8];
-  const periodLabels = ["第1节","第2节","第3节","第4节","第5节","第6节","第7节","第8节"];
+  const periods = [1,2,3,4,5];
+  const periodLabels = ["第1节","第2节","第3节","第4节","第5节"];
 
   // Group by day × period
   const map = new Map<string, SchemeItem[]>();
@@ -105,8 +105,8 @@ function SchemeTimetable({
                             <div className="font-semibold truncate" style={{ color: `hsl(${hue}, 65%, 60%)` }}>
                               {item.courseName || "-"}
                             </div>
-                            <div className="text-[10px] text-base-content/50 truncate">{item.teacherName || "-"}</div>
-                            <div className="text-[10px] text-base-content/40 truncate font-mono">{item.classroomName || "-"}</div>
+                            <div className="text-[10px] text-base-content/60 truncate">{item.classGroupName || "-"}</div>
+                            <div className="text-[10px] text-base-content/40 truncate">{item.classroomName || "-"} · {item.teacherName || "-"}</div>
                           </div>
                         );
                       })}
@@ -171,8 +171,8 @@ export default function AllocationManager() {
             <div className="card-body p-4">
               <div className="flex items-center justify-between mb-3">
                 <span className="font-bold">方案列表 — {a.selectedTask.name || `任务 #${a.selectedTask.id}`}</span>
-                <button className="btn btn-warning btn-sm" disabled={a.generating || !a.selectedTask} onClick={a.generateSchemes}>
-                  {a.generating ? <><span className="loading loading-spinner loading-xs" /> 排课中...</> : "开始排课"}
+                <button className="btn btn-info btn-sm" disabled={a.generating || !a.selectedTask} onClick={a.generateSchemes}>
+                  {a.generating ? <><span className="loading loading-spinner loading-xs" /> V3.5 排课中...</> : "V3.5 模板排课"}
                 </button>
               </div>
               {a.generating && (
@@ -348,6 +348,87 @@ export default function AllocationManager() {
               </div>
             </div>
           )}
+        </div>
+      )}
+
+      {/* V3.5 Template section */}
+      {a.selectedTask && a.v35Templates.length > 0 && (
+        <div className="card bg-base-100 shadow-sm border border-info/20">
+          <div className="card-body p-4">
+            <div className="flex items-center justify-between mb-3">
+              <span className="font-bold text-info">V3.5 模板排课结果</span>
+              <button className="btn btn-ghost btn-xs" onClick={() => a.loadV35Templates(a.selectedTask!.id)}>刷新</button>
+            </div>
+
+            {/* Template list */}
+            <div className="flex flex-wrap gap-2 mb-3">
+              {a.v35Templates.map((t: any) => (
+                <div key={t.templateCode} className="badge badge-info badge-outline gap-1 p-3">
+                  <span className="font-mono text-xs">{t.templateCode}</span>
+                  <span className="text-[10px] opacity-60">{t.fragmentCount} 片段 · {t.taskCount} 任务</span>
+                </div>
+              ))}
+            </div>
+
+            {/* Week -> template mapping */}
+            <details className="collapse collapse-arrow border border-base-300 rounded-lg">
+              <summary className="collapse-title text-sm font-medium text-base-content/70 min-h-0 py-2">
+                周模板映射（{a.v35TemplateWeeks.length} 周）
+              </summary>
+              <div className="collapse-content p-0">
+                <div className="flex flex-wrap gap-1.5 p-2">
+                  {a.v35TemplateWeeks.map((w: any) => (
+                    <button
+                      key={w.weekNumber}
+                      className={`btn btn-xs ${a.v35SelectedWeek === w.weekNumber ? "btn-info" : "btn-ghost"} ${w.templateCode === "cover_v1_template_2" ? "border-dashed" : ""}`}
+                      onClick={() => a.loadV35WeekTimetable(a.selectedTask!.id, w.weekNumber)}
+                    >
+                      第{w.weekNumber}周
+                      <span className="text-[9px] opacity-50 ml-0.5">{w.templateCode === "cover_v1_template_1" ? "T1" : "T2"}</span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </details>
+
+            {/* Week timetable */}
+            {a.v35SelectedWeek && a.v35WeekTimetable.length > 0 && (
+              <div className="mt-3 overflow-x-auto max-h-64 overflow-y-auto">
+                <table className="table table-xs table-zebra">
+                  <thead>
+                    <tr>
+                      <th>周</th>
+                      <th>星期</th>
+                      <th>课段</th>
+                      <th>教室</th>
+                      <th>班级</th>
+                      <th>课程</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {a.v35WeekTimetable.slice(0, 100).map((e: any, i: number) => (
+                      <tr key={i}>
+                        <td>{e.weekNumber}</td>
+                        <td>{["","周一","周二","周三","周四","周五","周六","周日"][e.dayOfWeek] || e.dayOfWeek}</td>
+                        <td>{e.periodIndex}</td>
+                        <td className="font-mono text-xs">{e.classroomName}</td>
+                        <td className="max-w-[120px] truncate">{e.className}</td>
+                        <td className="max-w-[150px] truncate">{e.courseName}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+                {a.v35WeekTimetable.length > 100 && (
+                  <div className="text-center text-xs text-base-content/40 py-2">
+                    仅显示前 100 条，共 {a.v35WeekTimetable.length} 条
+                  </div>
+                )}
+              </div>
+            )}
+            {a.v35SelectedWeek && a.v35WeekTimetable.length === 0 && (
+              <div className="text-center text-xs text-base-content/40 py-4">该周暂无课表数据</div>
+            )}
+          </div>
         </div>
       )}
 

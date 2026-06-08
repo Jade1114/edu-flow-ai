@@ -67,6 +67,13 @@ export function useAllocation() {
   const [teachingTasks, setTeachingTasks] = useState<TeachingTaskBrief[]>([]);
   const [teachingTasksLoading, setTeachingTasksLoading] = useState(false);
 
+  // V3.5 template state
+  const [v35Templates, setV35Templates] = useState<any[]>([]);
+  const [v35TemplateWeeks, setV35TemplateWeeks] = useState<any[]>([]);
+  const [v35WeekTimetable, setV35WeekTimetable] = useState<any[]>([]);
+  const [v35SelectedWeek, setV35SelectedWeek] = useState<number | null>(null);
+  const [v35TemplatesLoading, setV35TemplatesLoading] = useState(false);
+
   useEffect(() => { loadTasks(); }, []);
 
   async function loadTasks() {
@@ -186,19 +193,83 @@ export function useAllocation() {
     }
   }
 
+  async function loadV35Templates(taskId: number) {
+    setV35TemplatesLoading(true);
+    try {
+      const templatesData = await request.get(`/api/allocation-tasks/${taskId}/templates`);
+      const weeksData = await request.get(`/api/allocation-tasks/${taskId}/templates/weeks`);
+      setV35Templates(Array.isArray(templatesData) ? templatesData : []);
+      setV35TemplateWeeks(Array.isArray(weeksData) ? weeksData : []);
+      setV35WeekTimetable([]);
+      setV35SelectedWeek(null);
+    } catch {
+      setV35Templates([]);
+      setV35TemplateWeeks([]);
+    } finally {
+      setV35TemplatesLoading(false);
+    }
+  }
+
+  async function loadV35WeekTimetable(taskId: number, weekNumber: number) {
+    try {
+      const data = await request.get(`/api/allocation-tasks/${taskId}/templates/weeks/${weekNumber}/timetable`);
+      setV35WeekTimetable(Array.isArray(data) ? data : []);
+      setV35SelectedWeek(weekNumber);
+    } catch {
+      setV35WeekTimetable([]);
+    }
+  }
+
   async function generateSchemes() {
     if (!selectedTask) return;
     setGenerating(true);
     setGenerateProgress(0);
-    setGenerateStatus("提交排课任务...");
+    setGenerateStatus("正在触发 V3.5 模板排课...");
+    const taskId = selectedTask.id;
     try {
-      const initialStatus = await request.post<GenerationStatus>(`/api/allocation-tasks/${selectedTask.id}/generate-async`);
-      setGenerateStatus(formatGenerationStatus(initialStatus));
-      await waitForGenerationStream(selectedTask.id);
-      toast.success("排课完成");
-      await selectTask(selectedTask);
-    } catch (e: any) { toast.error("排课失败: " + (e.message || "")); }
-    finally { setGenerating(false); setGenerateProgress(0); setGenerateStatus(""); }
+      await request.post(`/api/allocation-tasks/${taskId}/templates/generate`, {
+        importDb: true,
+        truncateDb: true,
+      });
+      setGenerateStatus("V3.5 排课进行中，请稍候...");
+      setGenerateProgress(30);
+
+      // Poll generation status (V3.5 doesn't have SSE yet)
+      const pollInterval = 3000;
+      const maxPolls = 120;
+      for (let i = 0; i < maxPolls; i++) {
+        await new Promise(r => setTimeout(r, pollInterval));
+        try {
+          const status: any = await request.get(`/api/allocation-tasks/${taskId}/templates/generation-status`);
+          if (status.status === "SUCCESS") {
+            setGenerateStatus("排课完成");
+            setGenerateProgress(100);
+            toast.success("V3.5 模板排课完成");
+            await loadV35Templates(taskId);
+            // 刷新方案列表，让新创建的 V3.5 方案出现在列表中
+            const updatedTask = tasks.find(t => t.id === taskId);
+            if (updatedTask) await selectTask(updatedTask);
+            return;
+          }
+          if (status.status === "FAILED") {
+            throw new Error(status.error || "V3.5 排课失败");
+          }
+          if (status.status === "RUNNING") {
+            setGenerateProgress(50 + Math.floor(i / 4));
+          }
+        } catch (pollErr: any) {
+          if (pollErr.message?.includes("FAILED")) throw pollErr;
+          setGenerateStatus("等待排课服务响应...");
+        }
+      }
+      throw new Error("排课超时");
+    } catch (e: any) {
+      toast.error("V3.5 排课失败: " + (e.message || ""));
+    } finally {
+      setGenerating(false);
+      setGenerateProgress(0);
+      setGenerateStatus("");
+    }
   }
 
   async function confirmScheme(schemeId: number) {
@@ -241,5 +312,7 @@ export function useAllocation() {
     generateSchemes, confirmScheme, updateConfig,
     loadSchemeItems, setDetailScheme, toggleTeachingTask, selectAllTeachingTasks,
     dayNames,
+    v35Templates, v35TemplateWeeks, v35WeekTimetable, v35SelectedWeek,
+    v35TemplatesLoading, loadV35Templates, loadV35WeekTimetable,
   };
 }
