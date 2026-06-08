@@ -239,7 +239,7 @@ export function useAllocation() {
     teachingTasks, teachingTasksLoading,
     loadTasks, openTaskDialog, saveTask, deleteTask, selectTask,
     generateSchemes, confirmScheme, updateConfig,
-    loadSchemeItems, toggleTeachingTask, selectAllTeachingTasks,
+    loadSchemeItems, setDetailScheme, toggleTeachingTask, selectAllTeachingTasks,
     dayNames,
   };
 }

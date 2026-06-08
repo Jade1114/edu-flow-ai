@@ -1,11 +1,35 @@
-import { useState } from "react";
+import { useState, useMemo, useEffect } from "react";
 import { useAllocation, type SchemeItem } from "../hooks/useAllocation";
 
-function SchemeTimetable({ items }: { items: SchemeItem[] }) {
+// ── Rainbow color assignment ──────────────────────────
+const RAINBOW_HUES = [
+  0, 20, 45, 80, 140, 175, 200, 230, 260, 290, 320, 345,
+];
+function taskKey(item: SchemeItem) {
+  return `${item.courseName ?? ""}|${item.teacherName ?? ""}|${item.classGroupName ?? ""}`;
+}
+function buildHueMap(items: SchemeItem[]) {
+  const keys = [...new Set(items.map(taskKey))].sort();
+  const m = new Map<string, number>();
+  keys.forEach((k, i) => m.set(k, RAINBOW_HUES[i % RAINBOW_HUES.length]));
+  return m;
+}
+
+function SchemeTimetable({
+  items,
+  selectedConflictId,
+  onConflictClick,
+}: {
+  items: SchemeItem[];
+  selectedConflictId?: number | null;
+  onConflictClick?: (item: SchemeItem) => void;
+}) {
   const [week, setWeek] = useState(0);
   const allWeeks = [...new Set(items.map(i => i.weekNumber))].sort((a, b) => a - b);
   const currentWeek = week || allWeeks[0] || 0;
   const weekItems = items.filter(i => i.weekNumber === currentWeek);
+
+  const hueMap = useMemo(() => buildHueMap(items), [items]);
 
   const days = [1,2,3,4,5,6,7];
   const dayLabels = ["周一","周二","周三","周四","周五","周六","周日"];
@@ -25,39 +49,67 @@ function SchemeTimetable({ items }: { items: SchemeItem[] }) {
       {/* Week selector */}
       {allWeeks.length > 1 && (
         <div className="flex items-center gap-2 mb-3">
-          <span className="text-xs text-base-content/50">周次：</span>
+          <span className="text-xs text-base-content/40 font-medium">周次</span>
           <div className="join">
             {allWeeks.map(w => (
-              <button key={w} className={`join-item btn btn-xs ${w === currentWeek ? "btn-active btn-primary" : ""}`}
+              <button key={w}
+                className={`join-item btn btn-xs min-w-8 ${w === currentWeek ? "btn-active btn-primary text-primary-content" : "btn-ghost text-base-content/60"}`}
                 onClick={() => setWeek(w)}>{w}</button>
             ))}
           </div>
         </div>
       )}
-      <div className="overflow-x-auto">
-        <table className="table table-xs table-zebra border">
+      <div className="overflow-x-auto rounded-lg border border-base-300">
+        <table className="table table-sm w-full">
           <thead>
-            <tr>
-              <th className="w-16">节次</th>
-              {days.map(d => <th key={d} className="text-center w-28">{dayLabels[d-1]}</th>)}
+            <tr className="bg-base-200/50">
+              <th className="w-14 text-xs font-medium text-base-content/50 text-center">节次</th>
+              {days.map((d, i) => (
+                <th key={d} className={`text-center text-xs font-medium w-28 px-1 ${i >= 5 ? "text-warning/60" : "text-base-content/50"}`}>
+                  {dayLabels[d-1]}
+                </th>
+              ))}
             </tr>
           </thead>
           <tbody>
             {periods.map(p => (
-              <tr key={p}>
-                <td className="text-xs text-base-content/50">{periodLabels[p-1]}</td>
+              <tr key={p} className="border-t border-base-200/50">
+                <td className="text-xs text-base-content/40 text-center font-mono px-1 py-0.5 align-top leading-[60px]">{periodLabels[p-1]}</td>
                 {days.map(d => {
                   const slotItems = map.get(`${d}-${p}`);
                   return (
-                    <td key={d} className="p-1 align-top min-h-[60px]">
-                      {slotItems?.map(item => (
-                        <div key={item.id} className={`text-[10px] leading-tight mb-1 p-1 rounded-sm border-l-2 ${item.valid !== false ? "border-l-success bg-base-200" : "border-l-error bg-red-50"}`}
-                          title={item.conflictMessage || ""}>
-                          <div className="font-medium truncate">{item.courseName || "-"}</div>
-                          <div className="text-base-content/50 truncate">{item.teacherName || "-"}</div>
-                          <div className="text-base-content/40 truncate">{item.classroomName || "-"}</div>
-                        </div>
-                      ))}
+                    <td key={d} className="p-0.5 align-top min-h-[60px]">
+                      {slotItems?.map(item => {
+                        const hue = hueMap.get(taskKey(item)) ?? 0;
+                        return (
+                          <div key={item.id}
+                            className={`text-[11px] leading-snug mb-0.5 p-1.5 rounded-md border-l-[3px] transition-all ${
+                              selectedConflictId === item.id ? "ring-2 ring-error ring-offset-1" : ""
+                            } ${
+                              item.valid !== false ? "text-base-content" : "text-error cursor-pointer hover:brightness-110"
+                            }`}
+                            style={{
+                              borderLeftColor: item.valid !== false ? `hsl(${hue}, 65%, 50%)` : undefined,
+                              backgroundColor: item.valid !== false
+                                ? `hsla(${hue}, 65%, 50%, 0.1)`
+                                : undefined,
+                            }}
+                            onClick={() => item.valid === false && onConflictClick?.(item)}
+                            title={item.conflictMessage || ""}>
+                            {item.valid === false && (
+                              <div className="flex items-center gap-1 mb-0.5">
+                                <span className="inline-block w-1.5 h-1.5 rounded-full bg-error animate-pulse" />
+                                <span className="text-[9px] uppercase tracking-wider font-semibold">冲突</span>
+                              </div>
+                            )}
+                            <div className="font-semibold truncate" style={{ color: `hsl(${hue}, 65%, 60%)` }}>
+                              {item.courseName || "-"}
+                            </div>
+                            <div className="text-[10px] text-base-content/50 truncate">{item.teacherName || "-"}</div>
+                            <div className="text-[10px] text-base-content/40 truncate font-mono">{item.classroomName || "-"}</div>
+                          </div>
+                        );
+                      })}
                     </td>
                   );
                 })}
@@ -72,6 +124,16 @@ function SchemeTimetable({ items }: { items: SchemeItem[] }) {
 
 export default function AllocationManager() {
   const a = useAllocation();
+  const hueMap = useMemo(() => a.schemeItems.length ? buildHueMap(a.schemeItems) : new Map(), [a.schemeItems]);
+  const [selectedConflictId, setSelectedConflictId] = useState<number | null>(null);
+
+  const conflictItems = useMemo(() => a.schemeItems.filter(i => i.valid === false), [a.schemeItems]);
+
+  const dayLabels = ["周日","周一","周二","周三","周四","周五","周六"];
+  const periodLabels = ["第1节","第2节","第3节","第4节","第5节","第6节","第7节","第8节"];
+
+  // Reset conflict selection when scheme items change
+  useEffect(() => { setSelectedConflictId(null); }, [a.schemeItems]);
 
   return (
     <div className="flex flex-col gap-4">
@@ -146,50 +208,143 @@ export default function AllocationManager() {
             </div>
           </div>
 
-          {/* Scheme detail */}
+          {/* Scheme detail — modal */}
           {a.detailScheme && (
-            <div className="card bg-base-100 shadow-sm">
-              <div className="card-body p-4">
-                <div className="flex items-center justify-between mb-3">
-                  <span className="font-bold">方案明细 — {a.detailScheme.name || `方案 #${a.detailScheme.id}`}</span>
-                  <span className="text-sm text-base-content/50">{a.schemeItems.length} 条排课记录</span>
-                </div>
-                {a.schemeItemsLoading ? (
-                  <div className="text-center py-8"><span className="loading loading-spinner" /></div>
-                ) : a.schemeItems.length === 0 ? (
-                  <div className="text-center py-8 text-base-content/40">暂无明细数据</div>
-                ) : (
-                  <div className="space-y-4">
-                    <SchemeTimetable items={a.schemeItems} />
-                    <details className="collapse collapse-arrow bg-base-200">
-                      <summary className="collapse-title text-sm font-medium">查看列表视图（{a.schemeItems.length} 条）</summary>
-                      <div className="collapse-content p-0">
-                        <div className="overflow-x-auto">
-                          <table className="table table-xs table-zebra">
-                            <thead><tr><th>周次</th><th>星期</th><th>节次</th><th>课程</th><th>教师</th><th>班级</th><th>教室</th><th>评分</th></tr></thead>
-                            <tbody>
-                              {a.schemeItems.map(item => (
-                                <tr key={item.id} className={item.valid === false ? "bg-red-50" : ""}>
-                                  <td>{item.weekNumber}</td>
-                                  <td>{a.dayNames[item.dayOfWeek] || item.dayOfWeek}</td>
-                                  <td>第{item.periodIndex}节</td>
-                                  <td>{item.courseName || "-"}</td>
-                                  <td>{item.teacherName || "-"}</td>
-                                  <td>{item.classGroupName || "-"}</td>
-                                  <td>{item.classroomName || "-"}</td>
-                                  <td>{item.teacherProfileScore != null ? item.teacherProfileScore.toFixed(2) : "-"}</td>
-                                </tr>
-                              ))}
-                            </tbody>
-                          </table>
-                        </div>
-                      </div>
-                    </details>
+            <div className="modal modal-open" onClick={() => a.setDetailScheme(null)}>
+              <div className="modal-box max-w-6xl max-h-[92vh] overflow-y-hidden flex flex-col p-0" onClick={e => e.stopPropagation()}>
+                {/* Header */}
+                <div className="flex items-center justify-between px-6 py-4 border-b border-base-300 shrink-0">
+                  <div className="flex items-center gap-3">
+                    <h3 className="font-semibold text-lg tracking-tight">
+                      {a.detailScheme.name || `方案 #${a.detailScheme.id}`}
+                    </h3>
                     {a.detailScheme.schemeScore != null && (
-                      <div className="text-sm text-base-content/50 text-right">方案评分: {a.detailScheme.schemeScore.toFixed(4)}</div>
+                      <span className="badge badge-sm badge-outline text-info font-mono">
+                        {a.detailScheme.schemeScore.toFixed(4)}
+                      </span>
+                    )}
+                    {conflictItems.length > 0 && (
+                      <span className="badge badge-sm badge-error gap-1">
+                        <span className="inline-block w-1.5 h-1.5 rounded-full bg-current animate-pulse" />
+                        {conflictItems.length} 个冲突
+                      </span>
                     )}
                   </div>
-                )}
+                  <div className="flex items-center gap-3">
+                    <span className="text-xs text-base-content/40 font-medium">{a.schemeItems.length} 条排课记录</span>
+                    <button className="btn btn-xs btn-ghost btn-square text-base-content/50 hover:text-base-content" onClick={() => a.setDetailScheme(null)}>
+                      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-4 h-4"><path d="M6.28 5.22a.75.75 0 0 0-1.06 1.06L8.94 10l-3.72 3.72a.75.75 0 1 0 1.06 1.06L10 11.06l3.72 3.72a.75.75 0 1 0 1.06-1.06L11.06 10l3.72-3.72a.75.75 0 0 0-1.06-1.06L10 8.94 6.28 5.22Z" /></svg>
+                    </button>
+                  </div>
+                </div>
+                {/* Body */}
+                <div className="flex-1 overflow-y-auto px-6 py-4">
+                  {a.schemeItemsLoading ? (
+                    <div className="flex items-center justify-center py-24">
+                      <span className="loading loading-spinner loading-lg text-primary" />
+                    </div>
+                  ) : a.schemeItems.length === 0 ? (
+                    <div className="flex items-center justify-center py-24 text-base-content/30 font-medium">暂无排课明细数据</div>
+                  ) : (
+                    <div className="space-y-5">
+                      <SchemeTimetable items={a.schemeItems} selectedConflictId={selectedConflictId} onConflictClick={(item) => setSelectedConflictId(selectedConflictId === item.id ? null : item.id)} />
+                      <details className="collapse collapse-arrow border border-base-300 rounded-lg bg-base-100">
+                        <summary className="collapse-title text-sm font-medium text-base-content/70">列表视图（{a.schemeItems.length} 条）</summary>
+                        <div className="collapse-content p-0">
+                          <div className="overflow-x-auto">
+                            <table className="table table-sm">
+                              <thead>
+                                <tr className="text-xs text-base-content/50 uppercase tracking-wider">
+                                  <th className="font-medium w-2"></th>
+                                  <th className="font-medium">周次</th>
+                                  <th className="font-medium">星期</th>
+                                  <th className="font-medium">节次</th>
+                                  <th className="font-medium">课程</th>
+                                  <th className="font-medium">教师</th>
+                                  <th className="font-medium">班级</th>
+                                  <th className="font-medium">教室</th>
+                                  <th className="font-medium">评分</th>
+                                </tr>
+                              </thead>
+                              <tbody>
+                                {a.schemeItems.map(item => {
+                                const hue = hueMap.get(taskKey(item)) ?? 0;
+                                return (
+                                  <tr key={item.id}
+                                    className={`text-sm transition-colors ${item.valid === false ? "bg-error/5" : ""}`}>
+                                    <td className="w-3 px-0">
+                                      {item.valid !== false && (
+                                        <span className="inline-block w-full h-full min-h-[1.5rem]" style={{ backgroundColor: `hsl(${hue}, 65%, 50%)` }}>&nbsp;</span>
+                                      )}
+                                    </td>
+                                    <td className="font-mono text-xs">{item.weekNumber}</td>
+                                    <td>{a.dayNames[item.dayOfWeek] || item.dayOfWeek}</td>
+                                    <td className="font-mono text-xs">第{item.periodIndex}节</td>
+                                    <td className="font-medium">{item.courseName || "-"}</td>
+                                    <td className="text-base-content/70">{item.teacherName || "-"}</td>
+                                    <td className="text-base-content/70">{item.classGroupName || "-"}</td>
+                                    <td className="text-base-content/70 font-mono text-xs">{item.classroomName || "-"}</td>
+                                    <td className="font-mono text-xs text-right">{item.teacherProfileScore != null ? item.teacherProfileScore.toFixed(2) : "-"}</td>
+                                  </tr>
+                                  );
+                                })}
+                              </tbody>
+                            </table>
+                          </div>
+                        </div>
+                      </details>
+
+                      {/* Conflict details */}
+                      {conflictItems.length > 0 && (
+                        <details className="collapse collapse-arrow border border-error/30 rounded-lg bg-error/[0.03]" open>
+                          <summary className="collapse-title text-sm font-medium text-error flex items-center gap-2">
+                            <span className="inline-block w-2 h-2 rounded-full bg-error" />
+                            冲突详情（{conflictItems.length} 项）
+                          </summary>
+                          <div className="collapse-content p-0">
+                            <div className="divide-y divide-error/10">
+                              {conflictItems.map(item => {
+                                const isSelected = selectedConflictId === item.id;
+                                const hue = hueMap.get(taskKey(item)) ?? 0;
+                                return (
+                                  <div key={item.id}
+                                    className={`px-4 py-3 flex items-start gap-3 cursor-pointer transition-colors ${isSelected ? "bg-error/[0.08]" : "hover:bg-error/[0.04]"}`}
+                                    onClick={() => setSelectedConflictId(isSelected ? null : item.id)}>
+                                    {/* Color indicator */}
+                                    <div className="w-1 h-full min-h-[3rem] shrink-0 rounded-full mt-0.5"
+                                      style={{ backgroundColor: `hsl(${hue}, 65%, 50%)` }} />
+                                    {/* Content */}
+                                    <div className="flex-1 min-w-0">
+                                      <div className="flex items-center gap-2 text-sm flex-wrap">
+                                        <span className="font-semibold">{item.courseName || "-"}</span>
+                                        <span className="text-base-content/50">·</span>
+                                        <span className="text-base-content/60 text-xs">{item.teacherName || "-"}</span>
+                                        <span className="text-base-content/50">·</span>
+                                        <span className="text-base-content/60 text-xs">{item.classGroupName || "-"}</span>
+                                      </div>
+                                      <div className="text-xs text-base-content/40 mt-0.5">
+                                        第{item.weekNumber}周 {dayLabels[item.dayOfWeek] || item.dayOfWeek} {periodLabels[item.periodIndex - 1] || `第${item.periodIndex}节`} · {item.classroomName || "-"}
+                                      </div>
+                                      <div className="flex items-start gap-1.5 mt-2 p-2 rounded bg-error/[0.06] text-xs text-error">
+                                        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-4 h-4 shrink-0 mt-0.5"><path fillRule="evenodd" d="M18 10a8 8 0 1 1-16 0 8 8 0 0 1 16 0Zm-7-4a1 1 0 1 1-2 0 1 1 0 0 1 2 0ZM9 9a.75.75 0 0 0 0 1.5h.253a.25.25 0 0 1 .244.304l-.459 2.066A1.75 1.75 0 0 0 10.747 15H11a.75.75 0 0 0 0-1.5h-.253a.25.25 0 0 1-.244-.304l.459-2.066A1.75 1.75 0 0 0 9.253 9H9Z" clipRule="evenodd" /></svg>
+                                        <span>{item.conflictMessage || "未知冲突"}</span>
+                                      </div>
+                                    </div>
+                                    {/* Selected indicator */}
+                                    {isSelected && (
+                                      <span className="text-xs text-error font-medium shrink-0">查看中</span>
+                                    )}
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          </div>
+                        </details>
+                      )}
+
+                    </div>
+                  )}
+                </div>
               </div>
             </div>
           )}
