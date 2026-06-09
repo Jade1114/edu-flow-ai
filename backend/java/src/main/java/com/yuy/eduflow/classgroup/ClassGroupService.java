@@ -41,14 +41,14 @@ public class ClassGroupService {
 	}
 
 	public ClassGroup create(ClassGroupRequest request) {
-		ClassGroup classGroup = toClassGroup(new ClassGroup(), request);
+		ClassGroup classGroup = toClassGroup(new ClassGroup(), request, null);
 		classGroupMapper.insert(classGroup);
 		return findById(classGroup.getId());
 	}
 
 	public ClassGroup update(Long id, ClassGroupRequest request) {
 		findById(id);
-		ClassGroup classGroup = toClassGroup(new ClassGroup(), request);
+		ClassGroup classGroup = toClassGroup(new ClassGroup(), request, id);
 		classGroup.setId(id);
 		classGroupMapper.update(classGroup);
 		return findById(id);
@@ -56,17 +56,24 @@ public class ClassGroupService {
 
 	public void delete(Long id) {
 		findById(id);
+		if (classGroupMapper.countTeachingTaskRefs(id) > 0) {
+			throw new ValidationException("班级已被教学任务引用，不能删除");
+		}
 		classGroupMapper.delete(id);
 	}
 
-	private ClassGroup toClassGroup(ClassGroup classGroup, ClassGroupRequest request) {
+	private ClassGroup toClassGroup(ClassGroup classGroup, ClassGroupRequest request, Long excludeId) {
 		if (!StringUtils.hasText(request.name())) {
 			throw new ValidationException("班级名称不能为空");
 		}
-		if (request.studentCount() != null && request.studentCount() < 0) {
-			throw new ValidationException("班级人数不能小于0");
+		String name = request.name().trim();
+		if (classGroupMapper.countByName(name, excludeId) > 0) {
+			throw new ValidationException("班级名称已存在");
 		}
-		classGroup.setName(request.name().trim());
+		if (request.studentCount() == null || request.studentCount() <= 0) {
+			throw new ValidationException("班级人数必须大于0");
+		}
+		classGroup.setName(name);
 		classGroup.setMajor(clean(request.major()));
 		classGroup.setDepartment(clean(request.department()));
 		classGroup.setGrade(clean(request.grade()));

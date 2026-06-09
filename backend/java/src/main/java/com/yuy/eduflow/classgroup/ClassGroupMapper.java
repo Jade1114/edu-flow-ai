@@ -17,7 +17,12 @@ public interface ClassGroupMapper {
 		SELECT COUNT(*) FROM class_group
 		WHERE 1 = 1
 		<if test='keyword != null and keyword != ""'>
-		  AND name LIKE CONCAT('%', #{keyword}, '%')
+		  AND (
+		    name LIKE CONCAT('%', #{keyword}, '%')
+		    OR major LIKE CONCAT('%', #{keyword}, '%')
+		    OR department LIKE CONCAT('%', #{keyword}, '%')
+		    OR grade LIKE CONCAT('%', #{keyword}, '%')
+		  )
 		</if>
 		</script>
 		""")
@@ -29,7 +34,12 @@ public interface ClassGroupMapper {
 		FROM class_group
 		WHERE 1 = 1
 		<if test='keyword != null and keyword != ""'>
-		  AND name LIKE CONCAT('%', #{keyword}, '%')
+		  AND (
+		    name LIKE CONCAT('%', #{keyword}, '%')
+		    OR major LIKE CONCAT('%', #{keyword}, '%')
+		    OR department LIKE CONCAT('%', #{keyword}, '%')
+		    OR grade LIKE CONCAT('%', #{keyword}, '%')
+		  )
 		</if>
 		ORDER BY id DESC
 		LIMIT #{limit} OFFSET #{offset}
@@ -44,7 +54,12 @@ public interface ClassGroupMapper {
 		FROM class_group
 		WHERE 1 = 1
 		<if test='keyword != null and keyword != ""'>
-		  AND name LIKE CONCAT('%', #{keyword}, '%')
+		  AND (
+		    name LIKE CONCAT('%', #{keyword}, '%')
+		    OR major LIKE CONCAT('%', #{keyword}, '%')
+		    OR department LIKE CONCAT('%', #{keyword}, '%')
+		    OR grade LIKE CONCAT('%', #{keyword}, '%')
+		  )
 		</if>
 		ORDER BY id DESC
 		</script>
@@ -57,6 +72,21 @@ public interface ClassGroupMapper {
 		WHERE id = #{id}
 		""")
 	ClassGroup findById(Long id);
+
+	@Select("""
+		SELECT COUNT(*)
+		FROM class_group
+		WHERE name = #{name}
+		  AND (#{excludeId} IS NULL OR id != #{excludeId})
+		""")
+	long countByName(@Param("name") String name, @Param("excludeId") Long excludeId);
+
+	@Select("""
+		SELECT COUNT(*)
+		FROM teaching_task_class_group
+		WHERE class_group_id = #{id}
+		""")
+	long countTeachingTaskRefs(Long id);
 
 	@Insert("""
 		INSERT INTO class_group (name, major, department, grade, student_count)
