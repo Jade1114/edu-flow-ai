@@ -19,10 +19,11 @@ from sklearn.model_selection import GroupShuffleSplit
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 DATA_PATH = REPO_ROOT / "backend" / "data" / "training" / "v3_training_samples.csv"
-OUTPUT_DIR = REPO_ROOT / "backend" / "models" / "v3.5" / "placement"
-META_PATH = OUTPUT_DIR / "placement_meta.json"
-STAGE1_MODEL_PATH = OUTPUT_DIR / "stage1_slot.cbm"
-STAGE2_DIR = OUTPUT_DIR / "stage2_slots"
+OUTPUT_DIR = REPO_ROOT / "backend" / "data" / "pipeline" / "v3.5"
+MODELS_DIR = REPO_ROOT / "backend" / "models" / "v3.5" / "placement"
+META_PATH = MODELS_DIR / "placement_meta.json"
+STAGE1_MODEL_PATH = MODELS_DIR / "stage1_slot.cbm"
+STAGE2_DIR = MODELS_DIR / "stage2_slots"
 
 SLOT_LABEL = "slot_label"
 ROOM_LABEL = "classroom_name"

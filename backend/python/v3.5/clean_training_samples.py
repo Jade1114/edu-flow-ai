@@ -14,11 +14,11 @@ from collections import Counter
 from pathlib import Path
 from typing import Any
 
-from placement_model import DATA_PATH, OUTPUT_DIR
+from placement_model import DATA_PATH, MODELS_DIR
 
-DEFAULT_OUTPUT_PATH = OUTPUT_DIR / "clean_training_samples.jsonl"
-DEFAULT_DROPPED_PATH = OUTPUT_DIR / "dropped_training_samples.jsonl"
-DEFAULT_REPORT_PATH = OUTPUT_DIR / "clean_training_report.json"
+DEFAULT_OUTPUT_PATH = MODELS_DIR / "clean_training_samples.jsonl"
+DEFAULT_DROPPED_PATH = MODELS_DIR / "dropped_training_samples.jsonl"
+DEFAULT_REPORT_PATH = MODELS_DIR / "clean_training_report.json"
 
 ALLOWED_COURSE_TYPES = {"理论课", "上机课"}
 ALLOWED_ROOM_TYPES = {"普通教室", "机房"}

@@ -6,6 +6,7 @@
 backend/data
 backend/logs
 backend/models
+backend/db/backups
 
 backend/.envtarget/
 .DS_Store
