@@ -38,7 +38,7 @@ export function useClassrooms() {
     setLoading(true);
     try {
       const data = await request.get<Classroom[]>("/api/classrooms");
-      setClassrooms(data);
+      setClassrooms(Array.isArray(data) ? data : (data as any)?.content ?? []);
     } finally {
       setLoading(false);
     }
