@@ -259,13 +259,13 @@ mvn -q -DskipTests compile
 
 ## 班级课表 Excel 导入预处理
 
-第一步只做文件解析，不写数据库、不调用 LLM：
+第一步只做文件解析，不写数据库、不调用 LLM；支持 `.xls` / `.xlsx`：
 
 ```bash
 cd backend/python
 source .venv/bin/activate
 python v3.5/parse_schedule_excel.py \
-  --input /path/to/class_schedule.xlsx \
+  --input /path/to/class_schedule.xls \
   --output-dir ../data/parsed/schedule_imports/demo \
   --task-batch 2026学期上
 ```

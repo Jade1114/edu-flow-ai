@@ -102,11 +102,11 @@ def parse_schedule_excel(
     student_count: int | None = None,
     task_batch: str = "DEFAULT",
 ) -> dict[str, Any]:
-    if input_path.suffix.lower() != ".xlsx":
-        raise SystemExit("当前解析器第一版只支持 .xlsx 文件")
+    if input_path.suffix.lower() not in {".xlsx", ".xls"}:
+        raise SystemExit("当前解析器支持 .xlsx / .xls 文件")
 
     output_dir = output_dir or DEFAULT_OUTPUT_ROOT / input_path.stem
-    workbook = _read_xlsx(input_path)
+    workbook = _read_workbook(input_path)
     if not workbook:
         raise SystemExit("Excel 中没有可解析的 sheet")
 
@@ -189,6 +189,40 @@ def parse_schedule_excel(
     }
     (output_dir / "parse_report.json").write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
     return report
+
+
+def _read_workbook(path: Path) -> dict[str, list[Cell]]:
+    suffix = path.suffix.lower()
+    if suffix == ".xlsx":
+        return _read_xlsx(path)
+    if suffix == ".xls":
+        return _read_xls(path)
+    raise SystemExit(f"不支持的 Excel 文件格式: {path.suffix}")
+
+
+def _read_xls(path: Path) -> dict[str, list[Cell]]:
+    try:
+        import xlrd
+    except ModuleNotFoundError as exc:
+        raise SystemExit("解析 .xls 需要 xlrd，请先安装 Python 依赖") from exc
+    book = xlrd.open_workbook(str(path))
+    result: dict[str, list[Cell]] = {}
+    for sheet in book.sheets():
+        cells: list[Cell] = []
+        for row_index in range(sheet.nrows):
+            for col_index in range(sheet.ncols):
+                value = sheet.cell_value(row_index, col_index)
+                text = _format_xls_value(value)
+                if text.strip():
+                    cells.append(Cell(row=row_index + 1, col=col_index + 1, value=text.strip()))
+        result[sheet.name] = cells
+    return result
+
+
+def _format_xls_value(value: Any) -> str:
+    if isinstance(value, float) and value.is_integer():
+        return str(int(value))
+    return str(value or "").strip()
 
 
 def _read_xlsx(path: Path) -> dict[str, list[Cell]]:
@@ -354,21 +388,22 @@ def _extract_occurrences(
 
 
 def _parse_timetable_cell(value: str) -> list[tuple[str, str]]:
-    text = value.replace("\r", "\n").replace("，", " ").replace(",", " ").replace("；", " ").replace(";", " ")
-    chunks = [chunk.strip() for chunk in re.split(r"[\n/]+", text) if chunk.strip()]
+    text = value.replace("\r", " ").replace("\n", " ").replace("，", " ").replace(",", " ").replace("；", " ").replace(";", " ").replace("/", " ")
     result: list[tuple[str, str]] = []
-    for chunk in chunks:
-        if PUBLIC_PHYSICAL_EDUCATION in chunk:
-            result.append((PUBLIC_PHYSICAL_EDUCATION, ""))
+    if PUBLIC_PHYSICAL_EDUCATION in text:
+        result.append((PUBLIC_PHYSICAL_EDUCATION, ""))
+    tokens = [_clean_token(token) for token in re.split(r"\s+", text) if _clean_token(token)]
+    for index, token in enumerate(tokens):
+        if not COURSE_CODE_PATTERN.match(token):
             continue
-        tokens = [_clean_token(token) for token in re.split(r"\s+", chunk) if _clean_token(token)]
-        course_codes = [token for token in tokens if COURSE_CODE_PATTERN.match(token)]
-        classrooms = [token for token in tokens if CLASSROOM_PATTERN.match(token)]
-        if not course_codes:
-            continue
-        classroom = classrooms[0] if classrooms else ""
-        for code in course_codes:
-            result.append((code, classroom))
+        classroom = ""
+        for next_token in tokens[index + 1:]:
+            if COURSE_CODE_PATTERN.match(next_token):
+                break
+            if CLASSROOM_PATTERN.match(next_token):
+                classroom = next_token
+                break
+        result.append((token, classroom))
     return result
 
 
@@ -504,8 +539,6 @@ def _ordered_codes(occurrences: list[Occurrence], details_by_code: dict[str, Cou
 def _infer_course_type(course_name: str, rooms: list[str]) -> str:
     if any(keyword in course_name for keyword in ["实验", "上机", "实训", "程序设计", "数据库应用"]):
         return "上机课"
-    if rooms and any(room.startswith(("9", "8")) for room in rooms):
-        return "上机课"
     return "理论课"
 
 
@@ -533,7 +566,8 @@ def _split_list(value: str) -> list[str]:
 
 
 def _clean_course_name(value: str) -> str:
-    return re.sub(r"\s+", "", value or "").strip(" ，,;；")
+    text = re.sub(r"\s+", "", value or "").strip(" ，,;；")
+    return re.sub(r"^\d+人", "", text)
 
 
 def _clean_token(value: str) -> str:
