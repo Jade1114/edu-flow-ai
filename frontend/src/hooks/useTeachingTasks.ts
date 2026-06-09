@@ -11,6 +11,7 @@ export interface TeachingTask {
   courseId: number | "";
   courseType: string;
   requiredRoomType: string;
+  taskBatch: string;
   primaryTeacherId: number | "";
   assistantTeacherId?: number | "";
   classroomId?: number | "";
@@ -32,7 +33,7 @@ const courseTypeOptions = [
 ];
 
 const emptyForm: TeachingTask = {
-  id: null, courseId: "", courseType: "理论课", requiredRoomType: "普通教室",
+  id: null, courseId: "", courseType: "理论课", requiredRoomType: "普通教室", taskBatch: "DEFAULT",
   primaryTeacherId: "", assistantTeacherId: "", classroomId: "",
   classGroupIds: [], totalHours: 32, notes: "", status: "ACTIVE",
 };
@@ -42,6 +43,7 @@ export function useTeachingTasks() {
   const [loading, setLoading] = useState(false);
   const [search, setSearch] = useState("");
   const [courseTypeFilter, setCourseTypeFilter] = useState("");
+  const [taskBatchFilter, setTaskBatchFilter] = useState("");
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(20);
   const [dialogOpen, setDialogOpen] = useState(false);
@@ -66,7 +68,7 @@ export function useTeachingTasks() {
         request.get<ClassGroup[]>("/api/class-groups"),
         request.get<Classroom[]>("/api/classrooms"),
       ]);
-      setTasks(unwrap(t)); setCourses(unwrap(c)); setTeachers(unwrap(te)); setClassGroups(unwrap(cg)); setClassrooms(cr);
+      setTasks(unwrap(t)); setCourses(unwrap(c)); setTeachers(unwrap(te)); setClassGroups(unwrap(cg)); setClassrooms(unwrap(cr));
     } finally { setLoading(false); }
   }
 
@@ -82,8 +84,11 @@ export function useTeachingTasks() {
       );
     }
     if (courseTypeFilter) list = list.filter(t => t.course?.courseType === courseTypeFilter);
+    if (taskBatchFilter) list = list.filter(t => (t.taskBatch || "DEFAULT") === taskBatchFilter);
     return list;
-  }, [tasks, search, courseTypeFilter]);
+  }, [tasks, search, courseTypeFilter, taskBatchFilter]);
+
+  const taskBatchOptions = useMemo(() => [...new Set(tasks.map(t => t.taskBatch || "DEFAULT"))].sort(), [tasks]);
 
   const paged = useMemo(() => {
     const start = (page - 1) * pageSize;
@@ -118,6 +123,7 @@ export function useTeachingTasks() {
         courseId: row.courseId ?? "",
         courseType: row.course?.courseType || row.courseType || "理论课",
         requiredRoomType: row.requiredRoomType || "",
+        taskBatch: row.taskBatch || "DEFAULT",
         primaryTeacherId: row.primaryTeacherId ?? "",
         assistantTeacherId: row.assistantTeacherId ?? "",
         classroomId: row.classroomId ?? "",
@@ -162,6 +168,7 @@ export function useTeachingTasks() {
     paged, filtered, loading, search,
     setSearch: (v: string) => { setSearch(v); setPage(1); },
     courseTypeFilter, setCourseTypeFilter: (v: string) => { setCourseTypeFilter(v); setPage(1); },
+    taskBatchFilter, setTaskBatchFilter: (v: string) => { setTaskBatchFilter(v); setPage(1); }, taskBatchOptions,
     page, setPage, pageSize,
     setPageSize: (v: number) => { setPageSize(v); setPage(1); },
     dialogOpen, form, setForm, saving, deleting,

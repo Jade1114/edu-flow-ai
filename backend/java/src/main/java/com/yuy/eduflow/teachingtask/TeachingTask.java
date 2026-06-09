@@ -18,6 +18,7 @@ public class TeachingTask {
     private Long classroomId;
     private Integer totalHours;
     private String requiredRoomType;
+    private String taskBatch;
     private String notes;
     private ActiveStatus status;
     private LocalDateTime createdAt;

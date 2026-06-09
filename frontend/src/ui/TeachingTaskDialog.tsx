@@ -32,6 +32,7 @@ export default function TeachingTaskDialog({ form, onChange, saving, onSave, onC
             </select>
           </div>
           <div><label className="label pb-1"><span className="label-text">所需教室</span></label><input className="input input-bordered w-full" value={form.requiredRoomType} disabled /></div>
+          <div><label className="label pb-1"><span className="label-text">任务批次</span></label><input className="input input-bordered w-full" placeholder="如 2026学期上 / 测试用例01" value={form.taskBatch || "DEFAULT"} onChange={e => onChange({...form, taskBatch: e.target.value})} /></div>
           <div>
             <label className="label pb-1"><span className="label-text">主讲教师</span></label>
             <select className="select select-bordered w-full" value={form.primaryTeacherId || ""} onChange={e => onChange({...form, primaryTeacherId: Number(e.target.value)})}>

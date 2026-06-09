@@ -19,6 +19,7 @@ public interface TeachingTaskMapper {
             @Param("courseId") Long courseId,
             @Param("teacherId") Long teacherId,
             @Param("courseType") String courseType,
+            @Param("taskBatch") String taskBatch,
             @Param("keyword") String keyword);
 
     long findAllCount(
@@ -26,6 +27,7 @@ public interface TeachingTaskMapper {
             @Param("courseId") Long courseId,
             @Param("teacherId") Long teacherId,
             @Param("courseType") String courseType,
+            @Param("taskBatch") String taskBatch,
             @Param("keyword") String keyword);
 
     List<TeachingTask> findAllPaged(
@@ -33,6 +35,7 @@ public interface TeachingTaskMapper {
             @Param("courseId") Long courseId,
             @Param("teacherId") Long teacherId,
             @Param("courseType") String courseType,
+            @Param("taskBatch") String taskBatch,
             @Param("keyword") String keyword,
             @Param("limit") int limit,
             @Param("offset") int offset);
@@ -42,11 +45,11 @@ public interface TeachingTaskMapper {
     @Insert("""
             INSERT INTO teaching_task (
                 course_id, primary_teacher_id, assistant_teacher_id, classroom_id,
-                total_hours, required_room_type, notes, status
+                total_hours, required_room_type, task_batch, notes, status
             )
             VALUES (
                 #{courseId}, #{primaryTeacherId}, #{assistantTeacherId}, #{classroomId},
-                #{totalHours}, #{requiredRoomType}, #{notes}, #{status}
+                #{totalHours}, #{requiredRoomType}, #{taskBatch}, #{notes}, #{status}
             )
             """)
     @Options(useGeneratedKeys = true, keyProperty = "id")
@@ -60,6 +63,7 @@ public interface TeachingTaskMapper {
                 classroom_id = #{classroomId},
                 total_hours = #{totalHours},
                 required_room_type = #{requiredRoomType},
+                task_batch = #{taskBatch},
                 notes = #{notes},
                 status = #{status}
             WHERE id = #{id}

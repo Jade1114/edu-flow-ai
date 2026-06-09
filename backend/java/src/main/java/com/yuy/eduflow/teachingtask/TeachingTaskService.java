@@ -55,15 +55,15 @@ public class TeachingTaskService {
      * @return 教学任务列表
      */
     public List<TeachingTask> findAll(String status, Long courseId, Long teacherId,
-                                      String courseType, String keyword) {
-        return teachingTaskMapper.findAll(status, courseId, teacherId, courseType, keyword);
+                                      String courseType, String taskBatch, String keyword) {
+        return teachingTaskMapper.findAll(status, courseId, teacherId, courseType, taskBatch, keyword);
     }
 
     public Map<String, Object> findAllPaged(String status, Long courseId, Long teacherId,
-                                            String courseType, String keyword, int page, int size) {
+                                            String courseType, String taskBatch, String keyword, int page, int size) {
         int offset = page * size;
-        List<TeachingTask> content = teachingTaskMapper.findAllPaged(status, courseId, teacherId, courseType, keyword, size, offset);
-        long total = teachingTaskMapper.findAllCount(status, courseId, teacherId, courseType, keyword);
+        List<TeachingTask> content = teachingTaskMapper.findAllPaged(status, courseId, teacherId, courseType, taskBatch, keyword, size, offset);
+        long total = teachingTaskMapper.findAllCount(status, courseId, teacherId, courseType, taskBatch, keyword);
         Map<String, Object> result = new LinkedHashMap<>();
         result.put("content", content);
         result.put("total", total);
@@ -157,6 +157,7 @@ public class TeachingTaskService {
         task.setClassroomId(request.classroomId());
         task.setTotalHours(request.totalHours());
         task.setRequiredRoomType(request.requiredRoomType());
+        task.setTaskBatch(request.taskBatch() != null && !request.taskBatch().isBlank() ? request.taskBatch().trim() : "DEFAULT");
         task.setNotes(request.notes());
         // 如果请求中未指定状态，则默认设置为 ACTIVE
         task.setStatus(

@@ -2,8 +2,8 @@ import { useState, useEffect } from "react";
 import request from "../api/request";
 import { toast } from "sonner";
 
-interface AllocationTask { id: number; name: string; generationConfig?: any; schemeCount?: number; status: string; }
-interface AllocationScheme { id: number; allocationTaskId: number; name?: string; status: string; createdAt?: string; schemeScore?: number; valid?: boolean; }
+interface AllocationTask { id: number; name: string; generationConfig?: any; schemeCount?: number; status: string; teachingTasks?: { id: number }[]; }
+export interface AllocationScheme { id: number; allocationTaskId: number; name?: string; status: string; createdAt?: string; schemeScore?: number; valid?: boolean; }
 interface GenerationStatus { status?: string; stage?: string; message?: string; progress?: number; error?: string; schemeCount?: number; }
 
 export interface SchemeItem {
@@ -31,6 +31,7 @@ interface TeachingTaskBrief {
   courseName: string;
   teacherName: string;
   classGroupNames: string;
+  taskBatch: string;
 }
 
 const WEEKS = Array.from({length: 18}, (_, i) => i + 1);
@@ -66,6 +67,7 @@ export function useAllocation() {
   // Teaching task briefs (for task dialog selector)
   const [teachingTasks, setTeachingTasks] = useState<TeachingTaskBrief[]>([]);
   const [teachingTasksLoading, setTeachingTasksLoading] = useState(false);
+  const [teachingTaskBatchFilter, setTeachingTaskBatchFilter] = useState("");
 
   // V3.5 template state
   const [v35Templates, setV35Templates] = useState<any[]>([]);
@@ -92,14 +94,33 @@ export function useAllocation() {
         courseName: t.course?.name || `课程#${t.courseId}`,
         teacherName: t.primaryTeacher?.name || "",
         classGroupNames: t.classGroups?.map((cg: any) => cg.name).join(", ") || "",
+        taskBatch: t.taskBatch || "DEFAULT",
       })));
     } catch { setTeachingTasks([]); }
     finally { setTeachingTasksLoading(false); }
   }
 
-  function openTaskDialog(row?: AllocationTask) {
+  const filteredTeachingTasks = !teachingTaskBatchFilter
+    ? teachingTasks
+    : teachingTasks.filter(tt => tt.taskBatch === teachingTaskBatchFilter);
+
+  const teachingTaskBatchOptions = [...new Set(teachingTasks.map(tt => tt.taskBatch))].sort();
+
+  async function openTaskDialog(row?: AllocationTask) {
     if (row) {
-      setTaskForm({ id: row.id, name: row.name, teachingTaskIds: [], generationConfig: row.generationConfig || defaultConfig() });
+      const teachingTaskIds = row.teachingTasks?.map(tt => tt.id) ?? [];
+      setTaskForm({ id: row.id, name: row.name, teachingTaskIds, generationConfig: row.generationConfig || defaultConfig() });
+      try {
+        const detail: AllocationTask = await request.get(`/api/allocation-tasks/${row.id}`);
+        setTaskForm({
+          id: detail.id,
+          name: detail.name,
+          teachingTaskIds: detail.teachingTasks?.map(tt => tt.id) ?? teachingTaskIds,
+          generationConfig: detail.generationConfig || row.generationConfig || defaultConfig(),
+        });
+      } catch {
+        // 保留列表行数据，避免编辑入口直接失败
+      }
     } else {
       setTaskForm({ id: null, name: "", teachingTaskIds: [], generationConfig: defaultConfig() });
     }
@@ -229,7 +250,7 @@ export function useAllocation() {
     try {
       await request.post(`/api/allocation-tasks/${taskId}/templates/generate`, {
         importDb: true,
-        truncateDb: true,
+        truncateDb: false,
       });
       setGenerateStatus("V3.5 排课进行中，请稍候...");
       setGenerateProgress(30);
@@ -294,9 +315,12 @@ export function useAllocation() {
   }
 
   function selectAllTeachingTasks(select: boolean) {
+    const source = teachingTaskBatchFilter ? filteredTeachingTasks : teachingTasks;
     setTaskForm(f => ({
       ...f,
-      teachingTaskIds: select ? teachingTasks.map(t => t.id) : [],
+      teachingTaskIds: select
+        ? [...new Set([...f.teachingTaskIds, ...source.map(t => t.id)])]
+        : f.teachingTaskIds.filter(id => !source.some(t => t.id === id)),
     }));
   }
 
@@ -308,6 +332,7 @@ export function useAllocation() {
     WEEKS, WEEKDAYS, PERIODS,
     detailScheme, schemeItems, schemeItemsLoading,
     teachingTasks, teachingTasksLoading,
+    filteredTeachingTasks, teachingTaskBatchFilter, setTeachingTaskBatchFilter, teachingTaskBatchOptions,
     loadTasks, openTaskDialog, saveTask, deleteTask, selectTask,
     generateSchemes, confirmScheme, updateConfig,
     loadSchemeItems, setDetailScheme, toggleTeachingTask, selectAllTeachingTasks,

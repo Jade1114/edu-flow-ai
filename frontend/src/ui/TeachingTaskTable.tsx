@@ -3,15 +3,16 @@ import type { TeachingTask } from "../hooks/useTeachingTasks";
 interface Props {
   tasks: TeachingTask[]; loading: boolean; search: string; onSearchChange: (v: string) => void;
   courseTypeFilter: string; onCourseTypeFilterChange: (v: string) => void;
+  taskBatchFilter: string; taskBatchOptions: string[]; onTaskBatchFilterChange: (v: string) => void;
   page: number; pageSize: number; total: number;
   onPageChange: (v: number) => void; onPageSizeChange: (v: number) => void;
   deleting: number | null; onEdit: (row: TeachingTask) => void; onDelete: (id: number) => void; onAdd: () => void;
 }
 
-export default function TeachingTaskTable({ tasks, loading, search, onSearchChange, courseTypeFilter, onCourseTypeFilterChange, page, pageSize, total, onPageChange, onPageSizeChange, deleting, onEdit, onDelete, onAdd }: Props) {
-  function onClear() { onSearchChange(""); onCourseTypeFilterChange(""); }
+export default function TeachingTaskTable({ tasks, loading, search, onSearchChange, courseTypeFilter, onCourseTypeFilterChange, taskBatchFilter, taskBatchOptions, onTaskBatchFilterChange, page, pageSize, total, onPageChange, onPageSizeChange, deleting, onEdit, onDelete, onAdd }: Props) {
+  function onClear() { onSearchChange(""); onCourseTypeFilterChange(""); onTaskBatchFilterChange(""); }
   const totalPages = Math.max(1, Math.ceil(total / pageSize));
-  const hasFilter = search || courseTypeFilter;
+  const hasFilter = search || courseTypeFilter || taskBatchFilter;
 
   return (
     <div>
@@ -20,18 +21,23 @@ export default function TeachingTaskTable({ tasks, loading, search, onSearchChan
         <select className="select select-bordered select-sm w-28" value={courseTypeFilter} onChange={e => onCourseTypeFilterChange(e.target.value)}>
           <option value="">课程类型</option><option value="理论课">理论课</option><option value="上机课">上机课</option><option value="实践课">实践课</option>
         </select>
+        <select className="select select-bordered select-sm w-36" value={taskBatchFilter} onChange={e => onTaskBatchFilterChange(e.target.value)}>
+          <option value="">任务批次</option>
+          {taskBatchOptions.map(batch => <option key={batch} value={batch}>{batch}</option>)}
+        </select>
         <input type="text" placeholder="搜索课程/教师/班级..." className="input input-bordered input-sm w-56" value={search} onChange={e => onSearchChange(e.target.value)} onKeyDown={e => e.key === "Enter" && onSearchChange(search)} />
         {hasFilter && <button className="btn btn-ghost btn-sm" onClick={onClear}>清空</button>}
       </div>
       <div className="overflow-x-auto">
         <table className="table table-zebra table-sm">
-          <thead><tr><th>ID</th><th>课程</th><th>主讲教师</th><th>协作教师</th><th>类型</th><th>总课时</th><th>教室</th><th>班级</th><th>状态</th><th>操作</th></tr></thead>
+          <thead><tr><th>ID</th><th>批次</th><th>课程</th><th>主讲教师</th><th>协作教师</th><th>类型</th><th>总课时</th><th>教室</th><th>班级</th><th>状态</th><th>操作</th></tr></thead>
           <tbody>
-            {loading ? <tr><td colSpan={10} className="text-center py-8"><span className="loading loading-spinner" /></td></tr>
-            : tasks.length === 0 ? <tr><td colSpan={10} className="text-center py-8 text-base-content/40">暂无教学任务</td></tr>
+            {loading ? <tr><td colSpan={11} className="text-center py-8"><span className="loading loading-spinner" /></td></tr>
+            : tasks.length === 0 ? <tr><td colSpan={11} className="text-center py-8 text-base-content/40">暂无教学任务</td></tr>
             : tasks.map(t => (
               <tr key={t.id}>
                 <td>{t.id}</td>
+                <td><span className="badge badge-xs badge-outline">{t.taskBatch || "DEFAULT"}</span></td>
                 <td className="max-w-[120px] truncate">{t.course?.name || "-"}</td>
                 <td className="max-w-[80px] truncate">{t.primaryTeacher?.name || "-"}</td>
                 <td className="max-w-[80px] truncate">{t.assistantTeacher?.name || "-"}</td>

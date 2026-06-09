@@ -9,6 +9,7 @@ public record TeachingTaskRequest(
         Long classroomId,
         Integer totalHours,
         String requiredRoomType,
+        String taskBatch,
         String notes,
         String status,
         List<Long> classGroupIds) {
