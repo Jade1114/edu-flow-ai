@@ -257,6 +257,27 @@ cd backend/java
 mvn -q -DskipTests compile
 ```
 
+## 班级课表 Excel 导入预处理
+
+第一步只做文件解析，不写数据库、不调用 LLM：
+
+```bash
+cd backend/python
+source .venv/bin/activate
+python v3.5/parse_schedule_excel.py \
+  --input /path/to/class_schedule.xlsx \
+  --output-dir ../models/v3.5/schedule_imports/demo \
+  --task-batch 2026学期上
+```
+
+输出：`courses.csv`、`teachers.csv`、`classrooms.csv`、`class_groups.csv`、`teaching_tasks.csv`、`timetable_occurrences.csv`、`parse_report.json`。
+
+再转 JSONL：
+
+```bash
+python v3.5/csv_to_jsonl.py --input-dir ../models/v3.5/schedule_imports/demo
+```
+
 ## 当前边界
 
 - 这是 V3.5 的第一版 placement MVP，只负责生成周模板候选。
