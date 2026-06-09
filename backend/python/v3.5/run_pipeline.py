@@ -22,7 +22,6 @@ from typing import Any, Callable
 from clean_training_samples import clean as clean_training_samples
 from clean_training_samples import DEFAULT_OUTPUT_PATH as CLEAN_SAMPLES_PATH
 from clean_training_samples import DEFAULT_REPORT_PATH as CLEAN_REPORT_PATH
-from evaluate_placement_quality import evaluate as evaluate_placement
 from export_template_as_scheme import import_template_schemes
 from export_template_cover_db_draft import DEFAULT_OUTPUT_DIR as DB_DRAFT_DIR
 from export_template_cover_db_draft import export_db_draft
@@ -103,20 +102,6 @@ def run_pipeline(
     if train_model:
         _step(steps, "train_single_placement_model", lambda: train_single_model(data_path=CLEAN_SAMPLES_PATH, output_dir=SINGLE_MODEL_DIR, rounds=model_rounds))
 
-    placement_report_path = SINGLE_MODEL_DIR / "quality_report.json"
-    placement_report = _step(
-        steps,
-        "evaluate_single_placement_model",
-        lambda: evaluate_placement(
-            data_path=CLEAN_SAMPLES_PATH,
-            model_dir=SINGLE_MODEL_DIR,
-            report_path=placement_report_path,
-            model_type="single",
-            top_k=30,
-            slot_top_k=10,
-        ),
-    )
-
     pattern_report = _step(steps, "build_patterns", lambda: build_patterns(input_path=ALLOCATION_TASKS_PATH))
     pattern_validation = _step(steps, "validate_patterns", lambda: validate_patterns(input_path=PATTERNS_PATH))
 
@@ -192,11 +177,6 @@ def run_pipeline(
         "metrics": {
             "allocation": {k: allocation_report.get(k) for k in ["task_count", "course_types", "room_types"]},
             "clean": clean_report.get("counts", {}),
-            "placement": {
-                "sample_stats": placement_report.get("sample_stats", {}),
-                "closeness": placement_report.get("closeness", {}),
-                "conflicts": _compact_conflicts(placement_report.get("conflicts", {})),
-            },
             "patterns": {
                 "pattern_count": pattern_report.get("pattern_count"),
                 "dropped_count": pattern_report.get("dropped_count"),
@@ -221,7 +201,6 @@ def run_pipeline(
         "artifacts": {
             "clean_samples": str(CLEAN_SAMPLES_PATH),
             "patterns": str(PATTERNS_PATH),
-            "placement_quality_report": str(placement_report_path),
             "template_cover": str(COVER_PATH),
             "db_draft_dir": str(DB_DRAFT_DIR),
             "summary": str(PIPELINE_SUMMARY_PATH),
@@ -231,16 +210,6 @@ def run_pipeline(
     if snapshot:
         _snapshot_run(summary)
     return summary
-
-
-def _compact_conflicts(conflicts: dict[str, Any]) -> dict[str, Any]:
-    return {
-        "hard_conflict_task_count": conflicts.get("hard_conflict_task_count"),
-        "hard_conflict_task_rate": conflicts.get("hard_conflict_task_rate"),
-        "teacher_group_count": (conflicts.get("teacher_conflicts") or {}).get("group_count"),
-        "class_group_count": (conflicts.get("class_conflicts") or {}).get("group_count"),
-        "room_group_count": (conflicts.get("room_conflicts") or {}).get("group_count"),
-    }
 
 
 def _step(steps: list[dict[str, Any]], name: str, fn: Callable[[], Any]) -> Any:
@@ -257,7 +226,6 @@ def _snapshot_run(summary: dict[str, Any]) -> None:
     run_dir.mkdir(parents=True, exist_ok=True)
     for path in [
         CLEAN_REPORT_PATH,
-        SINGLE_MODEL_DIR / "quality_report.json",
         PLACEMENT_OUTPUT_DIR / "pattern_report.json",
         PLACEMENT_OUTPUT_DIR / "pattern_validation_report.json",
         PLACEMENT_OUTPUT_DIR / "template_cover_v1_report.json",
