@@ -42,6 +42,13 @@ public interface TeachingTaskMapper {
 
     TeachingTask findById(Long id);
 
+    @Select("""
+            SELECT id, total_hours
+            FROM teaching_task
+            WHERE id IN (${ids})
+            """)
+    List<TeachingTask> findHoursByIds(@Param("ids") String ids);
+
     @Insert("""
             INSERT INTO teaching_task (
                 course_id, primary_teacher_id, assistant_teacher_id, classroom_id,

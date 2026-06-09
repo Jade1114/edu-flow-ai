@@ -15,6 +15,7 @@ from typing import Any
 
 from export_template_cover_db_draft import DEFAULT_COVER_PATH
 from placement_model import OUTPUT_DIR as PLACEMENT_OUTPUT_DIR
+from validate_template_cover_v1 import DEFAULT_REPORT_PATH as DEFAULT_COVER_VALIDATION_REPORT_PATH
 
 ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
@@ -30,6 +31,7 @@ def import_template_schemes(
     allocation_task_id: int = 1,
     generation_run_id: str | None = None,
     report_path: Path = DEFAULT_REPORT_PATH,
+    validation_report_path: Path = DEFAULT_COVER_VALIDATION_REPORT_PATH,
     execute: bool = False,
     truncate: bool = False,
 ) -> dict[str, Any]:
@@ -64,6 +66,16 @@ def import_template_schemes(
             all_weeks = list(range(1, total_weeks + 1))
 
             display_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            validation_report = _read_validation_report(validation_report_path)
+            conflict_summary = validation_report.get("conflict_summary") or {
+                "hard_conflict_count": 0,
+                "teacher_groups": 0,
+                "class_groups": 0,
+                "room_groups": 0,
+                "segment_boundary_issues": 0,
+                "hour_issues": 0,
+            }
+            is_valid = _safe_int(conflict_summary.get("hard_conflict_count")) == 0
             scheme = {
                 "scheme_name": f"V3.5 周模板排课方案 {display_time}",
                 "summary": json.dumps({
@@ -73,11 +85,13 @@ def import_template_schemes(
                     "task_count": task_count,
                     "slot_count": slot_count,
                     "weeks": all_weeks,
+                    "validation_issue_count": validation_report.get("issue_count", 0),
+                    "validation_issues_preview": validation_report.get("issues_preview", [])[:20],
                 }, ensure_ascii=False),
                 "scheme_score": None,
                 "model_version": "v3.5-tcv1",
-                "conflict_summary": '{"hard_conflict_count": 0, "teacher_groups": 0, "class_groups": 0, "room_groups": 0}',
-                "valid": True,
+                "conflict_summary": json.dumps(conflict_summary, ensure_ascii=False),
+                "valid": is_valid,
                 "status": "CANDIDATE",
             }
 
@@ -102,6 +116,22 @@ def import_template_schemes(
             raise
     finally:
         conn.close()
+
+
+def _read_validation_report(path: Path) -> dict[str, Any]:
+    if not path.exists():
+        return {}
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError:
+        return {}
+
+
+def _safe_int(value: Any) -> int:
+    try:
+        return int(float(str(value).strip()))
+    except (TypeError, ValueError):
+        return 0
 
 
 def _existing_tables(conn) -> set[str]:

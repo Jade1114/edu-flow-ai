@@ -7,10 +7,17 @@ import com.yuy.eduflow.conflict.ConflictDiagnosis;
 import com.yuy.eduflow.ml.MlFeedbackEvent;
 import com.yuy.eduflow.ml.MlFeedbackEventMarkRequest;
 import com.yuy.eduflow.ml.MlFeedbackEventService;
+import com.yuy.eduflow.teachingtask.TeachingTask;
+import com.yuy.eduflow.teachingtask.TeachingTaskMapper;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
+import java.util.Set;
+import java.util.stream.Collectors;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -31,6 +38,7 @@ public class AllocationSchemeController {
 	private final MlFeedbackEventService feedbackEventService;
 	private final AllocationTaskService allocationTaskService;
 	private final AllocationTemplateMapper allocationTemplateMapper;
+	private final TeachingTaskMapper teachingTaskMapper;
 	private final ObjectMapper objectMapper = new ObjectMapper();
 
 	public AllocationSchemeController(
@@ -40,7 +48,8 @@ public class AllocationSchemeController {
 		AllocationItemAdjustmentLogMapper adjustmentLogMapper,
 		MlFeedbackEventService feedbackEventService,
 		AllocationTaskService allocationTaskService,
-		AllocationTemplateMapper allocationTemplateMapper
+		AllocationTemplateMapper allocationTemplateMapper,
+		TeachingTaskMapper teachingTaskMapper
 	) {
 		this.allocationSchemeService = allocationSchemeService;
 		this.allocationItemService = allocationItemService;
@@ -49,6 +58,7 @@ public class AllocationSchemeController {
 		this.feedbackEventService = feedbackEventService;
 		this.allocationTaskService = allocationTaskService;
 		this.allocationTemplateMapper = allocationTemplateMapper;
+		this.teachingTaskMapper = teachingTaskMapper;
 	}
 
 	@GetMapping
@@ -162,9 +172,11 @@ public class AllocationSchemeController {
 				AllocationItemView view = new AllocationItemView();
 				view.setId(virtualItemId);
 				view.setSchemeId(scheme.getId());
+				view.setTeachingTaskId(e.getTeachingTaskId());
 				view.setCourseName(e.getCourseName());
 				view.setTeacherName(e.getTeacherName() != null && !e.getTeacherName().isBlank() ? e.getTeacherName() : null);
 				view.setClassGroupName(e.getClassName());
+				view.setClassroomId(e.getClassroomId());
 				view.setClassroomName(e.getClassroomName());
 				view.setWeekNumber(e.getWeekNumber());
 				view.setDayOfWeek(e.getDayOfWeek());
@@ -173,7 +185,80 @@ public class AllocationSchemeController {
 				allItems.add(view);
 			}
 		}
+		markV35Conflicts(allItems);
 		return allItems;
+	}
+
+	private void markV35Conflicts(List<AllocationItemView> items) {
+		Map<Long, List<String>> messages = new LinkedHashMap<>();
+		collectOccupancyConflicts(items, "教师冲突", AllocationItemView::getTeacherName, messages);
+		collectOccupancyConflicts(items, "班级冲突", AllocationItemView::getClassGroupName, messages);
+		collectOccupancyConflicts(items, "教室冲突", AllocationItemView::getClassroomName, messages);
+		collectTeachingTaskHourConflicts(items, messages);
+		for (AllocationItemView item : items) {
+			List<String> itemMessages = messages.get(item.getId());
+			if (itemMessages == null || itemMessages.isEmpty()) {
+				item.setValid(true);
+				item.setConflictMessage(null);
+			} else {
+				item.setValid(false);
+				item.setConflictMessage(String.join("；", itemMessages));
+			}
+		}
+	}
+
+	private void collectOccupancyConflicts(
+		List<AllocationItemView> items,
+		String label,
+		java.util.function.Function<AllocationItemView, String> resourceExtractor,
+		Map<Long, List<String>> messages
+	) {
+		Map<String, List<AllocationItemView>> buckets = new LinkedHashMap<>();
+		for (AllocationItemView item : items) {
+			String resource = resourceExtractor.apply(item);
+			if (resource == null || resource.isBlank()) continue;
+			String key = String.join("|", resource, String.valueOf(item.getWeekNumber()), String.valueOf(item.getDayOfWeek()), String.valueOf(item.getPeriodIndex()));
+			buckets.computeIfAbsent(key, ignored -> new ArrayList<>()).add(item);
+		}
+		for (List<AllocationItemView> bucket : buckets.values()) {
+			if (bucket.size() <= 1) continue;
+			AllocationItemView first = bucket.get(0);
+			String detail = "%s：%s 在第%d周 周%d 第%d节重复安排 %d 条".formatted(
+				label,
+				resourceExtractor.apply(first),
+				first.getWeekNumber(),
+				first.getDayOfWeek(),
+				first.getPeriodIndex(),
+				bucket.size()
+			);
+			for (AllocationItemView item : bucket) {
+				messages.computeIfAbsent(item.getId(), ignored -> new ArrayList<>()).add(detail);
+			}
+		}
+	}
+
+	private void collectTeachingTaskHourConflicts(List<AllocationItemView> items, Map<Long, List<String>> messages) {
+		Set<Long> taskIds = items.stream().map(AllocationItemView::getTeachingTaskId).filter(Objects::nonNull).collect(Collectors.toSet());
+		if (taskIds.isEmpty()) return;
+		String ids = taskIds.stream().map(String::valueOf).collect(Collectors.joining(","));
+		Map<Long, Integer> expectedHours = new HashMap<>();
+		for (TeachingTask task : teachingTaskMapper.findHoursByIds(ids)) {
+			expectedHours.put(task.getId(), task.getTotalHours());
+		}
+		Map<Long, Long> actualHours = items.stream()
+			.filter(item -> item.getTeachingTaskId() != null)
+			.collect(Collectors.groupingBy(AllocationItemView::getTeachingTaskId, Collectors.counting()));
+		for (AllocationItemView item : items) {
+			Long taskId = item.getTeachingTaskId();
+			if (taskId == null || !expectedHours.containsKey(taskId)) continue;
+			int expected = expectedHours.getOrDefault(taskId, 0);
+			long actual = actualHours.getOrDefault(taskId, 0L) * 2;
+			if (expected > 0 && actual != expected) {
+				messages.computeIfAbsent(item.getId(), ignored -> new ArrayList<>()).add(
+					"课时不匹配：教学任务#%d 应排%d课时，当前展开%d课时".formatted(taskId, expected, actual)
+				);
+			}
+		}
 	}
 
 	private String extractGenerationRunId(AllocationScheme scheme) {
