@@ -178,7 +178,15 @@ def _create_teacher(cur, name: str, context: dict[str, Any], *, execute: bool) -
         cur.execute("""
             INSERT INTO teacher (employee_no, password, role, name, department, title, status)
             VALUES (%s, %s, %s, %s, %s, %s, %s)
-        """, (employee_no, DEFAULT_TEACHER_PASSWORD, DEFAULT_TEACHER_ROLE, name, row.get("department") or None, row.get("title") or None, ACTIVE))
+        """, (
+            employee_no,
+            DEFAULT_TEACHER_PASSWORD,
+            DEFAULT_TEACHER_ROLE,
+            name,
+            row.get("department") or _default_department(context),
+            row.get("title") or None,
+            ACTIVE,
+        ))
         cur.execute("SELECT LAST_INSERT_ID() AS id")
         row_id = cur.fetchone()["id"]
     else:
@@ -260,6 +268,14 @@ def _create_teaching_task(cur, review_row: dict[str, str], context: dict[str, An
         cur.execute("INSERT INTO teaching_task_class_group (teaching_task_id, class_group_id) VALUES (%s, %s)", (task_id, class_group["id"]))
         return task_id
     return None
+
+
+def _default_department(context: dict[str, Any]) -> str:
+    for row in context.get("data", {}).get("class_groups", {}).values():
+        department = _clean(row.get("department"))
+        if department:
+            return department
+    return "电子信息与计算机工程系"
 
 
 def _find_task_row(entity_key: str, rows: list[dict[str, str]]) -> dict[str, str] | None:
