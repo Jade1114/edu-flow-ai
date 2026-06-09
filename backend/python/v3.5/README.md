@@ -278,6 +278,14 @@ python v3.5/parse_schedule_excel.py \
 python v3.5/csv_to_jsonl.py --input-dir ../data/parsed/schedule_imports/demo
 ```
 
+对账分析（只读，不改数据库）：
+
+```bash
+python v3.5/analyze_schedule_import.py --input-dir ../data/parsed/schedule_imports/demo
+```
+
+输出：`import_conflicts.csv`、`import_new_items.csv`、`import_matched_items.csv`、`import_analysis_report.json`。
+
 ## 当前边界
 
 - 这是 V3.5 的第一版 placement MVP，只负责生成周模板候选。

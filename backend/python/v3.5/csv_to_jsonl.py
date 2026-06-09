@@ -33,12 +33,25 @@ def convert_csv_to_jsonl(*, input_path: Path, output_path: Path | None = None) -
     }
 
 
-def convert_dir(*, input_dir: Path, output_dir: Path | None = None) -> dict[str, Any]:
+DEFAULT_IMPORT_CSV_NAMES = {
+    "courses.csv",
+    "teachers.csv",
+    "classrooms.csv",
+    "class_groups.csv",
+    "teaching_tasks.csv",
+    "timetable_occurrences.csv",
+}
+
+
+def convert_dir(*, input_dir: Path, output_dir: Path | None = None, include_all: bool = False) -> dict[str, Any]:
     if not input_dir.exists() or not input_dir.is_dir():
         raise SystemExit(f"input-dir not found: {input_dir}")
     output_dir = output_dir or input_dir
     results = []
-    for csv_path in sorted(input_dir.glob("*.csv")):
+    csv_paths = sorted(input_dir.glob("*.csv"))
+    if not include_all:
+        csv_paths = [path for path in csv_paths if path.name in DEFAULT_IMPORT_CSV_NAMES]
+    for csv_path in csv_paths:
         output_path = output_dir / f"{csv_path.stem}.jsonl"
         results.append(convert_csv_to_jsonl(input_path=csv_path, output_path=output_path))
     return {
@@ -77,6 +90,7 @@ def main() -> None:
     group.add_argument("--input-dir", help="Directory containing CSV files")
     parser.add_argument("--output", help="Output JSONL path when using --input")
     parser.add_argument("--output-dir", help="Output directory when using --input-dir")
+    parser.add_argument("--include-all", action="store_true", help="When using --input-dir, convert every CSV instead of only schedule import CSVs")
     args = parser.parse_args()
 
     if args.input:
@@ -88,6 +102,7 @@ def main() -> None:
         result = convert_dir(
             input_dir=Path(args.input_dir),
             output_dir=Path(args.output_dir) if args.output_dir else None,
+            include_all=args.include_all,
         )
     print(json.dumps(result, ensure_ascii=False, indent=2))
 
