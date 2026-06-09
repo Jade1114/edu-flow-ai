@@ -55,6 +55,16 @@ export default function AllocationSchemeDetailPage() {
   const conflictCount = filteredItems.filter(item => item.valid === false).length;
   const hasFilter = teacher || classGroup || classroom || keyword;
 
+  const stats = {
+    totalItems: items.length,
+    conflicts: items.filter(i => i.valid === false).length,
+    conflictRate: items.length ? (items.filter(i => i.valid === false).length / items.length * 100).toFixed(1) : "0",
+    courses: new Set(items.map(i => i.courseName)).size,
+    teachers: new Set(items.map(i => i.teacherName)).size,
+    classes: new Set(items.map(i => i.classGroupName)).size,
+    weeks: new Set(items.map(i => i.weekNumber)).size,
+  };
+
   return (
     <div className="flex flex-col gap-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
@@ -74,6 +84,40 @@ export default function AllocationSchemeDetailPage() {
         </div>
         <Link to="/admin/allocation" className="btn btn-sm btn-ghost">返回方案列表</Link>
       </div>
+
+      {/* Quality metrics */}
+      {!loading && items.length > 0 && (
+        <div className="flex flex-wrap items-stretch gap-3">
+          <div className="stat bg-base-100 border border-base-300 rounded-lg p-3 min-w-[100px] flex-1">
+            <div className="stat-title text-xs text-base-content/60">已排记录</div>
+            <div className="stat-value text-lg text-primary">{stats.totalItems}</div>
+            <div className="stat-desc text-[10px] text-base-content/40">{stats.weeks} 周 · {stats.courses} 门课程</div>
+          </div>
+          <div className="stat bg-base-100 border border-base-300 rounded-lg p-3 min-w-[100px] flex-1">
+            <div className="stat-title text-xs text-base-content/60">冲突</div>
+            <div className={`stat-value text-lg ${stats.conflicts > 0 ? "text-error" : "text-success"}`}>
+              {stats.conflicts}
+              <span className="text-sm font-normal ml-1 text-base-content/40">({stats.conflictRate}%)</span>
+            </div>
+            <div className="stat-desc text-[10px] text-base-content/40">{stats.conflicts > 0 ? "需要人工处理" : "无冲突"}</div>
+          </div>
+          <div className="stat bg-base-100 border border-base-300 rounded-lg p-3 min-w-[100px] flex-1">
+            <div className="stat-title text-xs text-base-content/60">教师</div>
+            <div className="stat-value text-lg text-info">{stats.teachers}</div>
+            <div className="stat-desc text-[10px] text-base-content/40">涉及教师数</div>
+          </div>
+          <div className="stat bg-base-100 border border-base-300 rounded-lg p-3 min-w-[100px] flex-1">
+            <div className="stat-title text-xs text-base-content/60">班级</div>
+            <div className="stat-value text-lg text-accent">{stats.classes}</div>
+            <div className="stat-desc text-[10px] text-base-content/40">覆盖班级数</div>
+          </div>
+          <div className="stat bg-base-100 border border-base-300 rounded-lg p-3 min-w-[100px] flex-1">
+            <div className="stat-title text-xs text-base-content/60">冲突率</div>
+            <div className={`stat-value text-lg ${stats.conflicts > 0 ? "text-warning" : "text-success"}`}>{stats.conflictRate}%</div>
+            <div className="stat-desc text-[10px] text-base-content/40">{stats.conflicts > 0 ? `${stats.conflicts} / ${stats.totalItems}` : "全量通过"}</div>
+          </div>
+        </div>
+      )}
 
       <div className="card bg-base-100 shadow-sm border border-base-300">
         <div className="card-body p-4">
