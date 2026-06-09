@@ -11,6 +11,7 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.TimeUnit;
 import org.springframework.stereotype.Service;
 
 @Service
@@ -63,6 +64,64 @@ public class ImportReviewService {
         result.put("count", request.items().size());
         result.put("path", file.toString());
         return result;
+    }
+
+    public Map<String, Object> apply(String batchId, ImportReviewApplyRequest request) {
+        Path dir = reviewFile(batchId).getParent();
+        boolean execute = request != null && Boolean.TRUE.equals(request.execute());
+        List<ImportReviewItem> items = findItems(batchId);
+        long pending = items.stream().filter(item -> item.getDecision() == null || item.getDecision().isBlank()).count();
+        if (execute && pending > 0) {
+            throw new ValidationException("仍有未决策审核项，不能执行入库");
+        }
+        Map<String, Object> result = runApplyScript(dir, execute);
+        result.put("batchId", batchId);
+        result.put("execute", execute);
+        result.put("pendingCount", pending);
+        return result;
+    }
+
+    private Map<String, Object> runApplyScript(Path importDir, boolean execute) {
+        Path backendRoot = rootDir.getParent().getParent().getParent();
+        Path pythonRoot = backendRoot.resolve("python");
+        Path python = pythonRoot.resolve(".venv/bin/python");
+        if (!Files.exists(python)) {
+            python = Paths.get("python3");
+        }
+        List<String> command = new ArrayList<>();
+        command.add(python.toString());
+        command.add("v3.5/apply_import_review.py");
+        command.add("--input-dir");
+        command.add(pythonRoot.relativize(importDir).toString());
+        if (execute) {
+            command.add("--execute");
+        }
+        try {
+            Process process = new ProcessBuilder(command)
+                .directory(pythonRoot.toFile())
+                .redirectErrorStream(true)
+                .start();
+            boolean finished = process.waitFor(120, TimeUnit.SECONDS);
+            String output = new String(process.getInputStream().readAllBytes(), StandardCharsets.UTF_8);
+            if (!finished) {
+                process.destroyForcibly();
+                throw new ValidationException("执行导入脚本超时");
+            }
+            if (process.exitValue() != 0) {
+                throw new ValidationException("执行导入脚本失败：" + output);
+            }
+            Map<String, Object> result = new LinkedHashMap<>();
+            result.put("status", "ok");
+            result.put("rawOutput", output);
+            result.put("command", String.join(" ", command));
+            result.put("reportPath", importDir.resolve("import_apply_report.json").toString());
+            return result;
+        } catch (IOException e) {
+            throw new ValidationException("启动导入脚本失败");
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new ValidationException("导入脚本执行被中断");
+        }
     }
 
     private ImportReviewBatch toBatch(Path dir) {

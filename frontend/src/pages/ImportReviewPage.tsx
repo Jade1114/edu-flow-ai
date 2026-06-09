@@ -17,6 +17,12 @@ export default function ImportReviewPage() {
           <button className="btn btn-sm btn-primary" disabled={review.saving || !review.selectedBatchId} onClick={review.save}>
             {review.saving ? <span className="loading loading-spinner loading-xs" /> : "保存决策"}
           </button>
+          <button className="btn btn-sm btn-outline" disabled={review.applying || !review.selectedBatchId || review.items.length === 0} onClick={() => review.apply(false)}>
+            {review.applying ? <span className="loading loading-spinner loading-xs" /> : "Dry-run 预演"}
+          </button>
+          <button className="btn btn-sm btn-success" disabled={review.applying || !review.selectedBatchId || review.stats.pending > 0 || review.items.length === 0} onClick={() => review.apply(true)}>
+            {review.applying ? <span className="loading loading-spinner loading-xs" /> : "确认入库"}
+          </button>
         </div>
       </div>
 
@@ -54,6 +60,8 @@ export default function ImportReviewPage() {
         <Stat label="冲突" value={review.stats.conflicts} tone="text-error" />
         <Stat label="新增" value={review.stats.newItems} tone="text-info" />
       </div>
+
+      {review.applyResult && <ApplyResultCard result={review.applyResult} />}
 
       <div className="overflow-x-auto rounded-lg border border-base-300 bg-base-100">
         <table className="table table-zebra table-sm">
@@ -98,6 +106,34 @@ export default function ImportReviewPage() {
             ))}
           </tbody>
         </table>
+      </div>
+    </div>
+  );
+}
+
+function ApplyResultCard({ result }: { result: Record<string, any> }) {
+  const raw = String(result.rawOutput || "");
+  let parsed: any = null;
+  try { parsed = raw ? JSON.parse(raw) : null; } catch { parsed = null; }
+  const counts = parsed?.planned_counts || parsed?.plannedCounts || {};
+  return (
+    <div className="card bg-base-100 border border-base-300 shadow-sm">
+      <div className="card-body p-4">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div>
+            <div className="font-semibold">{result.execute ? "入库执行结果" : "Dry-run 预演结果"}</div>
+            <div className="text-xs text-base-content/50 mt-1">{result.reportPath}</div>
+          </div>
+          <span className={`badge ${result.execute ? "badge-success" : "badge-info"}`}>{result.execute ? "已写库" : "未写库"}</span>
+        </div>
+        {parsed && (
+          <div className="flex flex-wrap gap-2 mt-3 text-xs">
+            <span className="badge badge-ghost">决策 {parsed.decision_count ?? 0}</span>
+            <span className="badge badge-ghost">计划 {parsed.planned_count ?? 0}</span>
+            <span className="badge badge-ghost">跳过 {parsed.skipped_count ?? 0}</span>
+            {Object.entries(counts).map(([key, value]) => <span key={key} className="badge badge-outline">{key}: {String(value)}</span>)}
+          </div>
+        )}
       </div>
     </div>
   );

@@ -46,6 +46,8 @@ export function useImportReviews() {
   const [items, setItems] = useState<ImportReviewItem[]>([]);
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [applying, setApplying] = useState(false);
+  const [applyResult, setApplyResult] = useState<Record<string, any> | null>(null);
   const [filter, setFilter] = useState("all");
 
   useEffect(() => { loadBatches(); }, []);
@@ -107,6 +109,29 @@ export function useImportReviews() {
     }
   }
 
+  async function apply(execute: boolean) {
+    if (!selectedBatchId) return;
+    if (execute && stats.pending > 0) {
+      toast.error("还有未决策项，不能执行入库");
+      return;
+    }
+    if (execute && !confirm("确认按当前决策执行入库？这会写入数据库。")) return;
+    setApplying(true);
+    try {
+      await request.put(`/api/import-reviews/batches/${encodeURIComponent(selectedBatchId)}/items`, { items });
+      const result = await request.post<Record<string, any>>(`/api/import-reviews/batches/${encodeURIComponent(selectedBatchId)}/apply`, { execute });
+      setApplyResult(result || null);
+      toast.success(execute ? "入库执行完成" : "Dry-run 预演完成");
+      await loadBatches();
+      await loadItems(selectedBatchId);
+    } catch (error) {
+      toast.error(execute ? "入库执行失败" : "Dry-run 预演失败");
+      throw error;
+    } finally {
+      setApplying(false);
+    }
+  }
+
   const filteredItems = useMemo(() => {
     if (filter === "pending") return items.filter(item => !item.decision);
     if (filter === "conflict") return items.filter(item => item.reviewType === "conflict");
@@ -132,9 +157,9 @@ export function useImportReviews() {
 
   return {
     batches, selectedBatchId, setSelectedBatchId,
-    items, filteredItems, loading, saving,
+    items, filteredItems, loading, saving, applying, applyResult,
     filter, setFilter, stats,
-    updateDecision, fillRecommended, clearDecisions, save,
+    updateDecision, fillRecommended, clearDecisions, save, apply,
     decisionOptions, decisionLabel,
     reload: () => selectedBatchId ? loadItems(selectedBatchId) : loadBatches(),
   };

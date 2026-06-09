@@ -5,6 +5,7 @@ import java.util.List;
 import java.util.Map;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -32,5 +33,10 @@ public class ImportReviewController {
     @PutMapping("/batches/{batchId}/items")
     public ApiResponse<Map<String, Object>> saveItems(@PathVariable String batchId, @RequestBody ImportReviewSaveRequest request) {
         return ApiResponse.success(importReviewService.saveItems(batchId, request));
+    }
+
+    @PostMapping("/batches/{batchId}/apply")
+    public ApiResponse<Map<String, Object>> apply(@PathVariable String batchId, @RequestBody ImportReviewApplyRequest request) {
+        return ApiResponse.success(importReviewService.apply(batchId, request));
     }
 }
