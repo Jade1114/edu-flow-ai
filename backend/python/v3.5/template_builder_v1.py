@@ -419,6 +419,9 @@ def _task_sort_key(pattern: dict[str, Any], candidates: list[Candidate]) -> tupl
 def _segments(day: int, period: int, consecutive_slots: int) -> list[tuple[int, int]]:
     if consecutive_slots <= 0 or period <= 0 or period + consecutive_slots - 1 > MAX_PERIOD_INDEX:
         return []
+    # 连续课段必须在自然边界上起始。如 2 课时块只能从第 1、3 节开始，不能从第 2、4 节开始
+    if consecutive_slots > 1 and (period - 1) % consecutive_slots != 0:
+        return []
     return [(day, period + offset) for offset in range(consecutive_slots)]
 
 
