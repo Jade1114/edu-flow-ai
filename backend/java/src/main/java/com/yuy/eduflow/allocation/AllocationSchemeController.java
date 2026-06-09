@@ -1,5 +1,7 @@
 package com.yuy.eduflow.allocation;
 
+import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.yuy.eduflow.common.ApiResponse;
 import com.yuy.eduflow.conflict.ConflictDiagnosis;
 import com.yuy.eduflow.ml.MlFeedbackEvent;
@@ -8,6 +10,7 @@ import com.yuy.eduflow.ml.MlFeedbackEventService;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+import java.util.Map;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -28,6 +31,7 @@ public class AllocationSchemeController {
 	private final MlFeedbackEventService feedbackEventService;
 	private final AllocationTaskService allocationTaskService;
 	private final AllocationTemplateMapper allocationTemplateMapper;
+	private final ObjectMapper objectMapper = new ObjectMapper();
 
 	public AllocationSchemeController(
 		AllocationSchemeService allocationSchemeService,
@@ -140,15 +144,19 @@ public class AllocationSchemeController {
 
 	private List<AllocationItemView> findV35Items(AllocationScheme scheme) {
 		Long taskId = scheme.getTaskId();
-		List<AllocationTemplateWeek> weeks = allocationTemplateMapper.findTemplateWeeks(taskId);
+		String generationRunId = extractGenerationRunId(scheme);
+		List<AllocationTemplateWeek> weeks = generationRunId != null && !generationRunId.isBlank()
+			? allocationTemplateMapper.findTemplateWeeksByRun(taskId, generationRunId)
+			: allocationTemplateMapper.findTemplateWeeks(taskId);
 		if (weeks.isEmpty()) return Collections.emptyList();
 
 		List<AllocationItemView> allItems = new ArrayList<>();
 		long virtualItemId = 0;
 
 		for (AllocationTemplateWeek week : weeks) {
-			List<AllocationTemplateTimetableEntry> entries =
-				allocationTemplateMapper.findWeekTimetable(taskId, week.getWeekNumber());
+			List<AllocationTemplateTimetableEntry> entries = generationRunId != null && !generationRunId.isBlank()
+				? allocationTemplateMapper.findWeekTimetableByRun(taskId, generationRunId, week.getWeekNumber())
+				: allocationTemplateMapper.findWeekTimetable(taskId, week.getWeekNumber());
 			for (AllocationTemplateTimetableEntry e : entries) {
 				virtualItemId--;
 				AllocationItemView view = new AllocationItemView();
@@ -166,5 +174,17 @@ public class AllocationSchemeController {
 			}
 		}
 		return allItems;
+	}
+
+	private String extractGenerationRunId(AllocationScheme scheme) {
+		String summary = scheme.getSummary();
+		if (summary == null || summary.isBlank()) return null;
+		try {
+			Map<String, Object> data = objectMapper.readValue(summary, new TypeReference<>() {});
+			Object value = data.get("generation_run_id");
+			return value == null ? null : String.valueOf(value);
+		} catch (Exception ignored) {
+			return null;
+		}
 	}
 }

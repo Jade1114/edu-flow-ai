@@ -9,6 +9,7 @@ from __future__ import annotations
 import argparse
 import json
 import sys
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 
@@ -27,12 +28,14 @@ def import_template_schemes(
     *,
     cover_path: Path = DEFAULT_COVER_PATH,
     allocation_task_id: int = 1,
+    generation_run_id: str | None = None,
     report_path: Path = DEFAULT_REPORT_PATH,
     execute: bool = False,
     truncate: bool = False,
 ) -> dict[str, Any]:
     cover = json.loads(cover_path.read_text(encoding="utf-8"))
     templates = cover.get("templates", [])
+    generation_run_id = generation_run_id or str(cover.get("generation_run_id") or "default")
 
     config = load_db_config()
     conn = connect(config)
@@ -60,9 +63,11 @@ def import_template_schemes(
             slot_count = sum(len(f.get("segments") or []) for f in all_fragments)
             all_weeks = list(range(1, total_weeks + 1))
 
+            display_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
             scheme = {
-                "scheme_name": "V3.5 周模板排课方案",
+                "scheme_name": f"V3.5 周模板排课方案 {display_time}",
                 "summary": json.dumps({
+                    "generation_run_id": generation_run_id,
                     "template_codes": template_codes,
                     "fragment_count": fragment_count,
                     "task_count": task_count,
@@ -147,6 +152,7 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Import V3.5 templates as allocation_scheme records.")
     parser.add_argument("--cover", default=str(DEFAULT_COVER_PATH))
     parser.add_argument("--allocation-task-id", type=int, default=1)
+    parser.add_argument("--generation-run-id", default=None)
     parser.add_argument("--report", default=str(DEFAULT_REPORT_PATH))
     parser.add_argument("--execute", action="store_true")
     parser.add_argument("--truncate", action="store_true")
@@ -157,6 +163,7 @@ def main() -> None:
     result = import_template_schemes(
         cover_path=Path(args.cover),
         allocation_task_id=args.allocation_task_id,
+        generation_run_id=args.generation_run_id,
         report_path=Path(args.report),
         execute=args.execute,
         truncate=args.truncate,

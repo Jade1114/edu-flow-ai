@@ -32,20 +32,20 @@ TABLE_FILES = {
 
 INSERT_COLUMNS = {
     "schedule_template": [
-        "id", "allocation_task_id", "template_code", "template_name", "template_order",
+        "allocation_task_id", "generation_run_id", "template_code", "template_name", "template_order",
         "source_type", "algorithm_version", "status", "fragment_count", "task_count",
     ],
     "schedule_template_week": [
-        "id", "allocation_task_id", "week_number", "template_id", "template_code", "source_type", "notes",
+        "allocation_task_id", "generation_run_id", "week_number", "template_id", "template_code", "source_type", "notes",
     ],
     "schedule_template_fragment": [
-        "id", "template_id", "template_code", "allocation_task_id", "fragment_code",
+        "template_id", "template_code", "allocation_task_id", "generation_run_id", "fragment_code",
         "teaching_task_id", "source_key", "course_id", "course_name", "teacher_id", "teacher_name",
         "class_group_id", "class_name", "classroom_id", "classroom_name", "day_of_week", "period_index",
         "consecutive_slots", "required_room_type", "source_type", "lock_status", "score", "candidate_rank",
     ],
     "schedule_template_fragment_slot": [
-        "template_fragment_id", "fragment_code", "template_id", "template_code", "allocation_task_id",
+        "template_fragment_id", "fragment_code", "template_id", "template_code", "allocation_task_id", "generation_run_id",
         "teaching_task_id", "classroom_id", "teacher_id", "class_group_id", "day_of_week", "period_index",
     ],
 }
@@ -64,6 +64,7 @@ def import_draft(*, input_dir: Path = DEFAULT_OUTPUT_DIR, execute: bool = False,
             "execute": execute,
             "truncate": truncate,
             "counts": {table: len(rows) for table, rows in rows_by_table.items()},
+            "generation_run_id": _first_generation_run_id(rows_by_table),
             "missing_tables": missing_tables,
         }
         if missing_tables:
@@ -76,15 +77,28 @@ def import_draft(*, input_dir: Path = DEFAULT_OUTPUT_DIR, execute: bool = False,
         with connection.cursor() as cursor:
             if truncate:
                 _truncate_tables(cursor)
-            for table in [
-                "schedule_template",
-                "schedule_template_week",
-                "schedule_template_fragment",
-                "schedule_template_fragment_slot",
-            ]:
-                _insert_rows(cursor, table, rows_by_table[table])
+
+            template_id_map = _insert_templates(cursor, rows_by_table["schedule_template"])
+            week_rows = [_replace_template_id(row, template_id_map) for row in rows_by_table["schedule_template_week"]]
+            _insert_rows(cursor, "schedule_template_week", week_rows)
+
+            fragment_rows = [_replace_template_id(row, template_id_map) for row in rows_by_table["schedule_template_fragment"]]
+            fragment_id_map = _insert_fragments(cursor, fragment_rows)
+
+            slot_rows = []
+            for row in rows_by_table["schedule_template_fragment_slot"]:
+                mapped = _replace_template_id(row, template_id_map)
+                draft_fragment_id = row.get("template_fragment_id")
+                mapped["template_fragment_id"] = fragment_id_map[draft_fragment_id]
+                slot_rows.append(mapped)
+            _insert_rows(cursor, "schedule_template_fragment_slot", slot_rows)
+
         connection.commit()
         report["status"] = "inserted"
+        report["mapped_counts"] = {
+            "templates": len(template_id_map),
+            "fragments": len(fragment_id_map),
+        }
         return report
     except Exception:
         connection.rollback()
@@ -113,6 +127,38 @@ def _truncate_tables(cursor) -> None:
         cursor.execute(f"TRUNCATE TABLE {table}")
 
 
+def _insert_templates(cursor, rows: list[dict[str, Any]]) -> dict[Any, int]:
+    result = {}
+    for row in rows:
+        draft_id = row.get("id")
+        _insert_row(cursor, "schedule_template", row)
+        result[draft_id] = _last_insert_id(cursor)
+    return result
+
+
+def _insert_fragments(cursor, rows: list[dict[str, Any]]) -> dict[Any, int]:
+    result = {}
+    for row in rows:
+        draft_id = row.get("id")
+        _insert_row(cursor, "schedule_template_fragment", row)
+        result[draft_id] = _last_insert_id(cursor)
+    return result
+
+
+def _replace_template_id(row: dict[str, Any], template_id_map: dict[Any, int]) -> dict[str, Any]:
+    mapped = dict(row)
+    mapped["template_id"] = template_id_map[row.get("template_id")]
+    return mapped
+
+
+def _insert_row(cursor, table: str, row: dict[str, Any]) -> None:
+    columns = INSERT_COLUMNS[table]
+    placeholders = ", ".join(["%s"] * len(columns))
+    column_sql = ", ".join(columns)
+    sql = f"INSERT INTO {table} ({column_sql}) VALUES ({placeholders})"
+    cursor.execute(sql, tuple(row.get(column) for column in columns))
+
+
 def _insert_rows(cursor, table: str, rows: list[dict[str, Any]]) -> None:
     if not rows:
         return
@@ -122,6 +168,20 @@ def _insert_rows(cursor, table: str, rows: list[dict[str, Any]]) -> None:
     sql = f"INSERT INTO {table} ({column_sql}) VALUES ({placeholders})"
     values = [tuple(row.get(column) for column in columns) for row in rows]
     cursor.executemany(sql, values)
+
+
+def _last_insert_id(cursor) -> int:
+    cursor.execute("SELECT LAST_INSERT_ID() AS id")
+    return int(cursor.fetchone()["id"])
+
+
+def _first_generation_run_id(rows_by_table: dict[str, list[dict[str, Any]]]) -> str | None:
+    for rows in rows_by_table.values():
+        for row in rows:
+            value = row.get("generation_run_id")
+            if value:
+                return str(value)
+    return None
 
 
 def _read_jsonl(path: Path) -> list[dict[str, Any]]:

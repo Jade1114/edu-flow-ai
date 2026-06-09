@@ -18,12 +18,18 @@ public class AllocationTemplateService {
 
 	public List<AllocationTemplate> findTemplates(Long allocationTaskId) {
 		allocationTaskService.findById(allocationTaskId);
-		return allocationTemplateMapper.findTemplates(allocationTaskId);
+		String generationRunId = allocationTemplateMapper.findLatestGenerationRunId(allocationTaskId);
+		return generationRunId == null
+			? allocationTemplateMapper.findTemplates(allocationTaskId)
+			: allocationTemplateMapper.findTemplatesByRun(allocationTaskId, generationRunId);
 	}
 
 	public List<AllocationTemplateWeek> findTemplateWeeks(Long allocationTaskId) {
 		allocationTaskService.findById(allocationTaskId);
-		return allocationTemplateMapper.findTemplateWeeks(allocationTaskId);
+		String generationRunId = allocationTemplateMapper.findLatestGenerationRunId(allocationTaskId);
+		return generationRunId == null
+			? allocationTemplateMapper.findTemplateWeeks(allocationTaskId)
+			: allocationTemplateMapper.findTemplateWeeksByRun(allocationTaskId, generationRunId);
 	}
 
 	public AllocationTemplateWeek findTemplateWeek(Long allocationTaskId, Integer weekNumber) {
@@ -33,6 +39,9 @@ public class AllocationTemplateService {
 
 	public List<AllocationTemplateTimetableEntry> findWeekTimetable(Long allocationTaskId, Integer weekNumber) {
 		allocationTaskService.findById(allocationTaskId);
-		return allocationTemplateMapper.findWeekTimetable(allocationTaskId, weekNumber);
+		String generationRunId = allocationTemplateMapper.findLatestGenerationRunId(allocationTaskId);
+		return generationRunId == null
+			? allocationTemplateMapper.findWeekTimetable(allocationTaskId, weekNumber)
+			: allocationTemplateMapper.findWeekTimetableByRun(allocationTaskId, generationRunId, weekNumber);
 	}
 }

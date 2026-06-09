@@ -27,9 +27,11 @@ def export_db_draft(
     report_path: Path = DEFAULT_REPORT_PATH,
     allocation_task_id: int = 1,
     total_weeks: int = 18,
+    generation_run_id: str | None = None,
 ) -> dict[str, Any]:
     cover = json.loads(cover_path.read_text(encoding="utf-8"))
     templates = cover.get("templates", [])
+    generation_run_id = generation_run_id or str(cover.get("generation_run_id") or "default")
     output_dir.mkdir(parents=True, exist_ok=True)
 
     template_rows: list[dict[str, Any]] = []
@@ -47,6 +49,7 @@ def export_db_draft(
         template_rows.append({
             "id": template_id,
             "allocation_task_id": allocation_task_id,
+            "generation_run_id": generation_run_id,
             "template_code": template_code,
             "template_name": f"V3.5 模板 {template_index}",
             "template_order": template_index,
@@ -66,6 +69,7 @@ def export_db_draft(
                 template_id=template_id,
                 template_code=template_code,
                 allocation_task_id=allocation_task_id,
+                generation_run_id=generation_run_id,
             )
             fragment_rows.append(fragment_row)
             for segment in fragment.get("segments") or []:
@@ -76,6 +80,7 @@ def export_db_draft(
                     template_id=template_id,
                     template_code=template_code,
                     allocation_task_id=allocation_task_id,
+                    generation_run_id=generation_run_id,
                     fragment=fragment,
                 ))
             fragment_id += 1
@@ -96,6 +101,7 @@ def export_db_draft(
             week_rows.append({
                 "id": week_number,
                 "allocation_task_id": allocation_task_id,
+                "generation_run_id": generation_run_id,
                 "week_number": week_number,
                 "template_id": template_row["id"],
                 "template_code": template_row["template_code"],
@@ -116,6 +122,7 @@ def export_db_draft(
 
     report = {
         "allocation_task_id": allocation_task_id,
+        "generation_run_id": generation_run_id,
         "total_weeks": total_weeks,
         "cover_path": str(cover_path),
         "output_dir": str(output_dir),
@@ -142,12 +149,14 @@ def _fragment_row(
     template_id: int,
     template_code: str,
     allocation_task_id: int,
+    generation_run_id: str,
 ) -> dict[str, Any]:
     return {
         "id": fragment_id,
         "template_id": template_id,
         "template_code": template_code,
         "allocation_task_id": allocation_task_id,
+        "generation_run_id": generation_run_id,
         "fragment_code": fragment_code,
         "teaching_task_id": None,
         "source_key": fragment.get("source_key"),
@@ -178,6 +187,7 @@ def _slot_row(
     template_id: int,
     template_code: str,
     allocation_task_id: int,
+    generation_run_id: str,
     fragment: dict[str, Any],
 ) -> dict[str, Any]:
     return {
@@ -186,6 +196,7 @@ def _slot_row(
         "template_id": template_id,
         "template_code": template_code,
         "allocation_task_id": allocation_task_id,
+        "generation_run_id": generation_run_id,
         "teaching_task_id": None,
         "classroom_id": None,
         "teacher_id": None,
@@ -226,6 +237,7 @@ def main() -> None:
     parser.add_argument("--report", default=str(DEFAULT_REPORT_PATH))
     parser.add_argument("--allocation-task-id", type=int, default=1)
     parser.add_argument("--total-weeks", type=int, default=18)
+    parser.add_argument("--generation-run-id", default=None)
     args = parser.parse_args()
 
     report = export_db_draft(
@@ -234,6 +246,7 @@ def main() -> None:
         report_path=Path(args.report),
         allocation_task_id=args.allocation_task_id,
         total_weeks=args.total_weeks,
+        generation_run_id=args.generation_run_id,
     )
     print(json.dumps({k: v for k, v in report.items() if k != "week_mapping_preview"}, ensure_ascii=False, indent=2))
     print(f"report: {args.report}")

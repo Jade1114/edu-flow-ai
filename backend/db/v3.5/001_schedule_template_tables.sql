@@ -6,6 +6,7 @@
 CREATE TABLE IF NOT EXISTS schedule_template (
     id BIGINT PRIMARY KEY AUTO_INCREMENT,
     allocation_task_id BIGINT NOT NULL COMMENT '排课任务ID',
+    generation_run_id VARCHAR(64) NULL COMMENT 'V3.5生成批次ID',
     template_code VARCHAR(64) NOT NULL COMMENT '模板编码，如 cover_v1_template_1',
     template_name VARCHAR(128) NULL COMMENT '模板名称',
     template_order INT NOT NULL DEFAULT 1 COMMENT '模板顺序',
@@ -16,13 +17,15 @@ CREATE TABLE IF NOT EXISTS schedule_template (
     task_count INT NOT NULL DEFAULT 0,
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-    UNIQUE KEY uk_allocation_template_code (allocation_task_id, template_code),
-    KEY idx_allocation_task (allocation_task_id)
+    UNIQUE KEY uk_allocation_run_template_code (allocation_task_id, generation_run_id, template_code),
+    KEY idx_allocation_task (allocation_task_id),
+    KEY idx_allocation_run (allocation_task_id, generation_run_id)
 ) COMMENT='排课模板表';
 
 CREATE TABLE IF NOT EXISTS schedule_template_week (
     id BIGINT PRIMARY KEY AUTO_INCREMENT,
     allocation_task_id BIGINT NOT NULL COMMENT '排课任务ID',
+    generation_run_id VARCHAR(64) NULL COMMENT 'V3.5生成批次ID',
     week_number INT NOT NULL COMMENT '教学周',
     template_id BIGINT NOT NULL COMMENT '使用的模板ID',
     template_code VARCHAR(64) NOT NULL COMMENT 'dry-run 阶段用于关联模板编码',
@@ -30,8 +33,9 @@ CREATE TABLE IF NOT EXISTS schedule_template_week (
     notes VARCHAR(255) NULL,
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-    UNIQUE KEY uk_allocation_week (allocation_task_id, week_number),
+    UNIQUE KEY uk_allocation_run_week (allocation_task_id, generation_run_id, week_number),
     KEY idx_template (template_id),
+    KEY idx_allocation_run (allocation_task_id, generation_run_id),
     KEY idx_allocation_template (allocation_task_id, template_id)
 ) COMMENT='排课任务每周模板映射表';
 
@@ -40,6 +44,7 @@ CREATE TABLE IF NOT EXISTS schedule_template_fragment (
     template_id BIGINT NOT NULL COMMENT '模板ID',
     template_code VARCHAR(64) NOT NULL COMMENT 'dry-run 阶段用于关联模板编码',
     allocation_task_id BIGINT NOT NULL COMMENT '排课任务ID',
+    generation_run_id VARCHAR(64) NULL COMMENT 'V3.5生成批次ID',
     fragment_code VARCHAR(255) NOT NULL COMMENT '算法片段ID，如 source_key#frag1',
     teaching_task_id BIGINT NULL COMMENT '教学任务ID',
     source_key VARCHAR(255) NULL COMMENT '算法侧任务标识，过渡期使用',
@@ -64,6 +69,7 @@ CREATE TABLE IF NOT EXISTS schedule_template_fragment (
     UNIQUE KEY uk_template_fragment_code (template_id, fragment_code),
     KEY idx_template (template_id),
     KEY idx_allocation_task (allocation_task_id),
+    KEY idx_allocation_run (allocation_task_id, generation_run_id),
     KEY idx_teaching_task (teaching_task_id),
     KEY idx_template_time (template_id, day_of_week, period_index),
     KEY idx_template_room_time (template_id, classroom_id, day_of_week, period_index),
@@ -78,6 +84,7 @@ CREATE TABLE IF NOT EXISTS schedule_template_fragment_slot (
     template_id BIGINT NOT NULL,
     template_code VARCHAR(64) NOT NULL,
     allocation_task_id BIGINT NOT NULL,
+    generation_run_id VARCHAR(64) NULL COMMENT 'V3.5生成批次ID',
     teaching_task_id BIGINT NULL,
     classroom_id BIGINT NULL,
     teacher_id BIGINT NULL,
@@ -86,6 +93,7 @@ CREATE TABLE IF NOT EXISTS schedule_template_fragment_slot (
     period_index INT NOT NULL,
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     KEY idx_fragment (template_fragment_id),
+    KEY idx_allocation_run (allocation_task_id, generation_run_id),
     KEY idx_template_time (template_id, day_of_week, period_index),
     KEY idx_template_room_time (template_id, classroom_id, day_of_week, period_index),
     KEY idx_template_class_time (template_id, class_group_id, day_of_week, period_index),
