@@ -292,7 +292,21 @@ python v3.5/analyze_schedule_import.py --input-dir ../data/parsed/schedule_impor
 python v3.5/prepare_import_review.py --input-dir ../data/parsed/schedule_imports/demo
 ```
 
-输出：`import_review_items.csv`、`import_review_report.json`。在 `decision` 列填写 `keep_db`、`use_import`、`create`、`ignore` 等决策，后续再由 apply 脚本执行入库。
+输出：`import_review_items.csv`、`import_review_report.json`。在 `decision` 列填写 `keep_db`、`use_import`、`create`、`ignore` 等决策。
+
+应用审核决策（默认 dry-run，不写数据库）：
+
+```bash
+python v3.5/apply_import_review.py --input-dir ../data/parsed/schedule_imports/demo
+```
+
+确认无误后才执行写库：
+
+```bash
+python v3.5/apply_import_review.py --input-dir ../data/parsed/schedule_imports/demo --execute
+```
+
+输出：`import_apply_report.json`。
 
 ## 当前边界
 
