@@ -31,7 +31,9 @@ export function useModelTraining() {
   const [eventSummary, setEventSummary] = useState<EventSummary | null>(null);
   const [eventLoading, setEventLoading] = useState(false);
   const [training, setTraining] = useState(false);
+  const [historyTraining, setHistoryTraining] = useState(false);
   const [trainResult, setTrainResult] = useState<Record<string, unknown> | null>(null);
+  const [historyTrainResult, setHistoryTrainResult] = useState<Record<string, unknown> | null>(null);
   const [trainingLogs, setTrainingLogs] = useState<TrainingLog[]>([]);
   const [logsLoading, setLogsLoading] = useState(false);
 
@@ -70,6 +72,23 @@ export function useModelTraining() {
     finally { setFeedbackLoading(false); }
   }
 
+  async function trainFromHistory(rawDir?: string) {
+    if (!rawDir) { toast.error("请指定历史课表目录路径"); return; }
+    setHistoryTraining(true);
+    setHistoryTrainResult({ status: "RUNNING" });
+    try {
+      const result = await request.post("/api/ml/feedback/train-from-history", { rawDir });
+      setHistoryTrainResult(result);
+      if (result?.status === "ok") {
+        toast.success(`历史数据训练完成！`);
+        loadTrainingLogs();
+      } else toast.error(`训练失败: ${result?.error || "未知错误"}`);
+    } catch (e: any) {
+      setHistoryTrainResult({ status: "FAILED", error: e.message || "请求失败" });
+      toast.error("历史训练请求失败");
+    } finally { setHistoryTraining(false); }
+  }
+
   async function triggerRetrain(taskId?: string) {
     setTraining(true);
     setTrainResult({ status: "RUNNING", message: "正在将最新反馈 JSON 转为训练样本..." });
@@ -105,8 +124,8 @@ export function useModelTraining() {
   ];
 
   function eventLabel(type: string) { return EVENT_LABEL[type] || type || "-"; }
-  function typeLabel(type: string) { return ({ INITIAL: "初始训练", FEEDBACK: "反馈重训", FULL: "全量训练" } as any)[type] || type || "-"; }
+  function typeLabel(type: string) { return ({ INITIAL: "初始训练", FEEDBACK: "反馈重训", FULL: "全量训练", HISTORY: "历史数据训练" } as any)[type] || type || "-"; }
   function fmtTime(t: string) { return t ? t.replace("T", " ").substring(0, 19) : "-"; }
 
-  return { feedbackStats, feedbackLoading, eventSummary, eventLoading, training, trainResult, trainingLogs, logsLoading, lastLog, positiveRate, eventCards, eventLabel, typeLabel, fmtTime, loadAll, loadLatestFeedback, loadEventSummary, generateFeedback, triggerRetrain, loadTrainingLogs };
+  return { feedbackStats, feedbackLoading, eventSummary, eventLoading, training, historyTraining, trainResult, historyTrainResult, trainingLogs, logsLoading, lastLog, positiveRate, eventCards, eventLabel, typeLabel, fmtTime, loadAll, loadLatestFeedback, loadEventSummary, generateFeedback, triggerRetrain, trainFromHistory, loadTrainingLogs };
 }

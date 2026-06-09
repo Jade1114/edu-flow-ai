@@ -7,6 +7,7 @@ import java.util.Map;
 
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
@@ -16,13 +17,16 @@ import org.springframework.web.bind.annotation.RestController;
 public class MlFeedbackTrainingController {
     private final MlFeedbackTrainingService feedbackTrainingService;
     private final MlFeedbackEventService feedbackEventService;
+    private final ModelHistoryTrainingService modelHistoryTrainingService;
 
     public MlFeedbackTrainingController(
         MlFeedbackTrainingService feedbackTrainingService,
-        MlFeedbackEventService feedbackEventService
+        MlFeedbackEventService feedbackEventService,
+        ModelHistoryTrainingService modelHistoryTrainingService
     ) {
         this.feedbackTrainingService = feedbackTrainingService;
         this.feedbackEventService = feedbackEventService;
+        this.modelHistoryTrainingService = modelHistoryTrainingService;
     }
 
     @GetMapping("/export")
@@ -38,6 +42,15 @@ public class MlFeedbackTrainingController {
     @PostMapping("/train")
     public ApiResponse<MlTrainingStatusResult> train(@RequestParam(required = false) Long taskId) {
         return ApiResponse.success(feedbackTrainingService.train(taskId));
+    }
+
+    @PostMapping("/train-from-history")
+    public ApiResponse<Map<String, Object>> trainFromHistory(@RequestBody Map<String, String> request) {
+        String rawDir = request == null ? null : request.get("rawDir");
+        if (rawDir == null || rawDir.isBlank()) {
+            throw new com.yuy.eduflow.common.exception.ValidationException("rawDir 不能为空");
+        }
+        return ApiResponse.success(modelHistoryTrainingService.trainFromHistory(rawDir));
     }
 
     @GetMapping("/training-status")

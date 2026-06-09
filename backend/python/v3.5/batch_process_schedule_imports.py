@@ -26,16 +26,22 @@ DEFAULT_INPUT_DIR = Path(__file__).resolve().parents[2] / "data" / "raw" / "sche
 DEFAULT_BATCH_REPORT_PATH = DEFAULT_OUTPUT_ROOT / "batch_process_report.json"
 
 
+DEFAULT_TRAINING_OUTPUT_ROOT = DEFAULT_OUTPUT_ROOT.parent / "schedule_imports_training"
+
+
 def batch_process(
     *,
     input_dir: Path = DEFAULT_INPUT_DIR,
     output_root: Path = DEFAULT_OUTPUT_ROOT,
     task_batch: str = "DEFAULT",
     fail_fast: bool = False,
+    training: bool = False,
 ) -> dict[str, Any]:
     if not input_dir.exists() or not input_dir.is_dir():
         raise SystemExit(f"input-dir not found: {input_dir}")
     files = sorted([path for path in input_dir.rglob("*") if path.suffix.lower() in {".xls", ".xlsx"}])
+    if training:
+        output_root = DEFAULT_TRAINING_OUTPUT_ROOT
     output_root.mkdir(parents=True, exist_ok=True)
 
     results: list[dict[str, Any]] = []
@@ -45,19 +51,21 @@ def batch_process(
             _clean_stale_analysis_jsonl(output_dir)
             parse_report = parse_schedule_excel(input_path=path, output_dir=output_dir, task_batch=task_batch)
             jsonl_report = convert_dir(input_dir=output_dir)
-            analysis_report = analyze(input_dir=output_dir)
-            review_report = prepare_review(input_dir=output_dir)
-            results.append({
+            item: dict[str, Any] = {
                 "status": "ok",
                 "input_path": str(path),
                 "output_dir": str(output_dir),
                 "parse_counts": parse_report.get("counts", {}),
                 "jsonl": {"file_count": jsonl_report.get("file_count"), "total_rows": jsonl_report.get("total_rows")},
-                "analysis": analysis_report.get("counts", {}),
-                "conflict_counts": analysis_report.get("conflict_counts", {}),
-                "new_item_counts": analysis_report.get("new_item_counts", {}),
-                "review": review_report.get("counts", {}),
-            })
+            }
+            if not training:
+                analysis_report = analyze(input_dir=output_dir)
+                review_report = prepare_review(input_dir=output_dir)
+                item["analysis"] = analysis_report.get("counts", {})
+                item["conflict_counts"] = analysis_report.get("conflict_counts", {})
+                item["new_item_counts"] = analysis_report.get("new_item_counts", {})
+                item["review"] = review_report.get("counts", {})
+            results.append(item)
         except Exception as exc:  # noqa: BLE001 - batch report should capture per-file failures
             item = {
                 "status": "failed",
@@ -131,12 +139,14 @@ def main() -> None:
     parser.add_argument("--output-root", default=str(DEFAULT_OUTPUT_ROOT))
     parser.add_argument("--task-batch", default="DEFAULT")
     parser.add_argument("--fail-fast", action="store_true")
+    parser.add_argument("--training", action="store_true", help="Skip analysis and review; output to schedule_imports_training/")
     args = parser.parse_args()
     report = batch_process(
         input_dir=Path(args.input_dir),
         output_root=Path(args.output_root),
         task_batch=args.task_batch,
         fail_fast=args.fail_fast,
+        training=args.training,
     )
     print(json.dumps({k: v for k, v in report.items() if k != "items"}, ensure_ascii=False, indent=2))
 

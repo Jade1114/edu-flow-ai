@@ -22,6 +22,31 @@ export default function ModelTrainingManager() {
         </div>
       </div>
 
+      {/* Historical training card */}
+      <div className="card bg-base-100 border border-base-300 shadow-sm">
+        <div className="card-body p-4">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <h3 className="font-semibold">历史数据训练</h3>
+              <p className="text-xs text-base-content/50 mt-1">用历史学期课表数据训练 LightGBM 单模型，不进数据库。</p>
+            </div>
+            <div className="flex gap-2">
+              <input type="text" id="history-raw-dir" className="input input-bordered input-sm w-72 font-mono text-xs" placeholder="backend/data/raw/2025-2026学年1学期总课表" defaultValue="backend/data/raw/2025-2026学年1学期总课表" />
+              <button className="btn btn-primary btn-sm" disabled={t.historyTraining} onClick={() => {
+                const dir = (document.getElementById("history-raw-dir") as HTMLInputElement)?.value;
+                t.trainFromHistory(dir || "backend/data/raw/2025-2026学年1学期总课表");
+              }}>{t.historyTraining ? "训练中..." : "开始历史训练"}</button>
+            </div>
+          </div>
+          {t.historyTrainResult && (
+            <div className={`mt-3 text-xs p-3 rounded-lg ${t.historyTrainResult?.status === "ok" ? "bg-success/10 text-success" : "bg-error/10 text-error"}`}>
+              <div className="font-medium mb-1">{t.historyTrainResult?.status === "ok" ? "训练完成" : "训练失败"}</div>
+              <div className="opacity-70 font-mono whitespace-pre-wrap max-h-32 overflow-auto">{JSON.stringify(t.historyTrainResult, null, 2)}</div>
+            </div>
+          )}
+        </div>
+      </div>
+
       {/* Training alert */}
       {t.trainResult && (
         <div className={`alert ${t.trainResult.status === "SUCCEEDED" ? "alert-success" : t.trainResult.status === "FAILED" ? "alert-error" : "alert-warning"}`}>
