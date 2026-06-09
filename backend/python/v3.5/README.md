@@ -259,7 +259,19 @@ mvn -q -DskipTests compile
 
 ## 班级课表 Excel 导入预处理
 
-第一步只做文件解析，不写数据库、不调用 LLM；支持 `.xls` / `.xlsx`：
+批量处理 `backend/data/raw/schedules` 下的 `.xls` / `.xlsx`，串起解析、JSONL、对账分析和审核清单生成：
+
+```bash
+cd backend/python
+source .venv/bin/activate
+python v3.5/batch_process_schedule_imports.py \
+  --input-dir ../data/raw/schedules \
+  --task-batch 2026学期下
+```
+
+输出根目录：`backend/data/parsed/schedule_imports`。
+
+单文件调试时，只做文件解析，不写数据库、不调用 LLM；支持 `.xls` / `.xlsx`：
 
 ```bash
 cd backend/python
