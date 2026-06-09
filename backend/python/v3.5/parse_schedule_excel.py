@@ -489,11 +489,11 @@ def _build_teaching_tasks(
         if code not in occurrence_codes and code not in details_by_code:
             continue
         detail = details_by_code.get(code)
-        teacher = detail.teachers[0] if detail and detail.teachers else ""
+        teacher_names = _join_names(detail.teachers) if detail else ""
         rows.append({
             "course_code": code,
             "course_name": course["course_name"],
-            "teacher_name": teacher,
+            "teacher_name": teacher_names,
             "class_name": class_name,
             "total_hours": course["required_hours"],
             "required_room_type": course["required_room_type"],
@@ -511,7 +511,7 @@ def _occurrence_row(item: Occurrence, details_by_code: dict[str, CourseDetail]) 
         "class_name": item.class_name,
         "course_code": item.course_code,
         "course_name": detail.course_name if detail else item.course_code,
-        "teacher_name": detail.teachers[0] if detail and detail.teachers else "",
+        "teacher_name": _join_names(detail.teachers) if detail else "",
         "classroom_name": item.classroom_name,
         "day_of_week": item.day_of_week,
         "period_index": item.period_index,
@@ -563,6 +563,14 @@ def _write_csv(path: Path, rows: list[dict[str, Any]], fieldnames: list[str]) ->
 
 def _split_list(value: str) -> list[str]:
     return [_clean_token(item) for item in re.split(r"[,，、/;；\s]+", value or "") if _clean_token(item)]
+
+
+def _join_names(values: list[str]) -> str:
+    result: list[str] = []
+    for value in values:
+        if value and value not in result:
+            result.append(value)
+    return ",".join(result)
 
 
 def _clean_course_name(value: str) -> str:
