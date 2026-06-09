@@ -33,6 +33,8 @@ def build_cover(
     top_k: int = 300,
     max_templates: int = 8,
     enable_fallback: bool = True,
+    allowed_weekdays: frozenset[int] | None = None,
+    allowed_periods: frozenset[int] | None = None,
 ) -> dict[str, Any]:
     all_patterns = _read_jsonl(patterns_path)
     remaining_by_key = {str(pattern["source_key"]): pattern for pattern in all_patterns}
@@ -62,6 +64,8 @@ def build_cover(
                 top_k=top_k,
                 repair_depth=0,
                 enable_fallback=enable_fallback,
+                allowed_weekdays=allowed_weekdays,
+                allowed_periods=allowed_periods,
             )
             template_doc = json.loads(iteration_template_path.read_text(encoding="utf-8"))
             template_doc["template_id"] = f"cover_v1_template_{iteration}"

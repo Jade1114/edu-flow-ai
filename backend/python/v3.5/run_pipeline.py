@@ -13,7 +13,9 @@ from __future__ import annotations
 import argparse
 import json
 import shutil
+import sys
 import time
+from datetime import datetime
 from pathlib import Path
 from typing import Any, Callable
 
@@ -27,6 +29,11 @@ from export_template_cover_db_draft import export_db_draft
 from fetch_allocation_teaching_tasks import DEFAULT_OUTPUT_PATH as ALLOCATION_TASKS_PATH
 from fetch_allocation_teaching_tasks import fetch as fetch_allocation_tasks
 from import_db_draft_to_mysql import import_draft
+
+ROOT = Path(__file__).resolve().parents[1]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+from app.db.session import connect, load_db_config  # noqa: E402
 from pattern_builder import DEFAULT_OUTPUT_PATH as PATTERNS_PATH
 from pattern_builder import build_patterns
 from placement_model import OUTPUT_DIR as PLACEMENT_OUTPUT_DIR
@@ -44,6 +51,30 @@ PIPELINE_SUMMARY_PATH = PLACEMENT_OUTPUT_DIR / "pipeline_summary.json"
 PIPELINE_RUNS_DIR = PLACEMENT_OUTPUT_DIR / "runs"
 
 
+def _load_allowed_config(task_id: int) -> tuple[frozenset[int] | None, frozenset[int] | None]:
+    """Read allowed_weekdays and allowed_periods from allocation_task_generation_config."""
+    try:
+        conn = connect(load_db_config())
+        try:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "SELECT allowed_weekdays, allowed_periods FROM allocation_task_generation_config WHERE task_id = %s",
+                    (task_id,),
+                )
+                row = cur.fetchone()
+                if row:
+                    def _parse_csv(value: str) -> frozenset[int]:
+                        return frozenset(int(x.strip()) for x in value.split(",") if x.strip())
+                    weekdays = _parse_csv(row["allowed_weekdays"]) if row.get("allowed_weekdays") else None
+                    periods = _parse_csv(row["allowed_periods"]) if row.get("allowed_periods") else None
+                    return weekdays, periods
+                return None, None
+        finally:
+            conn.close()
+    except Exception:
+        return None, None
+
+
 def run_pipeline(
     *,
     allocation_task_id: int = 1,
@@ -57,6 +88,7 @@ def run_pipeline(
     snapshot: bool = True,
 ) -> dict[str, Any]:
     started_at = time.strftime("%Y-%m-%d %H:%M:%S")
+    generation_run_id = f"v35-{allocation_task_id}-{datetime.now().strftime('%Y%m%d%H%M%S')}"
     steps: list[dict[str, Any]] = []
 
     clean_report = _step(steps, "clean_training_samples", lambda: clean_training_samples())
@@ -88,6 +120,7 @@ def run_pipeline(
     pattern_report = _step(steps, "build_patterns", lambda: build_patterns(input_path=ALLOCATION_TASKS_PATH))
     pattern_validation = _step(steps, "validate_patterns", lambda: validate_patterns(input_path=PATTERNS_PATH))
 
+    allowed_weekdays, allowed_periods = _load_allowed_config(allocation_task_id)
     cover_report = _step(
         steps,
         "build_template_cover",
@@ -97,6 +130,8 @@ def run_pipeline(
             top_k=top_k,
             max_templates=max_templates,
             enable_fallback=True,
+            allowed_weekdays=allowed_weekdays,
+            allowed_periods=allowed_periods,
         ),
     )
     cover_validation = _step(steps, "validate_template_cover", lambda: validate_cover(cover_path=COVER_PATH))
@@ -109,6 +144,7 @@ def run_pipeline(
             output_dir=DB_DRAFT_DIR,
             allocation_task_id=allocation_task_id,
             total_weeks=total_weeks,
+            generation_run_id=generation_run_id,
         ),
     )
     db_draft_validation = _step(steps, "validate_db_draft", lambda: validate_export(input_dir=DB_DRAFT_DIR))
@@ -126,7 +162,13 @@ def run_pipeline(
         _step(
             steps,
             "import_template_schemes",
-            lambda: import_template_schemes(cover_path=COVER_PATH, allocation_task_id=allocation_task_id, execute=True, truncate=True),
+            lambda: import_template_schemes(
+                cover_path=COVER_PATH,
+                allocation_task_id=allocation_task_id,
+                generation_run_id=generation_run_id,
+                execute=True,
+                truncate=False,
+            ),
         )
 
     summary = {
@@ -135,6 +177,9 @@ def run_pipeline(
         "finished_at": time.strftime("%Y-%m-%d %H:%M:%S"),
         "params": {
             "allocation_task_id": allocation_task_id,
+            "generation_run_id": generation_run_id,
+            "allowed_weekdays": sorted(allowed_weekdays) if allowed_weekdays else None,
+            "allowed_periods": sorted(allowed_periods) if allowed_periods else None,
             "total_weeks": total_weeks,
             "top_k": top_k,
             "max_templates": max_templates,

@@ -42,15 +42,27 @@ class Candidate:
 
 
 class WeeklyTemplate:
-    def __init__(self) -> None:
+    def __init__(self, *, allowed_weekdays: frozenset[int] | None = None, allowed_periods: frozenset[int] | None = None) -> None:
         self.fragments: list[dict[str, Any]] = []
         self.by_fragment_id: dict[str, dict[str, Any]] = {}
         self.teacher_occupancy: dict[tuple[str, int, int], str] = {}
         self.class_occupancy: dict[tuple[str, int, int], str] = {}
         self.room_occupancy: dict[tuple[str, int, int], str] = {}
         self.task_fragments: dict[str, list[str]] = {}
+        self.locked_slots: set[str] = set()
+        if allowed_weekdays is not None or allowed_periods is not None:
+            for day in range(1, 8):
+                if allowed_weekdays is not None and day not in allowed_weekdays:
+                    for period in range(1, MAX_PERIOD_INDEX + 1):
+                        self.locked_slots.add(f"{day}|{period}")
+                elif allowed_periods is not None:
+                    for period in range(1, MAX_PERIOD_INDEX + 1):
+                        if period not in allowed_periods:
+                            self.locked_slots.add(f"{day}|{period}")
 
     def can_place(self, pattern: dict[str, Any], candidate: Candidate, *, ignore_fragment_id: str | None = None) -> tuple[bool, list[str], list[str]]:
+        if candidate.slot_label in self.locked_slots:
+            return False, [], ["slot_locked"]
         segments = _segments(candidate.day_of_week, candidate.period_index, _safe_int(pattern.get("consecutive_slots")))
         if not segments:
             return False, [], ["invalid_consecutive_period"]
@@ -166,14 +178,18 @@ def build_template(
     top_k: int = 80,
     repair_depth: int = 0,
     enable_fallback: bool = True,
+    allowed_weekdays: frozenset[int] | None = None,
+    allowed_periods: frozenset[int] | None = None,
 ) -> dict[str, Any]:
     patterns = _read_jsonl(patterns_path)
     model = V35SinglePlacementModel.load(model_dir)
     fallback_rooms = _fallback_rooms(model)
     candidates_by_task = {pattern["source_key"]: _predict_candidates(model, pattern, top_k=top_k) for pattern in patterns}
+    if allowed_weekdays is not None or allowed_periods is not None:
+        _filter_candidates_by_config(candidates_by_task, allowed_weekdays=allowed_weekdays, allowed_periods=allowed_periods)
     ordered_patterns = sorted(patterns, key=lambda item: _task_sort_key(item, candidates_by_task.get(item["source_key"], [])))
 
-    template = WeeklyTemplate()
+    template = WeeklyTemplate(allowed_weekdays=allowed_weekdays, allowed_periods=allowed_periods)
     unresolved: list[dict[str, Any]] = []
     placement_attempts = 0
     fallback_attempts = 0
@@ -207,7 +223,7 @@ def build_template(
                     placed_for_task += 1
                     placed = True
             if not placed and enable_fallback:
-                fallback_candidate, attempts = _find_fallback_candidate(template, pattern, fallback_rooms, used_slots=used_slots)
+                fallback_candidate, attempts = _find_fallback_candidate(template, pattern, fallback_rooms, used_slots=used_slots, allowed_weekdays=allowed_weekdays, allowed_periods=allowed_periods)
                 fallback_attempts += attempts
                 if fallback_candidate is not None:
                     template.place(pattern, fallback_candidate, candidate_rank=top_k + 1)
@@ -227,6 +243,29 @@ def build_template(
                     "reason": "no_available_candidate",
                     "candidate_count": len(candidates),
                 })
+
+    # Post-generation: remove any fragments on locked slots
+    if allowed_weekdays is not None or allowed_periods is not None:
+        lock_check_days = allowed_weekdays or frozenset(range(1, 8))
+        lock_check_periods = allowed_periods or frozenset(range(1, MAX_PERIOD_INDEX + 1))
+        cleaned: list[dict[str, Any]] = []
+        for frag in template.fragments:
+            if frag["day_of_week"] not in lock_check_days or frag["period_index"] not in lock_check_periods:
+                template.remove(str(frag["fragment_id"]))
+                unresolved.append({
+                    "source_key": frag["source_key"],
+                    "course_name": frag.get("course_name"),
+                    "class_name": frag.get("class_name"),
+                    "required_room_type": frag.get("required_room_type"),
+                    "fragment_no": frag.get("fragment_index"),
+                    "needed_weekly_slot_count": 1,
+                    "placed_for_task": 0,
+                    "reason": "locked_slot_post_clean",
+                    "candidate_count": 0,
+                    "removed_slot": f"{frag['day_of_week']}|{frag['period_index']}",
+                })
+            else:
+                cleaned.append(frag)
 
     placed_source_keys = {fragment["source_key"] for fragment in template.fragments}
     completed_source_keys = {
@@ -257,6 +296,8 @@ def build_template(
         "top_k": top_k,
         "repair_depth": repair_depth,
         "enable_fallback": enable_fallback,
+        "allowed_weekdays": sorted(allowed_weekdays) if allowed_weekdays else None,
+        "allowed_periods": sorted(allowed_periods) if allowed_periods else None,
         "occupancy": {
             "teacher_keys": len(template.teacher_occupancy),
             "class_keys": len(template.class_occupancy),
@@ -279,18 +320,43 @@ def _try_repair(
     return False, None
 
 
+def _filter_candidates_by_config(
+    candidates_by_task: dict[str, list[Candidate]],
+    *,
+    allowed_weekdays: frozenset[int] | None,
+    allowed_periods: frozenset[int] | None,
+) -> None:
+    """Filter placement candidates in-place to only include allowed days/periods."""
+    if allowed_weekdays is None and allowed_periods is None:
+        return
+    for source_key in list(candidates_by_task.keys()):
+        original = candidates_by_task[source_key]
+        filtered = [
+            c for c in original
+            if (allowed_weekdays is None or c.day_of_week in allowed_weekdays)
+            and (allowed_periods is None or c.period_index in allowed_periods)
+        ]
+        candidates_by_task[source_key] = filtered
+
+
 def _find_fallback_candidate(
     template: WeeklyTemplate,
     pattern: dict[str, Any],
     rooms: list[dict[str, Any]],
     *,
     used_slots: set[str],
+    allowed_weekdays: frozenset[int] | None = None,
+    allowed_periods: frozenset[int] | None = None,
 ) -> tuple[Candidate | None, int]:
     required_room_type = str(pattern.get("required_room_type") or "").strip()
     consecutive_slots = _safe_int(pattern.get("consecutive_slots"))
     attempts = 0
     for day in range(1, 8):
+        if allowed_weekdays is not None and day not in allowed_weekdays:
+            continue
         for period in range(1, MAX_PERIOD_INDEX + 1):
+            if allowed_periods is not None and period not in allowed_periods:
+                continue
             if f"{day}|{period}" in used_slots:
                 continue
             if not _segments(day, period, consecutive_slots):
