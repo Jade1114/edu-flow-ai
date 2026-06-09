@@ -286,6 +286,14 @@ python v3.5/analyze_schedule_import.py --input-dir ../data/parsed/schedule_impor
 
 输出：`import_conflicts.csv`、`import_new_items.csv`、`import_matched_items.csv`、`import_analysis_report.json`。
 
+生成可人工填写的审核决策清单：
+
+```bash
+python v3.5/prepare_import_review.py --input-dir ../data/parsed/schedule_imports/demo
+```
+
+输出：`import_review_items.csv`、`import_review_report.json`。在 `decision` 列填写 `keep_db`、`use_import`、`create`、`ignore` 等决策，后续再由 apply 脚本执行入库。
+
 ## 当前边界
 
 - 这是 V3.5 的第一版 placement MVP，只负责生成周模板候选。
