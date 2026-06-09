@@ -22,6 +22,7 @@ import { Route as AdminClassroomsRouteImport } from './routes/admin/classrooms'
 import { Route as AdminClassGroupsRouteImport } from './routes/admin/class-groups'
 import { Route as AdminAllocationRouteImport } from './routes/admin/allocation'
 import { Route as AdminAdjustmentRouteImport } from './routes/admin/adjustment'
+import { Route as AdminAllocationSchemesSchemeIdRouteImport } from './routes/admin/allocation.schemes.$schemeId'
 
 const AdminRoute = AdminRouteImport.update({
   id: '/admin',
@@ -88,12 +89,18 @@ const AdminAdjustmentRoute = AdminAdjustmentRouteImport.update({
   path: '/adjustment',
   getParentRoute: () => AdminRoute,
 } as any)
+const AdminAllocationSchemesSchemeIdRoute =
+  AdminAllocationSchemesSchemeIdRouteImport.update({
+    id: '/schemes/$schemeId',
+    path: '/schemes/$schemeId',
+    getParentRoute: () => AdminAllocationRoute,
+  } as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/admin': typeof AdminRouteWithChildren
   '/admin/adjustment': typeof AdminAdjustmentRoute
-  '/admin/allocation': typeof AdminAllocationRoute
+  '/admin/allocation': typeof AdminAllocationRouteWithChildren
   '/admin/class-groups': typeof AdminClassGroupsRoute
   '/admin/classrooms': typeof AdminClassroomsRoute
   '/admin/constraint-editor': typeof AdminConstraintEditorRoute
@@ -103,12 +110,13 @@ export interface FileRoutesByFullPath {
   '/admin/teachers': typeof AdminTeachersRoute
   '/admin/teaching-tasks': typeof AdminTeachingTasksRoute
   '/admin/timetable': typeof AdminTimetableRoute
+  '/admin/allocation/schemes/$schemeId': typeof AdminAllocationSchemesSchemeIdRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/admin': typeof AdminRouteWithChildren
   '/admin/adjustment': typeof AdminAdjustmentRoute
-  '/admin/allocation': typeof AdminAllocationRoute
+  '/admin/allocation': typeof AdminAllocationRouteWithChildren
   '/admin/class-groups': typeof AdminClassGroupsRoute
   '/admin/classrooms': typeof AdminClassroomsRoute
   '/admin/constraint-editor': typeof AdminConstraintEditorRoute
@@ -118,13 +126,14 @@ export interface FileRoutesByTo {
   '/admin/teachers': typeof AdminTeachersRoute
   '/admin/teaching-tasks': typeof AdminTeachingTasksRoute
   '/admin/timetable': typeof AdminTimetableRoute
+  '/admin/allocation/schemes/$schemeId': typeof AdminAllocationSchemesSchemeIdRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
   '/admin': typeof AdminRouteWithChildren
   '/admin/adjustment': typeof AdminAdjustmentRoute
-  '/admin/allocation': typeof AdminAllocationRoute
+  '/admin/allocation': typeof AdminAllocationRouteWithChildren
   '/admin/class-groups': typeof AdminClassGroupsRoute
   '/admin/classrooms': typeof AdminClassroomsRoute
   '/admin/constraint-editor': typeof AdminConstraintEditorRoute
@@ -134,6 +143,7 @@ export interface FileRoutesById {
   '/admin/teachers': typeof AdminTeachersRoute
   '/admin/teaching-tasks': typeof AdminTeachingTasksRoute
   '/admin/timetable': typeof AdminTimetableRoute
+  '/admin/allocation/schemes/$schemeId': typeof AdminAllocationSchemesSchemeIdRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -151,6 +161,7 @@ export interface FileRouteTypes {
     | '/admin/teachers'
     | '/admin/teaching-tasks'
     | '/admin/timetable'
+    | '/admin/allocation/schemes/$schemeId'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
@@ -166,6 +177,7 @@ export interface FileRouteTypes {
     | '/admin/teachers'
     | '/admin/teaching-tasks'
     | '/admin/timetable'
+    | '/admin/allocation/schemes/$schemeId'
   id:
     | '__root__'
     | '/'
@@ -181,6 +193,7 @@ export interface FileRouteTypes {
     | '/admin/teachers'
     | '/admin/teaching-tasks'
     | '/admin/timetable'
+    | '/admin/allocation/schemes/$schemeId'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -281,12 +294,31 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AdminAdjustmentRouteImport
       parentRoute: typeof AdminRoute
     }
+    '/admin/allocation/schemes/$schemeId': {
+      id: '/admin/allocation/schemes/$schemeId'
+      path: '/schemes/$schemeId'
+      fullPath: '/admin/allocation/schemes/$schemeId'
+      preLoaderRoute: typeof AdminAllocationSchemesSchemeIdRouteImport
+      parentRoute: typeof AdminAllocationRoute
+    }
   }
 }
 
+interface AdminAllocationRouteChildren {
+  AdminAllocationSchemesSchemeIdRoute: typeof AdminAllocationSchemesSchemeIdRoute
+}
+
+const AdminAllocationRouteChildren: AdminAllocationRouteChildren = {
+  AdminAllocationSchemesSchemeIdRoute: AdminAllocationSchemesSchemeIdRoute,
+}
+
+const AdminAllocationRouteWithChildren = AdminAllocationRoute._addFileChildren(
+  AdminAllocationRouteChildren,
+)
+
 interface AdminRouteChildren {
   AdminAdjustmentRoute: typeof AdminAdjustmentRoute
-  AdminAllocationRoute: typeof AdminAllocationRoute
+  AdminAllocationRoute: typeof AdminAllocationRouteWithChildren
   AdminClassGroupsRoute: typeof AdminClassGroupsRoute
   AdminClassroomsRoute: typeof AdminClassroomsRoute
   AdminConstraintEditorRoute: typeof AdminConstraintEditorRoute
@@ -300,7 +332,7 @@ interface AdminRouteChildren {
 
 const AdminRouteChildren: AdminRouteChildren = {
   AdminAdjustmentRoute: AdminAdjustmentRoute,
-  AdminAllocationRoute: AdminAllocationRoute,
+  AdminAllocationRoute: AdminAllocationRouteWithChildren,
   AdminClassGroupsRoute: AdminClassGroupsRoute,
   AdminClassroomsRoute: AdminClassroomsRoute,
   AdminConstraintEditorRoute: AdminConstraintEditorRoute,
