@@ -26,9 +26,8 @@ from pathlib import Path
 from typing import Any
 from xml.etree import ElementTree as ET
 
-from placement_model import OUTPUT_DIR as PLACEMENT_OUTPUT_DIR
-
-DEFAULT_OUTPUT_ROOT = PLACEMENT_OUTPUT_DIR / "schedule_imports"
+BACKEND_ROOT = Path(__file__).resolve().parents[2]
+DEFAULT_OUTPUT_ROOT = BACKEND_ROOT / "data" / "parsed" / "schedule_imports"
 PUBLIC_PHYSICAL_EDUCATION = "公共体育"
 UNSCHEDULABLE_COURSES = {PUBLIC_PHYSICAL_EDUCATION}
 WEEKDAY_LABELS = {

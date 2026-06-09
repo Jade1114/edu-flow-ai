@@ -266,7 +266,7 @@ cd backend/python
 source .venv/bin/activate
 python v3.5/parse_schedule_excel.py \
   --input /path/to/class_schedule.xlsx \
-  --output-dir ../models/v3.5/schedule_imports/demo \
+  --output-dir ../data/parsed/schedule_imports/demo \
   --task-batch 2026学期上
 ```
 
@@ -275,7 +275,7 @@ python v3.5/parse_schedule_excel.py \
 再转 JSONL：
 
 ```bash
-python v3.5/csv_to_jsonl.py --input-dir ../models/v3.5/schedule_imports/demo
+python v3.5/csv_to_jsonl.py --input-dir ../data/parsed/schedule_imports/demo
 ```
 
 ## 当前边界
