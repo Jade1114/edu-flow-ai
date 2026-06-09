@@ -29,9 +29,13 @@ public class ModelHistoryTrainingService {
     }
 
     public Map<String, Object> trainFromHistory(String rawDir) {
-        Path rawDirPath = Paths.get(rawDir);
+        Path projectRoot = resolveProjectRoot();
+        Path rawDirPath = projectRoot.resolve(rawDir).normalize();
         if (!rawDirPath.toFile().exists() || !rawDirPath.toFile().isDirectory()) {
-            throw new ValidationException("原始课表目录不存在: " + rawDir);
+            rawDirPath = Paths.get(rawDir);
+            if (!rawDirPath.toFile().exists() || !rawDirPath.toFile().isDirectory()) {
+                throw new ValidationException("原始课表目录不存在: " + rawDir);
+            }
         }
         List<String> command = new ArrayList<>();
         command.add(resolvePython().toString());
@@ -132,6 +136,17 @@ public class ModelHistoryTrainingService {
         return result;
     }
 
+    private Path resolveProjectRoot() {
+        Path userDir = Paths.get(System.getProperty("user.dir")).toAbsolutePath().normalize();
+        if (userDir.endsWith(Paths.get("backend", "java"))) {
+            return userDir.getParent();
+        }
+        if (userDir.resolve("backend").toFile().exists()) {
+            return userDir;
+        }
+        return userDir;
+    }
+
     private Path resolvePython() {
         Path python = resolvePythonRoot().resolve(".venv/bin/python");
         if (python.toFile().exists()) return python;
@@ -139,10 +154,6 @@ public class ModelHistoryTrainingService {
     }
 
     private Path resolvePythonRoot() {
-        Path userDir = Paths.get(System.getProperty("user.dir")).toAbsolutePath().normalize();
-        if (userDir.endsWith(Paths.get("backend", "java"))) {
-            return userDir.getParent().resolve("python").normalize();
-        }
-        return userDir.resolve("backend/python").normalize();
+        return resolveProjectRoot().resolve("backend/python").normalize();
     }
 }
