@@ -32,6 +32,7 @@ export default function ClassGroupManager() {
         onEdit={g.openDialog}
         onDelete={g.remove}
         onAdd={() => g.openDialog()}
+        batch={g.batch}
       />
       {g.dialogOpen && <ClassGroupDialog form={g.form} onChange={g.setForm} saving={g.saving} onSave={g.save} onClose={g.closeDialog} />}
     </>

@@ -1,6 +1,7 @@
 import { useState, useEffect, useMemo } from "react";
 import { toast } from "sonner";
 import request from "../api/request";
+import { useBatchSelection } from "./useBatchSelection";
 
 export interface ClassGroup {
   id: number | null;
@@ -83,6 +84,7 @@ export function useClassGroups() {
     setMajorFilter("");
     setDepartmentFilter("");
     setPage(1);
+    batch.clearSelection();
   }
 
   function validateForm() {
@@ -115,10 +117,10 @@ export function useClassGroups() {
   }
 
   async function remove(id: number) {
-    if (!confirm("确认删除该班级？如果已被教学任务引用，将无法删除。")) return;
+    if (!confirm("确认永久删除该班级？如果已被教学任务引用，将无法删除。")) return;
     setDeleting(id);
     try {
-      await request.delete(`/api/class-groups/${id}`);
+      await request.post("/api/management/class-groups/batch-delete", { ids: [id] });
       toast.success("班级已删除");
       await loadGroups();
     } catch (error) {
@@ -127,18 +129,29 @@ export function useClassGroups() {
     } finally { setDeleting(null); }
   }
 
+  const batch = useBatchSelection({
+    entity: "class-groups",
+    label: "班级",
+    items: groups,
+    filtered,
+    paged,
+    reload: loadGroups,
+    disableSupported: false,
+  });
+
   return {
     groups, paged, filtered, loading, search,
-    setSearch: (v: string) => { setSearch(v); setPage(1); },
-    gradeFilter, setGradeFilter: (v: string) => { setGradeFilter(v); setPage(1); },
-    majorFilter, setMajorFilter: (v: string) => { setMajorFilter(v); setPage(1); },
-    departmentFilter, setDepartmentFilter: (v: string) => { setDepartmentFilter(v); setPage(1); },
+    setSearch: (v: string) => { setSearch(v); setPage(1); batch.clearSelection(); },
+    gradeFilter, setGradeFilter: (v: string) => { setGradeFilter(v); setPage(1); batch.clearSelection(); },
+    majorFilter, setMajorFilter: (v: string) => { setMajorFilter(v); setPage(1); batch.clearSelection(); },
+    departmentFilter, setDepartmentFilter: (v: string) => { setDepartmentFilter(v); setPage(1); batch.clearSelection(); },
     gradeOptions, majorOptions, departmentOptions,
     page, setPage, pageSize,
-    setPageSize: (v: number) => { setPageSize(v); setPage(1); },
+    setPageSize: (v: number) => { setPageSize(v); setPage(1); batch.clearSelection(); },
     dialogOpen, form, setForm, saving, deleting,
     totalStudents, hasFilter, resetFilters,
     openDialog, closeDialog, save, remove, reload: loadGroups,
+    batch,
   };
 }
 

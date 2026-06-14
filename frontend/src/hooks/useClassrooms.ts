@@ -1,5 +1,6 @@
 import { useState, useEffect, useMemo } from "react";
 import request from "../api/request";
+import { useBatchSelection } from "./useBatchSelection";
 
 export interface Classroom {
   id: number | null;
@@ -23,6 +24,7 @@ export function useClassrooms() {
   const [classrooms, setClassrooms] = useState<Classroom[]>([]);
   const [loading, setLoading] = useState(false);
   const [search, setSearch] = useState("");
+  const [statusFilter, setStatusFilter] = useState("");
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(10);
   const [dialogOpen, setDialogOpen] = useState(false);
@@ -37,7 +39,7 @@ export function useClassrooms() {
   async function loadClassrooms() {
     setLoading(true);
     try {
-      const data = await request.get<Classroom[]>("/api/classrooms");
+      const data = await request.get<Classroom[] | { content?: Classroom[] }>("/api/classrooms");
       setClassrooms(Array.isArray(data) ? data : (data as any)?.content ?? []);
     } finally {
       setLoading(false);
@@ -45,15 +47,17 @@ export function useClassrooms() {
   }
 
   const filtered = useMemo(() => {
-    if (!search.trim()) return classrooms;
+    let list = classrooms;
+    if (statusFilter) list = list.filter(c => c.status === statusFilter);
+    if (!search.trim()) return list;
     const kw = search.toLowerCase();
-    return classrooms.filter(
+    return list.filter(
       (c) =>
         c.name.toLowerCase().includes(kw) ||
         c.building.toLowerCase().includes(kw) ||
         c.classroomType.toLowerCase().includes(kw)
     );
-  }, [classrooms, search]);
+  }, [classrooms, search, statusFilter]);
 
   const paged = useMemo(() => {
     const start = (page - 1) * pageSize;
@@ -85,26 +89,37 @@ export function useClassrooms() {
   }
 
   async function remove(id: number) {
-    if (!confirm("确认删除该教室？")) return;
+    if (!confirm("确认永久删除该教室？如果已被课表或排课结果引用，将无法删除。")) return;
     setDeleting(id);
     try {
-      await request.delete(`/api/classrooms/${id}`);
+      await request.post("/api/management/classrooms/batch-delete", { ids: [id] });
       await loadClassrooms();
     } finally {
       setDeleting(null);
     }
   }
 
+  const batch = useBatchSelection({
+    entity: "classrooms",
+    label: "教室",
+    items: classrooms,
+    filtered,
+    paged,
+    reload: loadClassrooms,
+  });
+
   return {
     paged,
     filtered,
     loading,
     search,
-    setSearch: (v: string) => { setSearch(v); setPage(1); },
+    setSearch: (v: string) => { setSearch(v); setPage(1); batch.clearSelection(); },
+    statusFilter,
+    setStatusFilter: (v: string) => { setStatusFilter(v); setPage(1); batch.clearSelection(); },
     page,
     setPage,
     pageSize,
-    setPageSize: (v: number) => { setPageSize(v); setPage(1); },
+    setPageSize: (v: number) => { setPageSize(v); setPage(1); batch.clearSelection(); },
     dialogOpen,
     form,
     setForm,
@@ -114,5 +129,6 @@ export function useClassrooms() {
     closeDialog,
     save,
     remove,
+    batch,
   };
 }

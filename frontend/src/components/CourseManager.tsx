@@ -12,6 +12,8 @@ export default function CourseManager() {
         loading={c.loading}
         search={c.search}
         onSearchChange={c.setSearch}
+        statusFilter={c.statusFilter}
+        onStatusFilterChange={c.setStatusFilter}
         page={c.page}
         pageSize={c.pageSize}
         total={c.filtered.length}
@@ -21,6 +23,7 @@ export default function CourseManager() {
         onEdit={c.openDialog}
         onDelete={c.remove}
         onAdd={() => c.openDialog()}
+        batch={c.batch}
       />
       {c.dialogOpen && (
         <CourseDialog

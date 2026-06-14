@@ -1,5 +1,6 @@
 import { useState, useEffect, useMemo } from "react";
 import request from "../api/request";
+import { useBatchSelection } from "./useBatchSelection";
 
 export interface Course {
   id: number | null;
@@ -29,6 +30,7 @@ export function useCourses() {
   const [courses, setCourses] = useState<Course[]>([]);
   const [loading, setLoading] = useState(false);
   const [search, setSearch] = useState("");
+  const [statusFilter, setStatusFilter] = useState("");
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(10);
   const [dialogOpen, setDialogOpen] = useState(false);
@@ -43,7 +45,7 @@ export function useCourses() {
   async function loadCourses() {
     setLoading(true);
     try {
-      const data = await request.get<Course[]>("/api/courses");
+      const data = await request.get<Course[] | { content?: Course[] }>("/api/courses");
       setCourses(Array.isArray(data) ? data : data?.content ?? []);
     } finally {
       setLoading(false);
@@ -51,15 +53,17 @@ export function useCourses() {
   }
 
   const filtered = useMemo(() => {
-    if (!search.trim()) return courses;
+    let list = courses;
+    if (statusFilter) list = list.filter(c => c.status === statusFilter);
+    if (!search.trim()) return list;
     const kw = search.toLowerCase();
-    return courses.filter(
+    return list.filter(
       (c) =>
         c.name.toLowerCase().includes(kw) ||
         c.code.toLowerCase().includes(kw) ||
         c.courseType.toLowerCase().includes(kw)
     );
-  }, [courses, search]);
+  }, [courses, search, statusFilter]);
 
   const paged = useMemo(() => {
     const start = (page - 1) * pageSize;
@@ -91,26 +95,37 @@ export function useCourses() {
   }
 
   async function remove(id: number) {
-    if (!confirm("确认删除该课程？")) return;
+    if (!confirm("确认永久删除该课程？如果已被教学任务引用，将无法删除。")) return;
     setDeleting(id);
     try {
-      await request.delete(`/api/courses/${id}`);
+      await request.post("/api/management/courses/batch-delete", { ids: [id] });
       await loadCourses();
     } finally {
       setDeleting(null);
     }
   }
 
+  const batch = useBatchSelection({
+    entity: "courses",
+    label: "课程",
+    items: courses,
+    filtered,
+    paged,
+    reload: loadCourses,
+  });
+
   return {
     paged,
     filtered,
     loading,
     search,
-    setSearch: (v: string) => { setSearch(v); setPage(1); },
+    setSearch: (v: string) => { setSearch(v); setPage(1); batch.clearSelection(); },
+    statusFilter,
+    setStatusFilter: (v: string) => { setStatusFilter(v); setPage(1); batch.clearSelection(); },
     page,
     setPage,
     pageSize,
-    setPageSize: (v: number) => { setPageSize(v); setPage(1); },
+    setPageSize: (v: number) => { setPageSize(v); setPage(1); batch.clearSelection(); },
     dialogOpen,
     form,
     setForm,
@@ -120,5 +135,6 @@ export function useCourses() {
     closeDialog,
     save,
     remove,
+    batch,
   };
 }

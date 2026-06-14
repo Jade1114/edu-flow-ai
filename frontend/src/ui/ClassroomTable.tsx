@@ -1,10 +1,13 @@
 import type { Classroom } from "../hooks/useClassrooms";
+import BatchActionBar from "./BatchActionBar";
 
 interface ClassroomTableProps {
   classrooms: Classroom[];
   loading: boolean;
   search: string;
   onSearchChange: (v: string) => void;
+  statusFilter: string;
+  onStatusFilterChange: (v: string) => void;
   page: number;
   pageSize: number;
   total: number;
@@ -14,6 +17,7 @@ interface ClassroomTableProps {
   onEdit: (row: Classroom) => void;
   onDelete: (id: number) => void;
   onAdd: () => void;
+  batch: any;
 }
 
 export default function ClassroomTable({
@@ -21,6 +25,8 @@ export default function ClassroomTable({
   loading,
   search,
   onSearchChange,
+  statusFilter,
+  onStatusFilterChange,
   page,
   pageSize,
   total,
@@ -30,15 +36,21 @@ export default function ClassroomTable({
   onEdit,
   onDelete,
   onAdd,
+  batch,
 }: ClassroomTableProps) {
   const totalPages = Math.max(1, Math.ceil(total / pageSize));
 
   return (
-    <div>
+    <div className="space-y-3">
       <div className="flex items-center gap-3 mb-4">
         <button className="btn btn-primary btn-sm" onClick={onAdd}>
           新增教室
         </button>
+        <select className="select select-bordered select-sm w-28" value={statusFilter} onChange={(e) => onStatusFilterChange(e.target.value)}>
+          <option value="">全部状态</option>
+          <option value="ACTIVE">启用</option>
+          <option value="INACTIVE">停用</option>
+        </select>
         <input
           type="text"
           placeholder="搜索教室名称、类型或教学楼"
@@ -47,11 +59,15 @@ export default function ClassroomTable({
           onChange={(e) => onSearchChange(e.target.value)}
         />
       </div>
+      <BatchActionBar label="教室" selectedCount={batch.selectedCount} filteredCount={total} busy={batch.batchBusy} onSelectFiltered={batch.selectFiltered} onClearSelection={batch.clearSelection} onDisable={batch.batchDisable} onDelete={batch.batchDelete} />
 
       <div className="overflow-x-auto">
         <table className="table table-zebra table-sm">
           <thead>
             <tr>
+              <th>
+                <input type="checkbox" className="checkbox checkbox-xs" checked={batch.pageSelected} onChange={batch.togglePageSelected} title={batch.pageIndeterminate ? "当前页已部分选择" : "选择当前页"} />
+              </th>
               <th>教室名称</th>
               <th>教学楼</th>
               <th>容量</th>
@@ -63,19 +79,22 @@ export default function ClassroomTable({
           <tbody>
             {loading ? (
               <tr>
-                <td colSpan={6} className="text-center py-8">
+                <td colSpan={7} className="text-center py-8">
                   <span className="loading loading-spinner" />
                 </td>
               </tr>
             ) : classrooms.length === 0 ? (
               <tr>
-                <td colSpan={6} className="text-center py-8 text-base-content/40">
+                <td colSpan={7} className="text-center py-8 text-base-content/40">
                   暂无教室数据
                 </td>
               </tr>
             ) : (
               classrooms.map((room) => (
                 <tr key={room.id}>
+                  <td>
+                    <input type="checkbox" className="checkbox checkbox-xs" checked={room.id !== null && batch.selectedIds.includes(room.id)} onChange={() => room.id !== null && batch.toggleSelected(room.id)} />
+                  </td>
                   <td>{room.name}</td>
                   <td>{room.building}</td>
                   <td>{room.capacity}</td>

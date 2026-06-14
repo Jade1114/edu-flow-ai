@@ -1,4 +1,5 @@
 import type { ClassGroup } from "../hooks/useClassGroups";
+import BatchActionBar from "./BatchActionBar";
 
 interface Props {
   groups: ClassGroup[];
@@ -26,6 +27,7 @@ interface Props {
   onEdit: (row: ClassGroup) => void;
   onDelete: (id: number) => void;
   onAdd: () => void;
+  batch: any;
 }
 
 export default function ClassGroupTable({
@@ -54,6 +56,7 @@ export default function ClassGroupTable({
   onEdit,
   onDelete,
   onAdd,
+  batch,
 }: Props) {
   const totalPages = Math.max(1, Math.ceil(total / pageSize));
   return (
@@ -88,15 +91,17 @@ export default function ClassGroupTable({
         <span className="badge badge-ghost">学生 {totalStudents} 人</span>
         <span className="badge badge-ghost">当前页 {groups.length} 条</span>
       </div>
+      <BatchActionBar label="班级" selectedCount={batch.selectedCount} filteredCount={total} busy={batch.batchBusy} disableSupported={false} onSelectFiltered={batch.selectFiltered} onClearSelection={batch.clearSelection} onDelete={batch.batchDelete} />
 
       <div className="overflow-x-auto rounded-lg border border-base-300 bg-base-100">
         <table className="table table-zebra table-sm">
-          <thead><tr><th>班级名称</th><th>专业</th><th>院系</th><th>年级</th><th>人数</th><th className="text-right">操作</th></tr></thead>
+          <thead><tr><th><input type="checkbox" className="checkbox checkbox-xs" checked={batch.pageSelected} onChange={batch.togglePageSelected} title={batch.pageIndeterminate ? "当前页已部分选择" : "选择当前页"} /></th><th>班级名称</th><th>专业</th><th>院系</th><th>年级</th><th>人数</th><th className="text-right">操作</th></tr></thead>
           <tbody>
-            {loading ? <tr><td colSpan={6} className="text-center py-8"><span className="loading loading-spinner" /></td></tr>
-            : groups.length === 0 ? <tr><td colSpan={6} className="text-center py-8 text-base-content/40">暂无班级数据</td></tr>
+            {loading ? <tr><td colSpan={7} className="text-center py-8"><span className="loading loading-spinner" /></td></tr>
+            : groups.length === 0 ? <tr><td colSpan={7} className="text-center py-8 text-base-content/40">暂无班级数据</td></tr>
             : groups.map(g => (
               <tr key={g.id}>
+                <td><input type="checkbox" className="checkbox checkbox-xs" checked={g.id !== null && batch.selectedIds.includes(g.id)} onChange={() => g.id !== null && batch.toggleSelected(g.id)} /></td>
                 <td className="font-medium">{g.name}</td>
                 <td>{g.major || <span className="text-base-content/30">-</span>}</td>
                 <td>{g.department || <span className="text-base-content/30">-</span>}</td>

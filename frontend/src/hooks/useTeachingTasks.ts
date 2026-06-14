@@ -1,5 +1,6 @@
 import { useState, useEffect, useMemo } from "react";
 import request from "../api/request";
+import { useBatchSelection } from "./useBatchSelection";
 
 interface Course { id: number; name: string; code: string; courseType: string; requiredHours: number; }
 interface Teacher { id: number; name: string; }
@@ -44,6 +45,7 @@ export function useTeachingTasks() {
   const [search, setSearch] = useState("");
   const [courseTypeFilter, setCourseTypeFilter] = useState("");
   const [taskBatchFilter, setTaskBatchFilter] = useState("");
+  const [statusFilter, setStatusFilter] = useState("");
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(20);
   const [dialogOpen, setDialogOpen] = useState(false);
@@ -85,8 +87,9 @@ export function useTeachingTasks() {
     }
     if (courseTypeFilter) list = list.filter(t => t.course?.courseType === courseTypeFilter);
     if (taskBatchFilter) list = list.filter(t => (t.taskBatch || "DEFAULT") === taskBatchFilter);
+    if (statusFilter) list = list.filter(t => t.status === statusFilter);
     return list;
-  }, [tasks, search, courseTypeFilter, taskBatchFilter]);
+  }, [tasks, search, courseTypeFilter, taskBatchFilter, statusFilter]);
 
   const taskBatchOptions = useMemo(() => [...new Set(tasks.map(t => t.taskBatch || "DEFAULT"))].sort(), [tasks]);
 
@@ -158,22 +161,33 @@ export function useTeachingTasks() {
   }
 
   async function remove(id: number) {
-    if (!confirm("确认删除该教学任务？")) return;
+    if (!confirm("确认永久删除该教学任务？相关课表/排课结果也会一起移除。")) return;
     setDeleting(id);
-    try { await request.delete(`/api/teaching-tasks/${id}`); await loadAll(); }
+    try { await request.post("/api/management/teaching-tasks/batch-delete", { ids: [id] }); await loadAll(); }
     finally { setDeleting(null); }
   }
 
+  const batch = useBatchSelection({
+    entity: "teaching-tasks",
+    label: "教学任务",
+    items: tasks,
+    filtered,
+    paged,
+    reload: loadAll,
+  });
+
   return {
     paged, filtered, loading, search,
-    setSearch: (v: string) => { setSearch(v); setPage(1); },
-    courseTypeFilter, setCourseTypeFilter: (v: string) => { setCourseTypeFilter(v); setPage(1); },
-    taskBatchFilter, setTaskBatchFilter: (v: string) => { setTaskBatchFilter(v); setPage(1); }, taskBatchOptions,
+    setSearch: (v: string) => { setSearch(v); setPage(1); batch.clearSelection(); },
+    courseTypeFilter, setCourseTypeFilter: (v: string) => { setCourseTypeFilter(v); setPage(1); batch.clearSelection(); },
+    taskBatchFilter, setTaskBatchFilter: (v: string) => { setTaskBatchFilter(v); setPage(1); batch.clearSelection(); }, taskBatchOptions,
+    statusFilter, setStatusFilter: (v: string) => { setStatusFilter(v); setPage(1); batch.clearSelection(); },
     page, setPage, pageSize,
-    setPageSize: (v: number) => { setPageSize(v); setPage(1); },
+    setPageSize: (v: number) => { setPageSize(v); setPage(1); batch.clearSelection(); },
     dialogOpen, form, setForm, saving, deleting,
     courses, teachers, classGroups, classrooms,
     openDialog, closeDialog, save, remove,
     onCourseChanged, onCourseTypeChanged,
+    batch,
   };
 }

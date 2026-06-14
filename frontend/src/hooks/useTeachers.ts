@@ -1,5 +1,6 @@
 import { useState, useEffect, useMemo } from "react";
 import request from "../api/request";
+import { useBatchSelection } from "./useBatchSelection";
 
 export interface Teacher {
   id: number | null;
@@ -29,6 +30,7 @@ export function useTeachers() {
   const [teachers, setTeachers] = useState<Teacher[]>([]);
   const [loading, setLoading] = useState(false);
   const [search, setSearch] = useState("");
+  const [statusFilter, setStatusFilter] = useState("");
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(10);
   const [dialogOpen, setDialogOpen] = useState(false);
@@ -41,20 +43,22 @@ export function useTeachers() {
   async function loadTeachers() {
     setLoading(true);
     try {
-      const data = await request.get<Teacher[]>("/api/teachers");
+      const data = await request.get<Teacher[] | { content?: Teacher[] }>("/api/teachers");
       setTeachers(Array.isArray(data) ? data : data?.content ?? []);
     } finally { setLoading(false); }
   }
 
   const filtered = useMemo(() => {
-    if (!search.trim()) return teachers;
+    let list = teachers;
+    if (statusFilter) list = list.filter(t => t.status === statusFilter);
+    if (!search.trim()) return list;
     const kw = search.toLowerCase();
-    return teachers.filter(t =>
+    return list.filter(t =>
       t.employeeNo.toLowerCase().includes(kw) ||
       t.name.toLowerCase().includes(kw) ||
       (t.department?.toLowerCase().includes(kw) ?? false)
     );
-  }, [teachers, search]);
+  }, [teachers, search, statusFilter]);
 
   const paged = useMemo(() => {
     const start = (page - 1) * pageSize;
@@ -78,18 +82,32 @@ export function useTeachers() {
   }
 
   async function remove(id: number) {
-    if (!confirm("确认删除该教师？")) return;
+    if (!confirm("确认永久删除该教师？如果已被教学任务引用，将无法删除。")) return;
     setDeleting(id);
-    try { await request.delete(`/api/teachers/${id}`); await loadTeachers(); }
+    try {
+      await request.post("/api/management/teachers/batch-delete", { ids: [id] });
+      await loadTeachers();
+    }
     finally { setDeleting(null); }
   }
 
+  const batch = useBatchSelection({
+    entity: "teachers",
+    label: "教师",
+    items: teachers,
+    filtered,
+    paged,
+    reload: loadTeachers,
+  });
+
   return {
     paged, filtered, loading, search,
-    setSearch: (v: string) => { setSearch(v); setPage(1); },
+    setSearch: (v: string) => { setSearch(v); setPage(1); batch.clearSelection(); },
+    statusFilter, setStatusFilter: (v: string) => { setStatusFilter(v); setPage(1); batch.clearSelection(); },
     page, setPage, pageSize,
-    setPageSize: (v: number) => { setPageSize(v); setPage(1); },
+    setPageSize: (v: number) => { setPageSize(v); setPage(1); batch.clearSelection(); },
     dialogOpen, form, setForm, saving, deleting,
     openDialog, closeDialog, save, remove,
+    batch,
   };
 }

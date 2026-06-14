@@ -12,6 +12,8 @@ export default function ClassroomManager() {
         loading={room.loading}
         search={room.search}
         onSearchChange={room.setSearch}
+        statusFilter={room.statusFilter}
+        onStatusFilterChange={room.setStatusFilter}
         page={room.page}
         pageSize={room.pageSize}
         total={room.filtered.length}
@@ -21,6 +23,7 @@ export default function ClassroomManager() {
         onEdit={room.openDialog}
         onDelete={room.remove}
         onAdd={() => room.openDialog()}
+        batch={room.batch}
       />
       {room.dialogOpen && (
         <ClassroomDialog
