@@ -121,7 +121,8 @@ public class AllocationTaskService {
 			bindTeachingTasks(task.getId(), request.teachingTaskIds());
 		}
 		saveGenerationConfig(task.getId(), request.generationConfig(), true);
-		return findById(task.getId());
+		task.setGenerationConfig(loadGenerationConfig(task.getId()));
+		return task;
 	}
 
     @Transactional
@@ -137,7 +138,8 @@ public class AllocationTaskService {
 		if (request.generationConfig() != null) {
 			saveGenerationConfig(id, request.generationConfig(), false);
 		}
-		return findById(id);
+		task.setGenerationConfig(loadGenerationConfig(id));
+		return task;
 	}
 
     @Transactional

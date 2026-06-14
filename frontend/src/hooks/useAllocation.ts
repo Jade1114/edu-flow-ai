@@ -4,8 +4,6 @@ import { toast } from "sonner";
 
 interface AllocationTask { id: number; name: string; generationConfig?: any; schemeCount?: number; status: string; teachingTasks?: { id: number }[]; }
 export interface AllocationScheme { id: number; allocationTaskId: number; name?: string; status: string; createdAt?: string; schemeScore?: number; valid?: boolean; }
-interface GenerationStatus { status?: string; stage?: string; message?: string; progress?: number; error?: string; schemeCount?: number; }
-
 export interface SchemeItem {
   id: number;
   schemeId: number;
@@ -39,7 +37,9 @@ const WEEKDAYS = [{l:"周一",v:1},{l:"周二",v:2},{l:"周三",v:3},{l:"周四"
 const PERIODS = [1,2,3,4];
 
 const defaultConfig = () => ({
-  allowedWeeks: WEEKS, allowedWeekdays: [1,2,3,4,5], allowedPeriods: PERIODS,
+  allowedWeeks: "1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18",
+  allowedWeekdays: "1,2,3,4,5",
+  allowedPeriods: "1,2,3,4",
   schemeCount: 3, generationMode: "AUTO", placementTopK: 80, rawPlanCount: 240, cpPlanCount: 80,
   solverTimeLimitSeconds: 3600, teacherProfilePenaltyScale: 80, earlyPeriodPenalty: 0.04, latePeriodPenalty: 0.03,
   weekendPenalty: 0.05, modelWeight: 0.6, llmWeight: 0.4, sameDayWeight: 0.05,
@@ -128,11 +128,23 @@ export function useAllocation() {
     setTaskDialog(true);
   }
 
+  function serializeConfig(cfg: any) {
+    const serialized = { ...cfg };
+    if (Array.isArray(serialized.allowedWeeks)) serialized.allowedWeeks = serialized.allowedWeeks.join(",");
+    if (Array.isArray(serialized.allowedWeekdays)) serialized.allowedWeekdays = serialized.allowedWeekdays.join(",");
+    if (Array.isArray(serialized.allowedPeriods)) serialized.allowedPeriods = serialized.allowedPeriods.join(",");
+    return serialized;
+  }
+
   async function saveTask() {
     setSaving(true);
     try {
-      if (taskForm.id) await request.put(`/api/allocation-tasks/${taskForm.id}`, taskForm);
-      else await request.post("/api/allocation-tasks", taskForm);
+      const body = {
+        ...taskForm,
+        generationConfig: taskForm.generationConfig ? serializeConfig(taskForm.generationConfig) : taskForm.generationConfig,
+      };
+      if (taskForm.id) await request.put(`/api/allocation-tasks/${taskForm.id}`, body);
+      else await request.post("/api/allocation-tasks", body);
       toast.success("保存成功");
       setTaskDialog(false);
       loadTasks();
@@ -166,52 +178,6 @@ export function useAllocation() {
       setSchemeItems(Array.isArray(data) ? data : []);
     } catch { setSchemeItems([]); toast.error("加载方案明细失败"); }
     finally { setSchemeItemsLoading(false); }
-  }
-
-  function formatGenerationStatus(status: GenerationStatus) {
-    const progress = typeof status.progress === "number" ? `（${status.progress}%）` : "";
-    const count = typeof status.schemeCount === "number" ? `，已生成 ${status.schemeCount} 个方案` : "";
-    return status.message || status.stage ? `${status.message || status.stage}${progress}${count}` : `排课中...${progress}${count}`;
-  }
-
-  async function waitForGenerationStream(taskId: number) {
-    const token = localStorage.getItem("edu-flow-token");
-    const response = await fetch(`/api/allocation-tasks/${taskId}/generation-stream`, {
-      headers: token ? { Authorization: `Bearer ${token}` } : undefined,
-    });
-    if (!response.ok) throw new Error("进度流连接失败");
-    if (!response.body) throw new Error("浏览器不支持进度流");
-
-    const reader = response.body.getReader();
-    const decoder = new TextDecoder();
-    let buffer = "";
-
-    const handleChunk = (chunk: string) => {
-      buffer += chunk;
-      const messages = buffer.split("\n\n");
-      buffer = messages.pop() || "";
-      for (const message of messages) {
-        const dataLine = message.split("\n").find(line => line.startsWith("data:"));
-        if (!dataLine) continue;
-        const rawData = dataLine.slice(5).trim();
-        if (!rawData) continue;
-        const status = JSON.parse(rawData) as GenerationStatus;
-        setGenerateStatus(formatGenerationStatus(status));
-        if (typeof status.progress === "number") setGenerateProgress(status.progress);
-        if (status.status === "COMPLETED") return "COMPLETED";
-        if (status.status === "FAILED") throw new Error(status.error || status.message || "排课失败");
-      }
-      return null;
-    };
-
-    while (true) {
-      const { done, value } = await reader.read();
-      if (value) {
-        const result = handleChunk(decoder.decode(value, { stream: !done }));
-        if (result === "COMPLETED") return;
-      }
-      if (done) return;
-    }
   }
 
   async function loadV35Templates(taskId: number) {

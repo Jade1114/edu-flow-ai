@@ -182,7 +182,7 @@ export default function AllocationManager() {
                         {["周一","周二","周三","周四","周五","周六","周日"].map((label, i) => {
                           const day = i + 1;
                           const cfg = a.taskForm.generationConfig || {};
-                          const days: number[] = cfg.allowedWeekdays || [1,2,3,4,5];
+                          const days: number[] = typeof cfg.allowedWeekdays === "string" ? cfg.allowedWeekdays.split(",").map(Number) : (cfg.allowedWeekdays || [1,2,3,4,5]);
                           const selected = days.includes(day);
                           return (
                             <button key={day} type="button"
@@ -202,7 +202,7 @@ export default function AllocationManager() {
                         {["第1节","第2节","第3节","第4节","第5节"].map((label, i) => {
                           const period = i + 1;
                           const cfg = a.taskForm.generationConfig || {};
-                          const periods: number[] = cfg.allowedPeriods || [1,2,3,4];
+                          const periods: number[] = typeof cfg.allowedPeriods === "string" ? cfg.allowedPeriods.split(",").map(Number) : (cfg.allowedPeriods || [1,2,3,4]);
                           const selected = periods.includes(period);
                           return (
                             <button key={period} type="button"
@@ -221,7 +221,7 @@ export default function AllocationManager() {
                       <div className="flex flex-wrap gap-1">
                         {Array.from({length: 18}, (_, i) => i + 1).map(week => {
                           const cfg = a.taskForm.generationConfig || {};
-                          const weeks: number[] = cfg.allowedWeeks || Array.from({length: 18}, (_, i) => i + 1);
+                          const weeks: number[] = typeof cfg.allowedWeeks === "string" ? cfg.allowedWeeks.split(",").map(Number) : (cfg.allowedWeeks || Array.from({length: 18}, (_, i) => i + 1));
                           const selected = weeks.includes(week);
                           return (
                             <button key={week} type="button"

@@ -1,8 +1,11 @@
 """Run V3.5 scheduling pipeline end-to-end.
 
+All artifacts are written to a run-specific directory under runs/<run_id>.
+Each pipeline run is fully isolated — no shared intermediate files.
+
 Default mode reuses the existing single placement model and regenerates all
 post-model artifacts:
-  clean samples -> pattern -> template cover -> DB draft -> validations.
+  pattern -> template cover -> DB draft -> validations.
 
 Use --train-model to retrain the single LightGBM placement model first.
 Use --import-db to insert DB draft rows into MySQL after validation.
@@ -12,7 +15,6 @@ from __future__ import annotations
 
 import argparse
 import json
-import shutil
 import sys
 import time
 from datetime import datetime
@@ -23,30 +25,24 @@ from clean_training_samples import clean as clean_training_samples
 from clean_training_samples import DEFAULT_OUTPUT_PATH as CLEAN_SAMPLES_PATH
 from clean_training_samples import DEFAULT_REPORT_PATH as CLEAN_REPORT_PATH
 from export_template_as_scheme import import_template_schemes
-from export_template_cover_db_draft import DEFAULT_OUTPUT_DIR as DB_DRAFT_DIR
 from export_template_cover_db_draft import export_db_draft
-from fetch_allocation_teaching_tasks import DEFAULT_OUTPUT_PATH as ALLOCATION_TASKS_PATH
 from fetch_allocation_teaching_tasks import fetch as fetch_allocation_tasks
 from import_db_draft_to_mysql import import_draft
-
-ROOT = Path(__file__).resolve().parents[1]
-if str(ROOT) not in sys.path:
-    sys.path.insert(0, str(ROOT))
-from app.db.session import connect, load_db_config  # noqa: E402
-from pattern_builder import DEFAULT_OUTPUT_PATH as PATTERNS_PATH
 from pattern_builder import build_patterns
 from placement_model import OUTPUT_DIR as PLACEMENT_OUTPUT_DIR
-from placement_single_model import DATA_PATH as SINGLE_DEFAULT_DATA_PATH
 from placement_single_model import OUTPUT_DIR as SINGLE_MODEL_DIR
 from placement_single_model import train as train_single_model
 from query_db_draft_timetable import query_week, simulate_swap
-from template_cover_v1 import DEFAULT_OUTPUT_PATH as COVER_PATH
 from template_cover_v1 import build_cover
 from validate_db_draft_export import validate_export
 from validate_patterns import validate as validate_patterns
 from validate_template_cover_v1 import validate_cover
 
-PIPELINE_SUMMARY_PATH = PLACEMENT_OUTPUT_DIR / "pipeline_summary.json"
+ROOT = Path(__file__).resolve().parents[1]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+from app.db.session import connect, load_db_config  # noqa: E402
+
 PIPELINE_RUNS_DIR = PLACEMENT_OUTPUT_DIR / "runs"
 
 
@@ -87,79 +83,116 @@ def run_pipeline(
     snapshot: bool = True,
 ) -> dict[str, Any]:
     started_at = time.strftime("%Y-%m-%d %H:%M:%S")
+    run_id = datetime.now().strftime("%Y%m%d_%H%M%S")
     generation_run_id = f"v35-{allocation_task_id}-{datetime.now().strftime('%Y%m%d%H%M%S')}"
+    run_dir = PIPELINE_RUNS_DIR / run_id
+    run_dir.mkdir(parents=True, exist_ok=True)
+
     steps: list[dict[str, Any]] = []
+    clean_report: dict[str, Any] = {"skipped": True, "reason": "not training, skipping clean"}
 
-    clean_report = _step(steps, "clean_training_samples", lambda: clean_training_samples())
-
-    # Fetch the teaching tasks bound to this allocation_task
-    allocation_report = _step(
-        steps,
-        "fetch_allocation_teaching_tasks",
-        lambda: fetch_allocation_tasks(allocation_task_id=allocation_task_id),
+    # --- Fetch teaching tasks ---
+    allocation_tasks_path = run_dir / "allocation_tasks.jsonl"
+    allocation_report = _step(steps, "fetch_allocation_teaching_tasks",
+        lambda: fetch_allocation_tasks(allocation_task_id=allocation_task_id, output_path=allocation_tasks_path),
     )
 
+    # --- Train (optional) ---
     if train_model:
-        _step(steps, "train_single_placement_model", lambda: train_single_model(data_path=CLEAN_SAMPLES_PATH, output_dir=SINGLE_MODEL_DIR, rounds=model_rounds))
+        clean_report = _step(steps, "clean_training_samples", lambda: clean_training_samples())
+        _step(steps, "train_single_placement_model", lambda: train_single_model(
+            data_path=CLEAN_SAMPLES_PATH, output_dir=SINGLE_MODEL_DIR, rounds=model_rounds,
+        ))
+    else:
+        print("Skipping clean_training_samples and training (--train-model not set)", flush=True)
 
-    pattern_report = _step(steps, "build_patterns", lambda: build_patterns(input_path=ALLOCATION_TASKS_PATH))
-    pattern_validation = _step(steps, "validate_patterns", lambda: validate_patterns(input_path=PATTERNS_PATH))
+    # --- Build patterns ---
+    patterns_path = run_dir / "task_patterns.jsonl"
+    dropped_patterns_path = run_dir / "dropped_task_patterns.jsonl"
+    pattern_report_path = run_dir / "pattern_report.json"
+    pattern_report = _step(steps, "build_patterns", lambda: build_patterns(
+        input_path=allocation_tasks_path,
+        output_path=patterns_path,
+        dropped_path=dropped_patterns_path,
+        report_path=pattern_report_path,
+    ))
 
+    # --- Validate patterns ---
+    pattern_validation_path = run_dir / "pattern_validation_report.json"
+    pattern_validation = _step(steps, "validate_patterns", lambda: validate_patterns(
+        input_path=patterns_path, report_path=pattern_validation_path,
+    ))
+
+    # --- Build template cover ---
     allowed_weekdays, allowed_periods = _load_allowed_config(allocation_task_id)
-    cover_report = _step(
-        steps,
-        "build_template_cover",
-        lambda: build_cover(
-            patterns_path=PATTERNS_PATH,
-            model_dir=SINGLE_MODEL_DIR,
-            top_k=top_k,
-            max_templates=max_templates,
-            enable_fallback=True,
-            allowed_weekdays=allowed_weekdays,
-            allowed_periods=allowed_periods,
-        ),
-    )
-    cover_validation = _step(steps, "validate_template_cover", lambda: validate_cover(cover_path=COVER_PATH))
+    cover_path = run_dir / "template_cover_v1.json"
+    cover_report_path = run_dir / "template_cover_v1_report.json"
+    unresolved_path = run_dir / "template_cover_v1_unresolved.jsonl"
+    cover_report = _step(steps, "build_template_cover", lambda: build_cover(
+        patterns_path=patterns_path,
+        model_dir=SINGLE_MODEL_DIR,
+        output_path=cover_path,
+        report_path=cover_report_path,
+        unresolved_path=unresolved_path,
+        top_k=top_k,
+        max_templates=max_templates,
+        enable_fallback=True,
+        allowed_weekdays=allowed_weekdays,
+        allowed_periods=allowed_periods,
+    ))
 
-    export_report = _step(
-        steps,
-        "export_db_draft",
-        lambda: export_db_draft(
-            cover_path=COVER_PATH,
-            output_dir=DB_DRAFT_DIR,
-            allocation_task_id=allocation_task_id,
-            total_weeks=total_weeks,
-            generation_run_id=generation_run_id,
-        ),
-    )
-    db_draft_validation = _step(steps, "validate_db_draft", lambda: validate_export(input_dir=DB_DRAFT_DIR))
+    # --- Validate cover ---
+    cover_validation_path = run_dir / "template_cover_v1_validation_report.json"
+    cover_validation = _step(steps, "validate_template_cover", lambda: validate_cover(
+        cover_path=cover_path, report_path=cover_validation_path,
+    ))
 
-    week_query = _step(steps, "query_db_draft_week_5", lambda: query_week(input_dir=DB_DRAFT_DIR, week_number=5))
-    week_swap = _step(steps, "simulate_db_draft_week_swap_5_8", lambda: simulate_swap(input_dir=DB_DRAFT_DIR, week_a=5, week_b=8))
+    # --- Export DB draft ---
+    db_draft_dir = run_dir / "db_draft"
+    export_report = _step(steps, "export_db_draft", lambda: export_db_draft(
+        cover_path=cover_path,
+        output_dir=db_draft_dir,
+        allocation_task_id=allocation_task_id,
+        total_weeks=total_weeks,
+        generation_run_id=generation_run_id,
+    ))
 
+    # --- Validate DB draft ---
+    db_draft_validation = _step(steps, "validate_db_draft", lambda: validate_export(
+        input_dir=db_draft_dir,
+        report_path=db_draft_dir / "validation_report.json",
+    ))
+
+    # --- Simulate ---
+    week_query = _step(steps, "query_db_draft_week_5", lambda: query_week(
+        input_dir=db_draft_dir, week_number=5,
+    ))
+    week_swap = _step(steps, "simulate_db_draft_week_swap_5_8", lambda: simulate_swap(
+        input_dir=db_draft_dir, week_a=5, week_b=8,
+    ))
+
+    # --- Import to DB (optional) ---
     import_report = None
     if import_db:
-        import_report = _step(
-            steps,
-            "import_db_draft_to_mysql",
-            lambda: import_draft(input_dir=DB_DRAFT_DIR, execute=True, truncate=truncate_db),
-        )
-        _step(
-            steps,
-            "import_template_schemes",
-            lambda: import_template_schemes(
-                cover_path=COVER_PATH,
-                allocation_task_id=allocation_task_id,
-                generation_run_id=generation_run_id,
-                execute=True,
-                truncate=False,
-            ),
-        )
+        import_report = _step(steps, "import_db_draft_to_mysql", lambda: import_draft(
+            input_dir=db_draft_dir, execute=True, truncate=truncate_db,
+        ))
+        _step(steps, "import_template_schemes", lambda: import_template_schemes(
+            cover_path=cover_path,
+            allocation_task_id=allocation_task_id,
+            generation_run_id=generation_run_id,
+            execute=True,
+            truncate=False,
+        ))
 
+    # --- Summary ---
+    summary_path = run_dir / "pipeline_summary.json"
     summary = {
         "pipeline": "v3.5",
         "started_at": started_at,
         "finished_at": time.strftime("%Y-%m-%d %H:%M:%S"),
+        "run_dir": str(run_dir),
+        "run_id": run_id,
         "params": {
             "allocation_task_id": allocation_task_id,
             "generation_run_id": generation_run_id,
@@ -199,16 +232,14 @@ def run_pipeline(
         },
         "steps": steps,
         "artifacts": {
-            "clean_samples": str(CLEAN_SAMPLES_PATH),
-            "patterns": str(PATTERNS_PATH),
-            "template_cover": str(COVER_PATH),
-            "db_draft_dir": str(DB_DRAFT_DIR),
-            "summary": str(PIPELINE_SUMMARY_PATH),
+            "allocation_tasks": str(allocation_tasks_path),
+            "patterns": str(patterns_path),
+            "template_cover": str(cover_path),
+            "db_draft_dir": str(db_draft_dir),
+            "summary": str(summary_path),
         },
     }
-    PIPELINE_SUMMARY_PATH.write_text(json.dumps(summary, ensure_ascii=False, indent=2), encoding="utf-8")
-    if snapshot:
-        _snapshot_run(summary)
+    summary_path.write_text(json.dumps(summary, ensure_ascii=False, indent=2), encoding="utf-8")
     return summary
 
 
@@ -218,26 +249,6 @@ def _step(steps: list[dict[str, Any]], name: str, fn: Callable[[], Any]) -> Any:
     duration_ms = round((time.time() - start) * 1000, 2)
     steps.append({"name": name, "duration_ms": duration_ms, "status": "ok"})
     return result
-
-
-def _snapshot_run(summary: dict[str, Any]) -> None:
-    run_id = time.strftime("%Y%m%d_%H%M%S")
-    run_dir = PIPELINE_RUNS_DIR / run_id
-    run_dir.mkdir(parents=True, exist_ok=True)
-    for path in [
-        CLEAN_REPORT_PATH,
-        PLACEMENT_OUTPUT_DIR / "pattern_report.json",
-        PLACEMENT_OUTPUT_DIR / "pattern_validation_report.json",
-        PLACEMENT_OUTPUT_DIR / "template_cover_v1_report.json",
-        PLACEMENT_OUTPUT_DIR / "template_cover_v1_validation_report.json",
-        DB_DRAFT_DIR / "export_report.json",
-        DB_DRAFT_DIR / "validation_report.json",
-        DB_DRAFT_DIR / "week_query_result.json",
-        DB_DRAFT_DIR / "week_swap_simulation.json",
-    ]:
-        if path.exists():
-            shutil.copy2(path, run_dir / path.name)
-    (run_dir / "pipeline_summary.json").write_text(json.dumps(summary, ensure_ascii=False, indent=2), encoding="utf-8")
 
 
 def main() -> None:
@@ -250,7 +261,6 @@ def main() -> None:
     parser.add_argument("--model-rounds", type=int, default=160)
     parser.add_argument("--import-db", action="store_true")
     parser.add_argument("--truncate-db", action="store_true")
-    parser.add_argument("--no-snapshot", action="store_true")
     args = parser.parse_args()
     if args.truncate_db and not args.import_db:
         raise SystemExit("--truncate-db requires --import-db")
@@ -264,7 +274,6 @@ def main() -> None:
         model_rounds=args.model_rounds,
         import_db=args.import_db,
         truncate_db=args.truncate_db,
-        snapshot=not args.no_snapshot,
     )
     print(json.dumps({
         "status": summary["status"],

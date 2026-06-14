@@ -1,7 +1,7 @@
 import { useState, useEffect, useMemo } from "react";
 import request from "../api/request";
 
-interface Assignment {
+export interface Assignment {
   id: number;
   courseName: string;
   classGroupName: string;
