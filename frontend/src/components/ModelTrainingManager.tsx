@@ -1,5 +1,7 @@
 import { useModelTraining } from "../hooks/useModelTraining";
 
+const HISTORY_TRAINING_DIR = "backend/data/raw/history_training";
+
 function StatCard({ label, value }: { label: string; value: string | number }) {
   return <div className="card bg-base-100 shadow-sm"><div className="card-body p-4 text-center"><div className="text-2xl font-bold">{value}</div><div className="text-xs text-base-content/50 mt-1">{label}</div></div></div>;
 }
@@ -28,17 +30,26 @@ export default function ModelTrainingManager() {
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div>
               <h3 className="font-semibold">历史数据训练</h3>
-              <p className="text-xs text-base-content/50 mt-1">用历史学期课表数据训练 LightGBM 单模型，不进数据库。</p>
+              <p className="text-xs text-base-content/50 mt-1">用历史学期课表数据训练 LightGBM 单模型，不进数据库；请只放训练集课表，测试集不要放进来。</p>
             </div>
             <div className="flex gap-2">
-              <input type="text" id="history-raw-dir" className="input input-bordered input-sm w-72 font-mono text-xs" placeholder="backend/data/raw/2025-2026学年1学期总课表" defaultValue="backend/data/raw/2025-2026学年1学期总课表" />
+              <input type="text" id="history-raw-dir" className="input input-bordered input-sm w-80 font-mono text-xs" placeholder={HISTORY_TRAINING_DIR} defaultValue={HISTORY_TRAINING_DIR} />
               <button className="btn btn-primary btn-sm" disabled={t.historyTraining} onClick={() => {
                 const dir = (document.getElementById("history-raw-dir") as HTMLInputElement)?.value;
-                t.trainFromHistory(dir || "backend/data/raw/2025-2026学年1学期总课表");
+                t.trainFromHistory(dir || HISTORY_TRAINING_DIR);
               }}>{t.historyTraining ? "训练中..." : "开始历史训练"}</button>
             </div>
           </div>
-          {t.historyTrainResult && (
+          {(t.historyTraining || t.historyTrainingLogs.length > 0) && (
+            <div className="mt-3 rounded-lg bg-neutral text-neutral-content p-3">
+              <div className="mb-2 flex items-center justify-between text-xs font-medium">
+                <span>实时训练日志</span>
+                {t.historyTraining && <span className="loading loading-spinner loading-xs" />}
+              </div>
+              <pre className="max-h-64 overflow-auto whitespace-pre-wrap break-words font-mono text-xs leading-relaxed">{t.historyTrainingLogs.join("\n") || "等待训练日志..."}</pre>
+            </div>
+          )}
+          {t.historyTrainResult && t.historyTrainResult?.status !== "RUNNING" && (
             <div className={`mt-3 text-xs p-3 rounded-lg ${t.historyTrainResult?.status === "ok" ? "bg-success/10 text-success" : "bg-error/10 text-error"}`}>
               <div className="font-medium mb-1">{t.historyTrainResult?.status === "ok" ? "训练完成" : "训练失败"}</div>
               <div className="opacity-70 font-mono whitespace-pre-wrap max-h-32 overflow-auto">{JSON.stringify(t.historyTrainResult, null, 2)}</div>

@@ -11,6 +11,7 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 @RestController
 @RequestMapping("/api/ml/feedback")
@@ -51,6 +52,14 @@ public class MlFeedbackTrainingController {
             throw new com.yuy.eduflow.common.exception.ValidationException("rawDir 不能为空");
         }
         return ApiResponse.success(modelHistoryTrainingService.trainFromHistory(rawDir));
+    }
+
+    @GetMapping("/train-from-history/stream")
+    public SseEmitter streamTrainFromHistory(@RequestParam String rawDir) {
+        if (rawDir == null || rawDir.isBlank()) {
+            throw new com.yuy.eduflow.common.exception.ValidationException("rawDir 不能为空");
+        }
+        return modelHistoryTrainingService.streamTrainFromHistory(rawDir);
     }
 
     @GetMapping("/training-status")

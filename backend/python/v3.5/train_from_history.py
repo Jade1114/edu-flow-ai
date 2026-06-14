@@ -24,7 +24,7 @@ if str(ROOT) not in sys.path:
 from app.db.session import connect, load_db_config  # noqa: E402
 from batch_process_schedule_imports import batch_process, DEFAULT_TRAINING_OUTPUT_ROOT
 from extract_training_samples import extract, DEFAULT_OUTPUT_PATH as TRAINING_SAMPLES_PATH
-from placement_single_model import DEFAULT_TRAINING_PATH, train
+from placement_single_model import DATA_PATH as SINGLE_DATA_PATH, train
 from extract_training_samples import DEFAULT_REPORT_PATH as EXTRACT_REPORT_PATH
 
 

@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import request from "../api/request";
 import { toast } from "sonner";
 
@@ -34,10 +34,15 @@ export function useModelTraining() {
   const [historyTraining, setHistoryTraining] = useState(false);
   const [trainResult, setTrainResult] = useState<Record<string, unknown> | null>(null);
   const [historyTrainResult, setHistoryTrainResult] = useState<Record<string, unknown> | null>(null);
+  const [historyTrainingLogs, setHistoryTrainingLogs] = useState<string[]>([]);
+  const historyEventSourceRef = useRef<EventSource | null>(null);
   const [trainingLogs, setTrainingLogs] = useState<TrainingLog[]>([]);
   const [logsLoading, setLogsLoading] = useState(false);
 
-  useEffect(() => { loadAll(); }, []);
+  useEffect(() => {
+    loadAll();
+    return () => historyEventSourceRef.current?.close();
+  }, []);
 
   async function loadAll() {
     await Promise.all([loadLatestFeedback(), loadEventSummary(), loadTrainingLogs()]);
@@ -72,21 +77,52 @@ export function useModelTraining() {
     finally { setFeedbackLoading(false); }
   }
 
-  async function trainFromHistory(rawDir?: string) {
+  function trainFromHistory(rawDir?: string) {
     if (!rawDir) { toast.error("请指定历史课表目录路径"); return; }
+    historyEventSourceRef.current?.close();
     setHistoryTraining(true);
+    setHistoryTrainingLogs([]);
     setHistoryTrainResult({ status: "RUNNING" });
-    try {
-      const result = await request.post("/api/ml/feedback/train-from-history", { rawDir });
-      setHistoryTrainResult(result);
-      if (result?.status === "ok") {
-        toast.success(`历史数据训练完成！`);
+
+    const source = new EventSource(`/api/ml/feedback/train-from-history/stream?rawDir=${encodeURIComponent(rawDir)}`);
+    historyEventSourceRef.current = source;
+
+    source.addEventListener("log", (event) => {
+      setHistoryTrainingLogs((logs) => [...logs, event.data]);
+    });
+
+    source.addEventListener("done", (event) => {
+      try {
+        const result = JSON.parse(event.data);
+        setHistoryTrainResult(result);
+        toast.success("历史数据训练完成！");
         loadTrainingLogs();
-      } else toast.error(`训练失败: ${result?.error || "未知错误"}`);
-    } catch (e: any) {
-      setHistoryTrainResult({ status: "FAILED", error: e.message || "请求失败" });
-      toast.error("历史训练请求失败");
-    } finally { setHistoryTraining(false); }
+      } catch {
+        setHistoryTrainResult({ status: "ok", rawOutput: event.data });
+      }
+      setHistoryTraining(false);
+      source.close();
+      historyEventSourceRef.current = null;
+    });
+
+    source.addEventListener("failed", (event) => {
+      let message = event.data || "未知错误";
+      try { message = JSON.parse(event.data).message || message; } catch {}
+      setHistoryTrainResult({ status: "FAILED", error: message });
+      setHistoryTraining(false);
+      toast.error(`训练失败: ${message}`);
+      source.close();
+      historyEventSourceRef.current = null;
+    });
+
+    source.onerror = () => {
+      if (source.readyState === EventSource.CLOSED) return;
+      setHistoryTrainResult({ status: "FAILED", error: "训练日志连接中断" });
+      setHistoryTraining(false);
+      toast.error("训练日志连接中断");
+      source.close();
+      historyEventSourceRef.current = null;
+    };
   }
 
   async function triggerRetrain(taskId?: string) {
@@ -127,5 +163,5 @@ export function useModelTraining() {
   function typeLabel(type: string) { return ({ INITIAL: "初始训练", FEEDBACK: "反馈重训", FULL: "全量训练", HISTORY: "历史数据训练" } as any)[type] || type || "-"; }
   function fmtTime(t: string) { return t ? t.replace("T", " ").substring(0, 19) : "-"; }
 
-  return { feedbackStats, feedbackLoading, eventSummary, eventLoading, training, historyTraining, trainResult, historyTrainResult, trainingLogs, logsLoading, lastLog, positiveRate, eventCards, eventLabel, typeLabel, fmtTime, loadAll, loadLatestFeedback, loadEventSummary, generateFeedback, triggerRetrain, trainFromHistory, loadTrainingLogs };
+  return { feedbackStats, feedbackLoading, eventSummary, eventLoading, training, historyTraining, trainResult, historyTrainResult, historyTrainingLogs, trainingLogs, logsLoading, lastLog, positiveRate, eventCards, eventLabel, typeLabel, fmtTime, loadAll, loadLatestFeedback, loadEventSummary, generateFeedback, triggerRetrain, trainFromHistory, loadTrainingLogs };
 }
