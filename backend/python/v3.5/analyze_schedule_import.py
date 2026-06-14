@@ -222,14 +222,17 @@ def _analyze_teaching_tasks(parsed_tasks: list[dict[str, str]], db: dict[str, di
     # after import review decisions are persisted.
     for row in parsed_tasks:
         course_code = _clean(row.get("course_code"))
-        class_name = _clean(row.get("class_name"))
+        class_names = [_clean(item) for item in re_split_names(row.get("class_names") or row.get("class_name")) if _clean(item)]
         teacher_names = [_clean(item) for item in re_split_names(row.get("teacher_name")) if _clean(item)]
-        task_key = f"{course_code}|{class_name}|{','.join(teacher_names)}"
+        classroom_names = _classrooms_from_resource_signature(row.get("resource_signature"))
+        class_key = ",".join(class_names)
+        task_key = f"{course_code}|{class_key}|{','.join(teacher_names)}"
         unresolved = []
         if course_code and course_code not in db["course"]:
             unresolved.append(f"课程 {course_code} 不存在")
-        if class_name and class_name not in db["class_group"]:
-            unresolved.append(f"班级 {class_name} 不存在")
+        missing_classes = [name for name in class_names if name not in db["class_group"]]
+        if missing_classes:
+            unresolved.append("班级不存在: " + ",".join(missing_classes))
         missing_teachers = [name for name in teacher_names if name not in db["teacher"]]
         if missing_teachers:
             unresolved.append("教师不存在: " + ",".join(missing_teachers))
@@ -237,19 +240,37 @@ def _analyze_teaching_tasks(parsed_tasks: list[dict[str, str]], db: dict[str, di
             new_items.append({
                 "entity_type": "teaching_task",
                 "entity_key": task_key,
-                "display_name": f"{row.get('course_name')} / {class_name}",
+                "display_name": f"{row.get('course_name')} / {class_key}",
                 "suggested_action": "review_dependencies",
-                "reason": "；".join(unresolved),
+                "reason": "；".join(unresolved + [_dependency_note(course_code, teacher_names, classroom_names)]),
             })
         else:
             matched.append({
                 "entity_type": "teaching_task",
                 "entity_key": task_key,
                 "db_id": "",
-                "display_name": f"{row.get('course_name')} / {class_name}",
+                "display_name": f"{row.get('course_name')} / {class_key}",
                 "status": "dependencies_resolved",
             })
     return {"matched": matched, "new_items": new_items, "conflicts": conflicts}
+
+
+def _dependency_note(course_code: str, teacher_names: list[str], classroom_names: list[str]) -> str:
+    parts = [f"course={course_code}"]
+    if teacher_names:
+        parts.append("teachers=" + "|".join(teacher_names))
+    if classroom_names:
+        parts.append("classrooms=" + "|".join(classroom_names))
+    return "依赖: " + "; ".join(parts)
+
+
+def _classrooms_from_resource_signature(value: str | None) -> list[str]:
+    classrooms = set()
+    for slot in str(value or "").split(";"):
+        parts = [part.strip() for part in slot.split("|")]
+        if len(parts) >= 4 and parts[3]:
+            classrooms.add(parts[3])
+    return sorted(classrooms)
 
 
 def _load_db_master_data(conn) -> dict[str, dict[str, dict[str, Any]]]:

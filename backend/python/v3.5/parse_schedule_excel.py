@@ -30,6 +30,14 @@ BACKEND_ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_OUTPUT_ROOT = BACKEND_ROOT / "data" / "parsed" / "schedule_imports"
 PUBLIC_PHYSICAL_EDUCATION = "公共体育"
 UNSCHEDULABLE_COURSES = {PUBLIC_PHYSICAL_EDUCATION}
+
+# Keywords that make a course unschedulable (not needing normal classroom/time placement)
+UNSCHEDULABLE_KEYWORDS = {
+    "虚拟", "实训", "实习", "军训", "创新创业",
+    "就业指导", "形势与政策", "心理健康", "职业生涯",
+    "第二课堂", "社会实践", "劳动教育", "通识选修",
+}
+PE_KEYWORDS = {"体育", "田径", "球类", "体操", "武术", "健美", "瑜伽", "跆拳道", "游泳", "太极"}
 WEEKDAY_LABELS = {
     "一": 1,
     "二": 2,
@@ -49,7 +57,7 @@ DETAIL_PATTERN = re.compile(
     r"\s*室\[(?P<rooms>[^\]]*)\]",
     re.S,
 )
-COURSE_CODE_PATTERN = re.compile(r"^[\u4e00-\u9fa5]{1,4}\d{2,4}$")
+COURSE_CODE_PATTERN = re.compile(r"^(?:[\u4e00-\u9fa5]{1,4}|[A-Za-z]{1,6})\d{2,4}$")
 CLASSROOM_PATTERN = re.compile(r"^\d{4,6}$")
 META_PATTERN = re.compile(
     r"(?P<academic_year>\d{4}-\d{4})学年第(?P<semester>\d+)学期"
@@ -85,6 +93,7 @@ class Occurrence:
     classroom_name: str
     day_of_week: int
     period_index: int
+    week_index: int
     row_index: int
     col_index: int
     sheet_name: str
@@ -130,14 +139,15 @@ def parse_schedule_excel(
         for detail in sheet_details:
             details_by_code.setdefault(detail.course_code, detail)
         day_cols = _detect_day_columns(cells)
+        day_period_cols = _detect_day_period_columns(cells, day_cols)
         period_rows = _detect_period_rows(cells)
         if not day_cols:
             warnings.append({"sheet": sheet_name, "warning": "未识别到星期列，使用 B-F 作为周一至周五兜底"})
             day_cols = {col: col - 1 for col in range(2, 7)}
-        if not period_rows:
+        if not day_period_cols and not period_rows:
             warnings.append({"sheet": sheet_name, "warning": "未识别到节次行，尝试按行号顺序兜底"})
             period_rows = _fallback_period_rows(cells)
-        occurrences.extend(_extract_occurrences(cells, sheet_name, class_name_value, day_cols, period_rows))
+        occurrences.extend(_extract_occurrences(cells, sheet_name, class_name_value, day_cols, period_rows, day_period_cols))
 
     code_order = _ordered_codes(occurrences, details_by_code)
     courses = _build_courses(code_order, details_by_code, occurrences)
@@ -157,12 +167,12 @@ def parse_schedule_excel(
         "class_name", "major", "department", "grade", "student_count", "academic_year", "semester",
     ])
     _write_csv(output_dir / "teaching_tasks.csv", teaching_tasks, [
-        "course_code", "course_name", "teacher_name", "class_name", "total_hours", "required_room_type",
+        "course_code", "course_name", "teacher_name", "class_name", "class_names", "total_hours", "required_room_type",
         "task_batch", "schedulable", "exclude_reason", "source",
     ])
     _write_csv(output_dir / "timetable_occurrences.csv", [_occurrence_row(item, details_by_code) for item in occurrences], [
         "class_name", "course_code", "course_name", "teacher_name", "classroom_name", "day_of_week",
-        "period_index", "row_index", "col_index", "sheet_name", "raw_cell",
+        "period_index", "week_index", "row_index", "col_index", "sheet_name", "raw_cell",
     ])
 
     report = {
@@ -353,6 +363,42 @@ def _detect_period_rows(cells: list[Cell]) -> dict[int, int]:
     return result
 
 
+def _detect_day_period_columns(cells: list[Cell], day_cols: dict[int, int]) -> dict[int, tuple[int, int]]:
+    if not day_cols:
+        return {}
+    header_by_col = {cell.col: cell.value.strip() for cell in cells if cell.row <= 5}
+    result: dict[int, tuple[int, int]] = {}
+    sorted_day_cols = sorted(day_cols.items())
+    for index, (start_col, day) in enumerate(sorted_day_cols):
+        end_col = sorted_day_cols[index + 1][0] if index + 1 < len(sorted_day_cols) else start_col + 5
+        for col in range(start_col, end_col):
+            value = header_by_col.get(col, "")
+            period = _period_from_column_header(value)
+            if period:
+                result[col] = (day, period)
+    return result
+
+
+def _period_from_column_header(value: str) -> int | None:
+    normalized = _clean_token(value)
+    if normalized in {"12", "1-2", "1、2"}:
+        return 1
+    if normalized in {"34", "3-4", "3、4"}:
+        return 3
+    if normalized in {"56", "5-6", "5、6"}:
+        return 5
+    if normalized in {"78", "7-8", "7、8"}:
+        return 7
+    if normalized in {"91011", "9-10-11", "9、10、11"}:
+        return 9
+    match = re.fullmatch(r"([1-9]\d*)", normalized)
+    if match:
+        period = _safe_int(match.group(1))
+        if 1 <= period <= 12:
+            return period
+    return None
+
+
 def _fallback_period_rows(cells: list[Cell]) -> dict[int, int]:
     rows = sorted({cell.row for cell in cells if cell.row > 1})
     return {row: index for index, row in enumerate(rows[:12], start=1)}
@@ -364,11 +410,17 @@ def _extract_occurrences(
     class_name: str,
     day_cols: dict[int, int],
     period_rows: dict[int, int],
+    day_period_cols: dict[int, tuple[int, int]] | None = None,
 ) -> list[Occurrence]:
     result: list[Occurrence] = []
     for cell in cells:
-        day = day_cols.get(cell.col)
-        period = period_rows.get(cell.row)
+        day = None
+        period = None
+        if day_period_cols and cell.col in day_period_cols:
+            day, period = day_period_cols[cell.col]
+        else:
+            day = day_cols.get(cell.col)
+            period = period_rows.get(cell.row)
         if not day or not period:
             continue
         parsed = _parse_timetable_cell(cell.value)
@@ -379,12 +431,22 @@ def _extract_occurrences(
                 classroom_name=classroom_name,
                 day_of_week=day,
                 period_index=period,
+                week_index=_week_from_row(cell.row, cell.value),
                 row_index=cell.row,
                 col_index=cell.col,
                 sheet_name=sheet_name,
                 raw_cell=cell.value,
             ))
     return result
+
+
+def _week_from_row(row_index: int, value: str) -> int:
+    if 5 <= row_index <= 24:
+        return row_index - 4
+    match = re.search(r"第?([1-9]\d*)周", value)
+    if match:
+        return _safe_int(match.group(1))
+    return 0
 
 
 def _parse_timetable_cell(value: str) -> list[tuple[str, str]]:
@@ -495,6 +557,7 @@ def _build_teaching_tasks(
             "course_name": course["course_name"],
             "teacher_name": teacher_names,
             "class_name": class_name,
+            "class_names": class_name,
             "total_hours": course["required_hours"],
             "required_room_type": course["required_room_type"],
             "task_batch": task_batch,
@@ -515,6 +578,7 @@ def _occurrence_row(item: Occurrence, details_by_code: dict[str, CourseDetail]) 
         "classroom_name": item.classroom_name,
         "day_of_week": item.day_of_week,
         "period_index": item.period_index,
+        "week_index": item.week_index,
         "row_index": item.row_index,
         "col_index": item.col_index,
         "sheet_name": item.sheet_name,
@@ -549,8 +613,23 @@ def _required_room_type(course_type: str, schedulable: bool) -> str:
 
 
 def _schedulable_state(course_code: str, course_name: str) -> tuple[bool, str]:
+    # Exact match on course codes/names known to be unschedulable
     if course_code in UNSCHEDULABLE_COURSES or course_name in UNSCHEDULABLE_COURSES:
         return False, "公共体育暂不进入当前排课引擎"
+
+    # Virtual/reserved courses (code starts with XN or name contains 虚拟)
+    code_upper = (course_code or "").upper()
+    if code_upper.startswith("XN") or "虚拟" in course_name:
+        return False, "虚拟课不参与排课"
+
+    # Physical education courses
+    if any(kw in course_name for kw in PE_KEYWORDS):
+        return False, "体育课由体育部统一安排，不参与排课"
+
+    # Other special course types
+    if any(kw in course_name for kw in UNSCHEDULABLE_KEYWORDS):
+        return False, f"特殊课程（{course_name}）暂不参与排课"
+
     return True, ""
 
 

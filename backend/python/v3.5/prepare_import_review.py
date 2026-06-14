@@ -53,8 +53,8 @@ def prepare_review(*, input_dir: Path, output_dir: Path | None = None) -> dict[s
     output_dir = output_dir or input_dir
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    conflicts = _read_csv(input_dir / "import_conflicts.csv")
-    new_items = _read_csv(input_dir / "import_new_items.csv")
+    conflicts = _dedupe_rows(_read_csv(input_dir / "import_conflicts.csv"), ["entity_type", "entity_key", "field_name"])
+    new_items = _dedupe_rows(_read_csv(input_dir / "import_new_items.csv"), ["entity_type", "entity_key"])
     review_items: list[dict[str, Any]] = []
 
     for row in conflicts:
@@ -151,6 +151,18 @@ def _read_csv(path: Path) -> list[dict[str, str]]:
         return []
     with path.open("r", encoding="utf-8-sig", newline="") as handle:
         return list(csv.DictReader(handle))
+
+
+def _dedupe_rows(rows: list[dict[str, str]], key_fields: list[str]) -> list[dict[str, str]]:
+    seen = set()
+    result = []
+    for row in rows:
+        key = tuple((row.get(field) or "").strip() for field in key_fields)
+        if key in seen:
+            continue
+        seen.add(key)
+        result.append(row)
+    return result
 
 
 def _write_csv(path: Path, rows: list[dict[str, Any]], fieldnames: list[str]) -> None:

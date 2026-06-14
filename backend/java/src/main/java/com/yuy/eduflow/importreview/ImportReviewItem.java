@@ -4,6 +4,7 @@ import lombok.Data;
 
 @Data
 public class ImportReviewItem {
+    private String batchId;
     private String reviewId;
     private String reviewType;
     private String entityType;

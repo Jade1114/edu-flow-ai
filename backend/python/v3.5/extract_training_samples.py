@@ -24,8 +24,8 @@ if str(ROOT) not in sys.path:
 from placement_single_model import DATA_PATH as SINGLE_DATA_PATH, TEXT_FEATURES, NUMERIC_FEATURES
 
 DEFAULT_INPUT_DIR = Path(__file__).resolve().parents[2] / "data" / "parsed" / "schedule_imports_training"
-DEFAULT_OUTPUT_PATH = Path(__file__).resolve().parents[2] / "data" / "pipeline" / "v3.5" / "training_samples.jsonl"
-DEFAULT_REPORT_PATH = Path(__file__).resolve().parents[2] / "data" / "pipeline" / "v3.5" / "training_extract_report.json"
+DEFAULT_OUTPUT_PATH = Path(__file__).resolve().parents[2] / "models" / "v3.5" / "training" / "training_samples.jsonl"
+DEFAULT_REPORT_PATH = Path(__file__).resolve().parents[2] / "models" / "v3.5" / "training" / "training_extract_report.json"
 
 
 def extract(
