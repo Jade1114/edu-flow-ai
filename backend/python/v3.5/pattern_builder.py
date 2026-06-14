@@ -96,6 +96,8 @@ def _build_pattern(source_key: str, rows: list[dict[str, Any]]) -> dict[str, Any
         "course_code": str(first.get("course_code") or ""),
         "teacher_name": str(first.get("teacher_name") or ""),
         "class_name": str(first.get("class_name") or ""),
+        "class_names": str(first.get("class_names") or first.get("class_group_names") or first.get("class_name") or ""),
+        "teaching_task_id": first.get("teaching_task_id"),
         "course_type": course_type,
         "required_room_type": required_room_type,
         "total_hours": total_hours,

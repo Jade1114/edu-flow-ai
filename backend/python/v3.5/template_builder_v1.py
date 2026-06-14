@@ -70,7 +70,7 @@ class WeeklyTemplate:
         blockers: list[str] = []
         reasons: list[str] = []
         teacher = str(pattern.get("teacher_name") or "").strip()
-        class_name = str(pattern.get("class_name") or "").strip()
+        class_names = _class_names(pattern)
         room = candidate.classroom_name
 
         for day, period in segments:
@@ -79,7 +79,7 @@ class WeeklyTemplate:
                 if blocker and blocker != ignore_fragment_id:
                     blockers.append(blocker)
                     reasons.append("teacher_conflict")
-            if class_name:
+            for class_name in class_names:
                 blocker = self.class_occupancy.get((class_name, day, period))
                 if blocker and blocker != ignore_fragment_id:
                     blockers.append(blocker)
@@ -106,6 +106,8 @@ class WeeklyTemplate:
             "course_code": pattern.get("course_code"),
             "teacher_name": pattern.get("teacher_name"),
             "class_name": pattern.get("class_name"),
+            "class_names": pattern.get("class_names") or pattern.get("class_group_names") or pattern.get("class_name"),
+            "teaching_task_id": pattern.get("teaching_task_id"),
             "required_room_type": pattern.get("required_room_type"),
             "classroom_name": candidate.classroom_name,
             "resource_key": candidate.resource_key,
@@ -140,13 +142,13 @@ class WeeklyTemplate:
         self.fragments.append(fragment)
         self.task_fragments.setdefault(str(fragment["source_key"]), []).append(fragment_id)
         teacher = str(fragment.get("teacher_name") or "").strip()
-        class_name = str(fragment.get("class_name") or "").strip()
+        class_names = _class_names(fragment)
         room = str(fragment["classroom_name"])
         for segment in fragment["segments"]:
             key = (int(segment["day_of_week"]), int(segment["period_index"]))
             if teacher:
                 self.teacher_occupancy[(teacher, *key)] = fragment_id
-            if class_name:
+            for class_name in class_names:
                 self.class_occupancy[(class_name, *key)] = fragment_id
             self.room_occupancy[(room, *key)] = fragment_id
 
@@ -157,13 +159,13 @@ class WeeklyTemplate:
         source_key = str(fragment["source_key"])
         self.task_fragments[source_key] = [item for item in self.task_fragments.get(source_key, []) if item != fragment_id]
         teacher = str(fragment.get("teacher_name") or "").strip()
-        class_name = str(fragment.get("class_name") or "").strip()
+        class_names = _class_names(fragment)
         room = str(fragment["classroom_name"])
         for segment in fragment["segments"]:
             key = (int(segment["day_of_week"]), int(segment["period_index"]))
             if teacher:
                 self.teacher_occupancy.pop((teacher, *key), None)
-            if class_name:
+            for class_name in class_names:
                 self.class_occupancy.pop((class_name, *key), None)
             self.room_occupancy.pop((room, *key), None)
 
@@ -236,6 +238,8 @@ def build_template(
                     "source_key": pattern["source_key"],
                     "course_name": pattern.get("course_name"),
                     "class_name": pattern.get("class_name"),
+                    "class_names": pattern.get("class_names") or pattern.get("class_group_names") or pattern.get("class_name"),
+                    "teaching_task_id": pattern.get("teaching_task_id"),
                     "required_room_type": pattern.get("required_room_type"),
                     "fragment_no": fragment_no,
                     "needed_weekly_slot_count": needed,
@@ -256,6 +260,8 @@ def build_template(
                     "source_key": frag["source_key"],
                     "course_name": frag.get("course_name"),
                     "class_name": frag.get("class_name"),
+                    "class_names": frag.get("class_names") or frag.get("class_name"),
+                    "teaching_task_id": frag.get("teaching_task_id"),
                     "required_room_type": frag.get("required_room_type"),
                     "fragment_no": frag.get("fragment_index"),
                     "needed_weekly_slot_count": 1,
@@ -430,6 +436,7 @@ def _fragment_to_pattern(fragment: dict[str, Any]) -> dict[str, Any]:
         "source_key": fragment["source_key"],
         "teacher_name": fragment.get("teacher_name"),
         "class_name": fragment.get("class_name"),
+        "class_names": fragment.get("class_names") or fragment.get("class_name"),
         "consecutive_slots": fragment.get("consecutive_slots"),
         "duration_weeks": fragment.get("duration_weeks"),
         "session_hours": fragment.get("session_hours"),
@@ -455,6 +462,19 @@ def _write_jsonl(path: Path, rows: list[dict[str, Any]]) -> None:
     with path.open("w", encoding="utf-8") as handle:
         for row in rows:
             handle.write(json.dumps(row, ensure_ascii=False, sort_keys=True) + "\n")
+
+
+def _class_names(row: dict[str, Any]) -> list[str]:
+    raw = row.get("class_names") or row.get("class_group_names") or row.get("class_name") or ""
+    text = str(raw).replace("，", ",").replace("、", ",").replace(";", ",").replace("|", ",")
+    seen: set[str] = set()
+    result: list[str] = []
+    for item in text.split(","):
+        name = item.strip()
+        if name and name not in seen:
+            seen.add(name)
+            result.append(name)
+    return result
 
 
 def _safe_int(value: Any) -> int:

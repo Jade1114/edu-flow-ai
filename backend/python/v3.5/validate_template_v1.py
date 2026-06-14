@@ -21,7 +21,7 @@ def validate_template(*, template_path: Path = DEFAULT_OUTPUT_PATH, report_path:
     issues.extend(_duplicate_fragment_ids(fragments))
     issues.extend(_segment_shape_issues(fragments))
     issues.extend(_occupancy_conflicts(fragments, "teacher_name", "teacher_conflict"))
-    issues.extend(_occupancy_conflicts(fragments, "class_name", "class_conflict"))
+    issues.extend(_class_occupancy_conflicts(fragments))
     issues.extend(_occupancy_conflicts(fragments, "classroom_name", "room_conflict"))
 
     report = {
@@ -87,11 +87,44 @@ def _occupancy_conflicts(fragments: list[dict[str, Any]], field: str, issue: str
     return sorted(issues, key=lambda item: item["count"], reverse=True)
 
 
+def _class_occupancy_conflicts(fragments: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    buckets: dict[tuple[str, int, int], list[dict[str, Any]]] = defaultdict(list)
+    for fragment in fragments:
+        class_names = _split_names(fragment.get("class_names") or fragment.get("class_group_names") or fragment.get("class_name"))
+        for class_name in class_names:
+            for segment in fragment.get("segments") or []:
+                buckets[(class_name, _safe_int(segment.get("day_of_week")), _safe_int(segment.get("period_index")))].append(fragment)
+    issues = []
+    for key, bucket in buckets.items():
+        if len(bucket) <= 1:
+            continue
+        issues.append({
+            "issue": "class_conflict",
+            "key": f"{key[0]}|{key[1]}|{key[2]}",
+            "count": len(bucket),
+            "fragment_ids": [fragment.get("fragment_id") for fragment in bucket],
+            "source_keys": [fragment.get("source_key") for fragment in bucket],
+        })
+    return sorted(issues, key=lambda item: item["count"], reverse=True)
+
+
 def _safe_int(value: Any) -> int:
     try:
         return int(float(str(value).strip()))
     except (TypeError, ValueError):
         return 0
+
+
+def _split_names(value: Any) -> list[str]:
+    text = str(value or "").replace("，", ",").replace("、", ",").replace(";", ",").replace("|", ",")
+    seen: set[str] = set()
+    result: list[str] = []
+    for item in text.split(","):
+        name = item.strip()
+        if name and name not in seen:
+            seen.add(name)
+            result.append(name)
+    return result
 
 
 def main() -> None:

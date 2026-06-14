@@ -24,18 +24,19 @@ def fetch(allocation_task_id: int, output_path: Path = DEFAULT_OUTPUT_PATH) -> d
         with conn.cursor() as cur:
             cur.execute("""
                 SELECT
+                    tt.id AS teaching_task_id,
                     c.code AS course_code,
                     c.name AS course_name,
                     c.course_type,
                     t.name AS teacher_name,
-                    cg.name AS class_name,
-                    cg.major AS class_major,
-                    cg.department AS class_department,
-                    cg.grade AS class_grade,
-                    cg.student_count,
+                    GROUP_CONCAT(DISTINCT cg.name ORDER BY cg.name SEPARATOR ',') AS class_names,
+                    GROUP_CONCAT(DISTINCT cg.major ORDER BY cg.major SEPARATOR ',') AS class_major,
+                    GROUP_CONCAT(DISTINCT cg.department ORDER BY cg.department SEPARATOR ',') AS class_department,
+                    GROUP_CONCAT(DISTINCT cg.grade ORDER BY cg.grade SEPARATOR ',') AS class_grade,
+                    COALESCE(SUM(cg.student_count), 0) AS student_count,
+                    COUNT(DISTINCT cg.id) AS class_group_count,
                     tt.total_hours,
-                    tt.required_room_type,
-                    tt.id AS teaching_task_id
+                    tt.required_room_type
                 FROM allocation_task_teaching_task att
                 JOIN teaching_task tt ON tt.id = att.teaching_task_id AND tt.status = 'ACTIVE'
                 JOIN course c ON c.id = tt.course_id
@@ -43,7 +44,10 @@ def fetch(allocation_task_id: int, output_path: Path = DEFAULT_OUTPUT_PATH) -> d
                 JOIN teaching_task_class_group ttcg ON ttcg.teaching_task_id = tt.id
                 JOIN class_group cg ON cg.id = ttcg.class_group_id
                 WHERE att.allocation_task_id = %s
-                ORDER BY c.code, cg.name
+                  AND (tt.notes IS NULL OR tt.notes NOT LIKE 'unschedulable:%%')
+                GROUP BY
+                    tt.id, c.code, c.name, c.course_type, t.name, tt.total_hours, tt.required_room_type
+                ORDER BY c.code, class_names
             """, (allocation_task_id,))
 
             rows = cur.fetchall()
@@ -52,13 +56,17 @@ def fetch(allocation_task_id: int, output_path: Path = DEFAULT_OUTPUT_PATH) -> d
 
             jsonl_rows = []
             for r in rows:
-                source_key = f"{r['course_code']}|{r['teacher_name'] or ''}|{r['class_name']}"
+                class_names = r["class_names"] or ""
+                source_key = f"task:{r['teaching_task_id']}"
                 jsonl_rows.append({
                     "source_key": source_key,
                     "course_name": r["course_name"],
                     "course_code": r["course_code"],
                     "teacher_name": r["teacher_name"] or "",
-                    "class_name": r["class_name"],
+                    "class_name": class_names,
+                    "class_names": class_names,
+                    "class_group_names": class_names,
+                    "class_group_count": r["class_group_count"] or 0,
                     "class_major": r["class_major"] or "",
                     "class_department": r["class_department"] or "",
                     "class_grade": str(r["class_grade"] or ""),

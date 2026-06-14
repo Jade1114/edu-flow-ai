@@ -33,6 +33,7 @@ def export_db_draft(
     templates = cover.get("templates", [])
     generation_run_id = generation_run_id or str(cover.get("generation_run_id") or "default")
     output_dir.mkdir(parents=True, exist_ok=True)
+    report_path.parent.mkdir(parents=True, exist_ok=True)
 
     template_rows: list[dict[str, Any]] = []
     week_rows: list[dict[str, Any]] = []
@@ -158,14 +159,14 @@ def _fragment_row(
         "allocation_task_id": allocation_task_id,
         "generation_run_id": generation_run_id,
         "fragment_code": fragment_code,
-        "teaching_task_id": None,
+        "teaching_task_id": _safe_int(fragment.get("teaching_task_id")) or None,
         "source_key": fragment.get("source_key"),
         "course_id": None,
         "course_name": fragment.get("course_name"),
         "teacher_id": None,
         "teacher_name": fragment.get("teacher_name"),
         "class_group_id": None,
-        "class_name": fragment.get("class_name"),
+        "class_name": fragment.get("class_names") or fragment.get("class_group_names") or fragment.get("class_name"),
         "classroom_id": None,
         "classroom_name": fragment.get("classroom_name"),
         "day_of_week": _safe_int(fragment.get("day_of_week")),
@@ -197,14 +198,14 @@ def _slot_row(
         "template_code": template_code,
         "allocation_task_id": allocation_task_id,
         "generation_run_id": generation_run_id,
-        "teaching_task_id": None,
+        "teaching_task_id": _safe_int(fragment.get("teaching_task_id")) or None,
         "classroom_id": None,
         "teacher_id": None,
         "class_group_id": None,
         "source_key": fragment.get("source_key"),
         "classroom_name": fragment.get("classroom_name"),
         "teacher_name": fragment.get("teacher_name"),
-        "class_name": fragment.get("class_name"),
+        "class_name": fragment.get("class_names") or fragment.get("class_group_names") or fragment.get("class_name"),
         "day_of_week": _safe_int(segment.get("day_of_week")),
         "period_index": _safe_int(segment.get("period_index")),
     }
