@@ -245,27 +245,40 @@ def _create_teaching_task(cur, review_row: dict[str, str], context: dict[str, An
     if not row:
         context["skipped"].append(_skip(review_row, "missing parsed teaching task row"))
         return None
+    schedulable = _clean(row.get("schedulable")).lower()
+    exclude_reason = _clean(row.get("exclude_reason"))
+    total_hours = _int_or_default(row.get("total_hours"), 0)
+    if schedulable == "false":
+        context["skipped"].append(_skip(review_row, f"teaching task marked unschedulable: {exclude_reason or 'no normal placement needed'}"))
+        return None
+    if total_hours <= 0:
+        context["skipped"].append(_skip(review_row, "teaching task has no positive total_hours"))
+        return None
     course = context["db"]["course"].get(row.get("course_code"))
-    class_group = context["db"]["class_group"].get(row.get("class_name"))
+    class_names = _split_names(row.get("class_names") or row.get("class_name"))
+    class_groups = [context["db"]["class_group"].get(name) for name in class_names]
     teacher_names = _split_names(row.get("teacher_name"))
     teachers = [context["db"]["teacher"].get(name) for name in teacher_names]
-    if not course or not class_group or not teachers or any(item is None for item in teachers):
+    if not course or not class_groups or any(item is None for item in class_groups) or not teachers or any(item is None for item in teachers):
         context["skipped"].append(_skip(review_row, "dependencies not resolved"))
         return None
     primary_teacher_id = teachers[0]["id"]
     assistant_teacher_id = teachers[1]["id"] if len(teachers) > 1 else None
+    notes = "imported_from_schedule_excel"
     context["plan"].append({"action": "create:teaching_task", "entity_key": entity_key, "display_name": review_row.get("display_name"), "details": "创建教学任务"})
     if execute:
         cur.execute("""
             INSERT INTO teaching_task (course_id, primary_teacher_id, assistant_teacher_id, classroom_id, total_hours, required_room_type, task_batch, notes, status)
             VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
         """, (
-            course["id"], primary_teacher_id, assistant_teacher_id, None, _int_or_default(row.get("total_hours"), 16),
-            row.get("required_room_type") or None, row.get("task_batch") or "DEFAULT", "imported_from_schedule_excel", ACTIVE,
+            course["id"], primary_teacher_id, assistant_teacher_id, None, total_hours,
+            row.get("required_room_type") or None, row.get("task_batch") or "DEFAULT",
+            notes, ACTIVE,
         ))
         cur.execute("SELECT LAST_INSERT_ID() AS id")
         task_id = cur.fetchone()["id"]
-        cur.execute("INSERT INTO teaching_task_class_group (teaching_task_id, class_group_id) VALUES (%s, %s)", (task_id, class_group["id"]))
+        for class_group in class_groups:
+            cur.execute("INSERT INTO teaching_task_class_group (teaching_task_id, class_group_id) VALUES (%s, %s)", (task_id, class_group["id"]))
         return task_id
     return None
 
@@ -280,7 +293,9 @@ def _default_department(context: dict[str, Any]) -> str:
 
 def _find_task_row(entity_key: str, rows: list[dict[str, str]]) -> dict[str, str] | None:
     for row in rows:
-        key = f"{row.get('course_code')}|{row.get('class_name')}|{row.get('teacher_name')}"
+        class_names = ",".join(_split_names(row.get("class_names") or row.get("class_name")))
+        teacher_names = ",".join(_split_names(row.get("teacher_name")))
+        key = f"{row.get('course_code')}|{class_names}|{teacher_names}"
         if key == entity_key:
             return row
     return None
