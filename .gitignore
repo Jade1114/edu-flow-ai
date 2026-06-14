@@ -1,5 +1,6 @@
 .alma-snapshots
 .alma
+Users/yuy/.config/alma/memory
 .vscode/
 .pnpm-store
 
@@ -16,4 +17,4 @@ backend/.envtarget/
 backend/.env.example
 
 docs/archive
-catboost_info/
+docs/feedback
